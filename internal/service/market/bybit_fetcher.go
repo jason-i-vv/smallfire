@@ -1,0 +1,255 @@
+package market
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/smallfire/starfire/internal/config"
+)
+
+// BybitFetcher Bybit交易所行情抓取器
+type BybitFetcher struct {
+	client  *http.Client
+	baseURL string
+	config  config.MarketConfig
+}
+
+// BybitInstrumentsResp 合约信息响应
+type BybitInstrumentsResp struct {
+	Code    string `json:"retCode"`
+	Message string `json:"retMsg"`
+	Data    struct {
+		List []struct {
+			Symbol     string `json:"symbol"`
+			BaseCoin   string `json:"baseCoin"`
+			QuoteCoin  string `json:"quoteCoin"`
+			Status     string `json:"status"`
+			PriceScale int    `json:"priceScale"`
+			LotSize    string `json:"lotSize"`
+		} `json:"list"`
+	} `json:"result"`
+}
+
+// BybitKlineResp K线数据响应
+type BybitKlineResp struct {
+	Code    string `json:"retCode"`
+	Message string `json:"retMsg"`
+	Data    struct {
+		List [][]interface{} `json:"list"`
+	} `json:"result"`
+}
+
+// BybitTickerResp 行情响应
+type BybitTickerResp struct {
+	Code    string `json:"retCode"`
+	Message string `json:"retMsg"`
+	Data    struct {
+		List []struct {
+			Symbol       string  `json:"symbol"`
+			LastPrice    string  `json:"lastPrice"`
+			Price24hPcnt string  `json:"price24hPcnt"`
+			HighPrice24h string  `json:"highPrice24h"`
+			LowPrice24h  string  `json:"lowPrice24h"`
+			Volume24h    string  `json:"volume24h"`
+		} `json:"list"`
+	} `json:"result"`
+}
+
+// NewBybitFetcher 创建Bybit抓取器
+func NewBybitFetcher(cfg config.MarketConfig) *BybitFetcher {
+	baseURL := "https://api.bybit.com"
+
+	return &BybitFetcher{
+		client:  &http.Client{Timeout: 30 * time.Second},
+		baseURL: baseURL,
+		config:  cfg,
+	}
+}
+
+func (f *BybitFetcher) MarketCode() string {
+	return "bybit"
+}
+
+func (f *BybitFetcher) SupportedPeriods() []string {
+	return []string{"1", "3", "5", "15", "30", "60", "240", "D", "W", "M"}
+}
+
+func (f *BybitFetcher) FetchSymbols() ([]SymbolInfo, error) {
+	url := fmt.Sprintf("%s/v5/market/instruments-info?category=linear", f.baseURL)
+
+	resp, err := f.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result BybitInstrumentsResp
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	var symbols []SymbolInfo
+	for _, item := range result.Data.List {
+		if item.QuoteCoin == "USDT" && item.Status == "Trading" {
+			symbols = append(symbols, SymbolInfo{
+				Code: item.Symbol,
+				Name: item.BaseCoin,
+				Type: "futures",
+			})
+		}
+	}
+
+	return symbols, nil
+}
+
+func (f *BybitFetcher) FetchKlines(symbol, period string, limit int) ([]KlineData, error) {
+	url := fmt.Sprintf("%s/v5/market/kline?category=linear&symbol=%s&interval=%s&limit=%d",
+		f.baseURL, symbol, period, limit)
+
+	resp, err := f.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result BybitKlineResp
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return parseBybitKlines(result.Data.List), nil
+}
+
+func (f *BybitFetcher) FetchTicker(symbol string) (*Ticker, error) {
+	url := fmt.Sprintf("%s/v5/market/tickers?category=linear&symbol=%s",
+		f.baseURL, symbol)
+
+	resp, err := f.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result BybitTickerResp
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	if len(result.Data.List) > 0 {
+		tickerData := result.Data.List[0]
+
+		lastPrice := parseFloat(tickerData.LastPrice)
+		priceChange := parseFloat(tickerData.Price24hPcnt) * 100 // 转换为百分比
+		high24h := parseFloat(tickerData.HighPrice24h)
+		low24h := parseFloat(tickerData.LowPrice24h)
+		volume24h := parseFloat(tickerData.Volume24h)
+
+		return &Ticker{
+			Symbol:      symbol,
+			LastPrice:   lastPrice,
+			High24h:     high24h,
+			Low24h:      low24h,
+			Volume24h:   volume24h,
+			PriceChange: priceChange,
+			ChangePct:   priceChange,
+			Timestamp:   time.Now().Unix(),
+		}, nil
+	}
+
+	return nil, fmt.Errorf("symbol %s not found in ticker data", symbol)
+}
+
+func parseBybitKlines(rawData [][]interface{}) []KlineData {
+	var klines []KlineData
+
+	for _, item := range rawData {
+		if len(item) < 6 {
+			continue
+		}
+
+		timestamp, err := parseTimestamp(item[0])
+		if err != nil {
+			continue
+		}
+
+		open := parseFloat(item[1])
+		high := parseFloat(item[2])
+		low := parseFloat(item[3])
+		close := parseFloat(item[4])
+		volume := parseFloat(item[5])
+
+		klines = append(klines, KlineData{
+			OpenTime:  timestamp,
+			CloseTime: timestamp.Add(parsePeriodDuration(MapPeriod("bybit", item[6].(string)))),
+			Open:      open,
+			High:      high,
+			Low:       low,
+			Close:     close,
+			Volume:    volume,
+		})
+	}
+
+	return klines
+}
+
+func parseTimestamp(v interface{}) (time.Time, error) {
+	switch t := v.(type) {
+	case string:
+		var timestamp int64
+		_, err := fmt.Sscanf(t, "%d", &timestamp)
+		if err != nil {
+			return time.Now(), err
+		}
+		return time.Unix(timestamp/1000, 0), nil
+	case float64:
+		return time.Unix(int64(t)/1000, 0), nil
+	case int64:
+		return time.Unix(t/1000, 0), nil
+	}
+	return time.Now(), nil
+}
+
+func parseFloat(v interface{}) float64 {
+	switch f := v.(type) {
+	case string:
+		var floatVal float64
+		fmt.Sscanf(f, "%f", &floatVal)
+		return floatVal
+	case float64:
+		return f
+	case int:
+		return float64(f)
+	case int64:
+		return float64(f)
+	}
+	return 0
+}
+
+func parsePeriodDuration(period string) time.Duration {
+	switch period {
+	case "1":
+		return time.Minute
+	case "3":
+		return 3 * time.Minute
+	case "5":
+		return 5 * time.Minute
+	case "15":
+		return 15 * time.Minute
+	case "30":
+		return 30 * time.Minute
+	case "60":
+		return time.Hour
+	case "240":
+		return 4 * time.Hour
+	case "D":
+		return 24 * time.Hour
+	case "W":
+		return 7 * 24 * time.Hour
+	case "M":
+		return 30 * 24 * time.Hour
+	default:
+		return time.Minute
+	}
+}
