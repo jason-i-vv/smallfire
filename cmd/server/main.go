@@ -13,12 +13,16 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/smallfire/starfire/internal/config"
+	"github.com/smallfire/starfire/internal/database"
+	"github.com/smallfire/starfire/internal/repository"
+	"github.com/smallfire/starfire/internal/service/ema"
+	"github.com/smallfire/starfire/internal/service/market"
 	"github.com/smallfire/starfire/pkg/utils"
 )
 
 func main() {
 	// 加载配置
-	configPath := "/Users/huangjicheng/go/src/github.com/smallfire/config/config.yml"
+	configPath := "config/config.yml"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
@@ -37,6 +41,51 @@ func main() {
 		}
 	}()
 	utils.Info("日志系统初始化成功")
+
+	// 初始化数据库连接
+	db, err := database.NewPostgresDB(cfg.Database)
+	if err != nil {
+		utils.Fatal("数据库连接失败", zap.Error(err))
+	}
+	defer db.Close()
+	utils.Info("数据库连接成功")
+
+	// 初始化 Repository
+	marketRepo := repository.NewMarketRepoPG(db)
+	symbolRepo := repository.NewSymbolRepoPG(db)
+	klineRepo := repository.NewKlineRepoPG(db)
+
+	// 初始化 EMA 计算器
+	emaCalc := ema.NewEMACalculator(cfg.EMA.Periods)
+	utils.Info("EMA计算器初始化成功")
+
+	// 初始化行情抓取器工厂
+	factory := market.NewFactory(&cfg.Markets, symbolRepo, klineRepo)
+	utils.Info("行情抓取器工厂初始化成功", zap.Int("fetcher_count", factory.Count()))
+
+	// 初始化 K线查询服务
+	klineService := market.NewKlineService(klineRepo, factory, utils.Logger)
+	_ = klineService
+	utils.Info("K线查询服务初始化成功")
+
+	// 初始化热度管理器
+	hotManager := market.NewHotManager(symbolRepo, marketRepo, factory, &cfg.Markets, utils.Logger)
+	utils.Info("热度管理器初始化成功")
+
+	// 初始化同步服务
+	syncService := market.NewSyncService(factory, klineRepo, symbolRepo, emaCalc, utils.Logger, &cfg.Markets)
+	utils.Info("同步服务初始化成功")
+
+	// 初始化并更新热度标的
+	if err := hotManager.UpdateHotSymbols(); err != nil {
+		utils.Error("初始化热度标的失败", zap.Error(err))
+	} else {
+		utils.Info("初始化热度标的成功")
+	}
+
+	// 启动同步服务
+	syncService.Start()
+	defer syncService.Stop()
 
 	// 设置 Gin 模式
 	if cfg.App.Mode == "release" {
@@ -93,7 +142,7 @@ func main() {
 	<-quit
 	utils.Info("正在关闭服务器...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		utils.Fatal("服务器强制关闭", zap.Error(err))

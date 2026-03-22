@@ -46,15 +46,24 @@ type JWTConfig struct {
 }
 
 type MarketsConfig struct {
-	Bybit    MarketConfig `mapstructure:"bybit"`
-	A股      MarketConfig `mapstructure:"a_stock"`
-	美股      MarketConfig `mapstructure:"us_stock"`
+	Bybit   MarketConfig `mapstructure:"bybit"`
+	AStock  MarketConfig `mapstructure:"a_stock"`
+	USStock MarketConfig `mapstructure:"us_stock"`
 }
 
 type MarketConfig struct {
-	Enabled       bool     `mapstructure:"enabled"`
-	SymbolsLimit  int      `mapstructure:"symbols_limit"`
-	Periods       []string `mapstructure:"periods"`
+	Enabled        bool     `mapstructure:"enabled"`
+	APIKey         string   `mapstructure:"api_key"`
+	APISecret      string   `mapstructure:"api_secret"`
+	Testnet        bool     `mapstructure:"testnet"`
+	SymbolsLimit   int      `mapstructure:"symbols_limit"`
+	HotDays        int      `mapstructure:"hot_days"`
+	Periods        []string `mapstructure:"periods"`
+	FetchInterval  int      `mapstructure:"fetch_interval"`
+}
+
+type EMAConfig struct {
+	Periods []int `mapstructure:"periods"`
 }
 
 type StrategiesConfig struct {
@@ -91,6 +100,7 @@ type Config struct {
 	Markets     MarketsConfig     `mapstructure:"markets"`
 	Strategies  StrategiesConfig  `mapstructure:"strategies"`
 	Trading     TradingConfig     `mapstructure:"trading"`
+	EMA         EMAConfig         `mapstructure:"ema"`
 }
 
 func (c DatabaseConfig) DSN() string {

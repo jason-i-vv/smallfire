@@ -39,12 +39,29 @@ jwt:
 markets:
   bybit:
     enabled: true
-    symbols_limit: 200
-    periods: ["15m", "1h"]
+    api_key: ""           # 可选，用于私有接口
+    api_secret: ""        # 可选
+    testnet: false
+    symbols_limit: 200    # 最多跟踪的交易对数量
+    hot_days: 30          # 热度有效期（天）
+    periods: ["15m", "1h"] # 抓取周期
+    fetch_interval: 60    # 抓取间隔（秒）
   a_stock:
     enabled: false
+    symbols_limit: 200
+    hot_days: 30
+    periods: ["1d"]
+    fetch_interval: 300
   us_stock:
     enabled: false
+    symbols_limit: 200
+    hot_days: 30
+    periods: ["1d"]
+    fetch_interval: 300
+
+# EMA配置
+ema:
+  periods: [30, 60, 90]  # EMA计算周期
 
 # 策略配置
 strategies:
