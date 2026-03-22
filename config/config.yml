@@ -1,0 +1,68 @@
+# 系统基础配置
+app:
+  name: "星火量化"
+  mode: "debug"
+  host: "0.0.0.0"
+  port: 8080
+  timezone: "Asia/Shanghai"
+
+# 数据库配置
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "${DB_PASSWORD}"
+  dbname: "starfire_quant"
+  sslmode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+
+# 日志配置
+log:
+  level: "debug"
+  format: "json"
+  output: "stdout"
+
+# 飞书通知配置
+feishu:
+  enabled: true
+  webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/c585be48-9114-4f71-bf3d-0f82f98ba4d6"
+  send_summary: true
+  summary_interval: 6
+
+# JWT配置
+jwt:
+  secret: "${JWT_SECRET}"
+  expires: "24h"
+
+# 市场配置
+markets:
+  bybit:
+    enabled: true
+    symbols_limit: 200
+    periods: ["15m", "1h"]
+  a_stock:
+    enabled: false
+  us_stock:
+    enabled: false
+
+# 策略配置
+strategies:
+  box:
+    enabled: true
+    min_klines: 5
+    width_threshold: 0.02
+  trend:
+    enabled: true
+    ema_periods: [30, 60, 90]
+  key_level:
+    enabled: false
+  volume_price:
+    enabled: false
+
+# 交易配置
+trading:
+  enabled: true
+  initial_capital: 100000
+  stop_loss_percent: 0.02
+  take_profit_percent: 0.05
