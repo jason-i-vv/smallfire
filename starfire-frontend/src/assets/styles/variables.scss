@@ -4,10 +4,12 @@ $primary-dark: #00A843;
 
 $background: #0D1117;
 $surface: #161B22;
+$surface-hover: #1C2128;
 $border: #30363D;
 
 $text-primary: #E6EDF3;
 $text-secondary: #8B949E;
+$text-tertiary: #6E7681;
 
 $success: #26A69A;
 $danger: #EF5350;
@@ -21,3 +23,5 @@ $shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3);
 $transition-fast: 0.15s ease;
 $transition: 0.25s ease;
 $transition-slow: 0.35s ease;
+
+$border-radius: 8px;

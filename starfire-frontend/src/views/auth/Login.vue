@@ -1,106 +1,118 @@
 <template>
-  <div class="login">
-    <div class="login-card">
-      <h2 class="login-title">用户登录</h2>
-      <form @submit.prevent="handleLogin" class="login-form">
-        <div class="form-group">
-          <label>用户名</label>
-          <input type="text" v-model="username" placeholder="请输入用户名" />
-        </div>
-        <div class="form-group">
-          <label>密码</label>
-          <input type="password" v-model="password" placeholder="请输入密码" />
-        </div>
-        <button type="submit" class="login-btn" :disabled="loading">
-          {{ loading ? '登录中...' : '登录' }}
-        </button>
-      </form>
-    </div>
+  <div class="login-container">
+    <el-card class="login-card">
+      <template #header>
+        <h2>星火量化</h2>
+      </template>
+
+      <el-form ref="formRef" :model="loginForm" :rules="rules">
+        <el-form-item prop="username">
+          <el-input
+            v-model="loginForm.username"
+            placeholder="用户名"
+            prefix-icon="User"
+          />
+        </el-form-item>
+
+        <el-form-item prop="password">
+          <el-input
+            v-model="loginForm.password"
+            type="password"
+            placeholder="密码"
+            prefix-icon="Lock"
+            @keyup.enter="handleLogin"
+          />
+        </el-form-item>
+
+        <el-form-item>
+          <el-button type="primary" :loading="loading" @click="handleLogin" style="width: 100%">
+            登录
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
-const username = ref('admin')
-const password = ref('admin123')
+const authStore = useAuthStore()
+
+const loginForm = reactive({
+  username: '',
+  password: ''
+})
+
+const rules = {
+  username: [{ required: true, message: '请输入用户名' }],
+  password: [{ required: true, message: '请输入密码' }]
+}
+
 const loading = ref(false)
+const formRef = ref(null)
 
 const handleLogin = async () => {
-  loading.value = true
-  // 模拟登录
-  setTimeout(() => {
+  try {
+    await formRef.value.validate()
+    loading.value = true
+    await authStore.login(loginForm)
+    ElMessage.success('登录成功')
+    router.push('/')
+  } catch (error) {
+    ElMessage.error(error.message || '登录失败')
+  } finally {
     loading.value = false
-    router.push('/dashboard')
-  }, 1000)
+  }
 }
 </script>
 
 <style lang="scss" scoped>
 @import '@/assets/styles/variables.scss';
 
-.login {
-  .login-card {
-    background-color: $surface;
-    border-radius: 12px;
-    padding: 32px;
-    border: 1px solid $border;
-  }
+.login-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: $background;
+}
 
-  .login-title {
+.login-card {
+  width: 400px;
+  background: $surface !important;
+  border: 1px solid $border !important;
+
+  :deep(.el-card__header) {
+    background: $surface !important;
+    border-bottom: 1px solid $border !important;
+    padding: 20px 24px;
     text-align: center;
-    margin-bottom: 32px;
-    color: $text-primary;
   }
 
-  .login-form {
-    .form-group {
-      margin-bottom: 20px;
+  h2 {
+    text-align: center;
+    color: $success;
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+  }
 
-      label {
-        display: block;
-        margin-bottom: 8px;
-        color: $text-secondary;
-        font-size: 14px;
-      }
+  :deep(.el-form-item__label) {
+    color: $text-secondary;
+  }
 
-      input {
-        width: 100%;
-        padding: 12px 16px;
-        background-color: $background;
-        border: 1px solid $border;
-        border-radius: 8px;
-        color: $text-primary;
-        font-size: 14px;
-        transition: border-color $transition-fast;
+  :deep(.el-input__wrapper) {
+    background-color: $background;
+    box-shadow: 0 0 0 1px $border inset;
+  }
 
-        &:focus {
-          border-color: $primary;
-        }
-      }
-    }
-
-    .login-btn {
-      width: 100%;
-      padding: 14px;
-      background-color: $primary;
-      color: $background;
-      border-radius: 8px;
-      font-size: 16px;
-      font-weight: 600;
-      transition: all $transition-fast;
-
-      &:hover:not(:disabled) {
-        background-color: $primary-light;
-      }
-
-      &:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-    }
+  :deep(.el-input__inner) {
+    color: $text-primary;
   }
 }
 </style>

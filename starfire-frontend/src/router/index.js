@@ -4,11 +4,11 @@ import AuthLayout from '@/layouts/AuthLayout.vue'
 
 const routes = [
   {
-    path: '/auth',
+    path: '/login',
     component: AuthLayout,
     children: [
       {
-        path: 'login',
+        path: '',
         name: 'Login',
         component: () => import('@/views/auth/Login.vue')
       }
@@ -17,10 +17,10 @@ const routes = [
   {
     path: '/',
     component: DefaultLayout,
-    redirect: '/dashboard',
+    redirect: '/',
     children: [
       {
-        path: 'dashboard',
+        path: '',
         name: 'Dashboard',
         component: () => import('@/views/dashboard/Dashboard.vue')
       },
@@ -35,22 +35,22 @@ const routes = [
         component: () => import('@/views/signals/SignalDetail.vue')
       },
       {
-        path: 'trades/positions',
+        path: 'positions',
         name: 'Positions',
         component: () => import('@/views/trades/Positions.vue')
       },
       {
-        path: 'trades/history',
+        path: 'trades',
         name: 'TradeHistory',
         component: () => import('@/views/trades/History.vue')
       },
       {
-        path: 'trades/statistics',
+        path: 'statistics',
         name: 'Statistics',
         component: () => import('@/views/trades/Statistics.vue')
       },
       {
-        path: 'kline',
+        path: 'chart/:symbol',
         name: 'KlineChart',
         component: () => import('@/views/kline/KlineChart.vue')
       },

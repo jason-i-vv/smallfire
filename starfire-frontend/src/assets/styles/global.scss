@@ -57,3 +57,98 @@ input, textarea, select {
     background: $text-secondary;
   }
 }
+
+// Element Plus 组件样式覆盖
+.el-card {
+  background: $surface !important;
+  border-color: $border !important;
+}
+
+.el-card__header {
+  background: $surface !important;
+  border-color: $border !important;
+  color: $text-primary;
+}
+
+.el-table {
+  --el-table-bg-color: #{$surface};
+  --el-table-tr-bg-color: #{$surface};
+  --el-table-header-bg-color: #{$background};
+  --el-table-row-hover-bg-color: #{$surface-hover};
+  --el-table-border-color: #{$border};
+  --el-table-text-color: #{$text-primary};
+}
+
+.el-button--primary {
+  --el-button-bg-color: #{$primary};
+  --el-button-border-color: #{$primary};
+  --el-button-hover-bg-color: #{$primary-light};
+  --el-button-hover-border-color: #{$primary-light};
+}
+
+.el-input__wrapper {
+  background-color: $background;
+  box-shadow: 0 0 0 1px $border inset;
+}
+
+.el-input__inner {
+  color: $text-primary;
+}
+
+.el-form-item__label {
+  color: $text-secondary;
+}
+
+.el-card__body {
+  background-color: $surface;
+}
+
+.el-pagination {
+  --el-pagination-fill-color: #{$surface};
+  --el-pagination-bg-color: #{$surface};
+  --el-pagination-border-color: #{$border};
+  --el-pagination-text-color: #{$text-primary};
+}
+
+.el-radio-button__inner {
+  background-color: $surface;
+  border-color: $border;
+  color: $text-secondary;
+}
+
+.el-radio-button__orig-radio:checked + .el-radio-button__inner {
+  background-color: $primary;
+  border-color: $primary;
+  color: $background;
+}
+
+.el-select .el-input__wrapper {
+  background-color: $background;
+}
+
+.el-option {
+  background-color: $surface;
+  color: $text-primary;
+
+  &:hover {
+    background-color: $surface-hover;
+  }
+}
+
+.el-popper {
+  background-color: $surface !important;
+  border-color: $border !important;
+}
+
+.el-dropdown-menu {
+  background-color: $surface !important;
+  border-color: $border !important;
+}
+
+.el-dropdown-menu__item {
+  color: $text-primary;
+
+  &:hover {
+    background-color: $surface-hover !important;
+  }
+}
