@@ -18,6 +18,7 @@ import (
 	"github.com/smallfire/starfire/internal/repository"
 	"github.com/smallfire/starfire/internal/service/ema"
 	"github.com/smallfire/starfire/internal/service/market"
+	"github.com/smallfire/starfire/internal/service/monitoring"
 	"github.com/smallfire/starfire/internal/service/strategy"
 	"github.com/smallfire/starfire/internal/service/trading"
 	"github.com/smallfire/starfire/pkg/utils"
@@ -62,6 +63,20 @@ func main() {
 	trendRepo := repository.NewTrendRepoPG(db)
 	keyLevelRepo := repository.NewKeyLevelRepoPG(db)
 	trackRepo := repository.NewTradeTrackRepoPG(db)
+	monitorRepo := repository.NewMonitorRepoPG(db)
+
+	// 初始化监测服务
+	tickerRepo := repository.NewMemoryTickerRepo()
+	monitorFactory := monitoring.NewFactory(tickerRepo, cfg.Monitoring.MaxConcurrentMonitors)
+	monitorService := monitoring.NewService(
+		monitorFactory,
+		tickerRepo,
+		monitorRepo,
+		time.Duration(cfg.Monitoring.PriceCheckInterval)*time.Second,
+	)
+	monitorService.Start()
+	defer monitorService.Stop()
+	utils.Info("监测服务初始化成功")
 
 	// 初始化交易服务
 	tradingDeps := trading.Dependency{

@@ -131,8 +131,3 @@ type MonitorRepo interface {
 	Delete(id int64) error
 }
 
-// TickerRepo 行情数据访问接口（用于监测服务获取价格）
-type TickerRepo interface {
-	GetPrice(symbolID int64) float64
-	GetPrevPrice(symbolID int64) float64
-}
