@@ -34,10 +34,11 @@ type LogConfig struct {
 }
 
 type FeishuConfig struct {
-	Enabled         bool   `mapstructure:"enabled"`
-	WebhookURL      string `mapstructure:"webhook_url"`
-	SendSummary     bool   `mapstructure:"send_summary"`
-	SummaryInterval int    `mapstructure:"summary_interval"`
+	Enabled         bool     `mapstructure:"enabled"`
+	WebhookURL      string   `mapstructure:"webhook_url"`
+	SendSummary     bool     `mapstructure:"send_summary"`
+	SummaryInterval int      `mapstructure:"summary_interval"`
+	SummaryTimes    []string `mapstructure:"summary_times"`
 }
 
 type JWTConfig struct {

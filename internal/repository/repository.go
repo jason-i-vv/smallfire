@@ -131,3 +131,12 @@ type MonitorRepo interface {
 	Delete(id int64) error
 }
 
+// NotificationRepo 通知数据访问接口
+type NotificationRepo interface {
+	GetPending() ([]*models.Notification, error)
+	GetByID(id int64) (*models.Notification, error)
+	Create(notification *models.Notification) error
+	Update(notification *models.Notification) error
+}
+
+

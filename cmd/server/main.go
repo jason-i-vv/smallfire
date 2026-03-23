@@ -19,6 +19,7 @@ import (
 	"github.com/smallfire/starfire/internal/service/ema"
 	"github.com/smallfire/starfire/internal/service/market"
 	"github.com/smallfire/starfire/internal/service/monitoring"
+	"github.com/smallfire/starfire/internal/service/notification"
 	"github.com/smallfire/starfire/internal/service/strategy"
 	"github.com/smallfire/starfire/internal/service/trading"
 	"github.com/smallfire/starfire/pkg/utils"
@@ -64,6 +65,7 @@ func main() {
 	keyLevelRepo := repository.NewKeyLevelRepoPG(db)
 	trackRepo := repository.NewTradeTrackRepoPG(db)
 	monitorRepo := repository.NewMonitorRepoPG(db)
+	notifyRepo := repository.NewNotificationRepoPG(db)
 
 	// 初始化监测服务
 	tickerRepo := repository.NewMemoryTickerRepo()
@@ -92,6 +94,33 @@ func main() {
 	statsService := trading.NewStatisticsService(trackRepo, &cfg.Trading)
 	_ = statsService
 	utils.Info("统计分析服务初始化成功")
+
+	// 初始化通知服务
+	feishuNotifier := notification.NewFeishuNotifier(&notification.FeishuConfig{
+		Enabled:         cfg.Feishu.Enabled,
+		WebhookURL:      cfg.Feishu.WebhookURL,
+		SendSummary:     cfg.Feishu.SendSummary,
+		SummaryInterval: cfg.Feishu.SummaryInterval,
+		SummaryTimes:    cfg.Feishu.SummaryTimes,
+	}, notifyRepo)
+
+	// 初始化汇总服务
+	summarySvc := notification.NewSummaryService(feishuNotifier, statsService, &notification.FeishuConfig{
+		Enabled:         cfg.Feishu.Enabled,
+		WebhookURL:      cfg.Feishu.WebhookURL,
+		SendSummary:     cfg.Feishu.SendSummary,
+		SummaryInterval: cfg.Feishu.SummaryInterval,
+		SummaryTimes:    cfg.Feishu.SummaryTimes,
+	})
+	if cfg.Feishu.SendSummary {
+		summarySvc.Start()
+		defer summarySvc.Stop()
+	}
+
+	// 初始化通知管理器
+	notifiers := []notification.Notifier{feishuNotifier}
+	notifyManager := notification.NewManager(notifiers, summarySvc, notifyRepo)
+	utils.Info("通知服务初始化成功")
 
 	// 初始化持仓监控服务
 	positionMonitor := trading.NewPositionMonitor(tradeExecutor, trackRepo, symbolRepo, utils.Logger)
@@ -122,7 +151,7 @@ func main() {
 		LevelRepo:   keyLevelRepo,
 		SignalRepo:  signalRepo,
 		KlineRepo:   klineRepo,
-		Notifier:    nil, // 暂时不实现通知功能
+		Notifier:    notifyManager,
 	}
 
 	// 初始化策略工厂

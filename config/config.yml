@@ -29,6 +29,10 @@ feishu:
   webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/c585be48-9114-4f71-bf3d-0f82f98ba4d6"
   send_summary: true
   summary_interval: 6
+  summary_times:
+    - "09:00"
+    - "15:00"
+    - "21:00"
 
 # JWT配置
 jwt:
