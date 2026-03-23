@@ -68,14 +68,25 @@ strategies:
   box:
     enabled: true
     min_klines: 5
-    width_threshold: 0.02
+    max_klines: 100
+    width_threshold: 2.0
+    breakout_buffer: 0.1
+    check_interval: 60
   trend:
     enabled: true
     ema_periods: [30, 60, 90]
+    check_interval: 60
   key_level:
-    enabled: false
+    enabled: true
+    lookback_klines: 20
+    level_distance: 0.5
+    check_interval: 60
   volume_price:
-    enabled: false
+    enabled: true
+    volatility_multiplier: 2.0
+    volume_multiplier: 2.0
+    lookback_klines: 20
+    check_interval: 60
 
 # 交易配置
 trading:

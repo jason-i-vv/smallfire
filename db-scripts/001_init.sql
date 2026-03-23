@@ -34,6 +34,7 @@ ON CONFLICT (market_code) DO NOTHING;
 CREATE TABLE IF NOT EXISTS symbols (
     id                  SERIAL PRIMARY KEY,
     market_id           INTEGER REFERENCES markets(id),
+    market_code         VARCHAR(20) NOT NULL,
     symbol_code         VARCHAR(30) NOT NULL,
     symbol_name         VARCHAR(100),
     symbol_type         VARCHAR(20),
@@ -43,10 +44,11 @@ CREATE TABLE IF NOT EXISTS symbols (
     max_klines_count    INTEGER DEFAULT 1000,
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(market_id, symbol_code)
+    UNIQUE(market_code, symbol_code)
 );
 
 CREATE INDEX IF NOT EXISTS idx_symbols_market ON symbols(market_id);
+CREATE INDEX IF NOT EXISTS idx_symbols_market_code ON symbols(market_code);
 CREATE INDEX IF NOT EXISTS idx_symbols_hot ON symbols(hot_score DESC, last_hot_at);
 CREATE INDEX IF NOT EXISTS idx_symbols_tracking ON symbols(is_tracking) WHERE is_tracking = true;
 
@@ -122,12 +124,11 @@ CREATE TABLE IF NOT EXISTS trends (
     end_time        TIMESTAMP,
     status          VARCHAR(20) DEFAULT 'active',
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(symbol_id, period, status) WHERE status = 'active'
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_trends_symbol ON trends(symbol_id);
-CREATE INDEX IF NOT EXISTS idx_trends_status ON trends(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_trends_active ON trends(symbol_id, period) WHERE status = 'active';
 
 -- ============================================
 -- 6. 关键价位表

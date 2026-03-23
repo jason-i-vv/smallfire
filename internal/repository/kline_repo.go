@@ -226,7 +226,7 @@ func (r *KlineRepoPG) GetEMAList(symbolID int64, period string, limit int) ([]*f
 		query += " LIMIT $3"
 	}
 
-	rows, err := r.db.Query(context.Background(), query, symbolID, period)
+	rows, err := r.db.Query(context.Background(), query, symbolID, period, limit)
 	if err != nil {
 		return nil, fmt.Errorf("查询EMA列表失败: %w", err)
 	}
@@ -283,4 +283,72 @@ func (r *KlineRepoPG) GetLastNPeriods(symbolID int64, period string, n int) ([]m
 	}
 
 	return klines, nil
+}
+
+func (r *KlineRepoPG) GetLatestN(symbolID int, period string, n int) ([]models.Kline, error) {
+	var klines []models.Kline
+	query := `
+		SELECT id, symbol_id, period, open_time, close_time, open_price, high_price, low_price,
+		       close_price, volume, quote_volume, trades_count, is_closed, ema_short, ema_medium,
+		       ema_long, created_at
+		FROM klines
+		WHERE symbol_id = $1 AND period = $2
+		ORDER BY open_time DESC
+		LIMIT $3
+	`
+
+	rows, err := r.db.Query(context.Background(), query, symbolID, period, n)
+	if err != nil {
+		return nil, fmt.Errorf("查询最新K线失败: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var kline models.Kline
+		if err := rows.Scan(
+			&kline.ID, &kline.SymbolID, &kline.Period, &kline.OpenTime, &kline.CloseTime,
+			&kline.OpenPrice, &kline.HighPrice, &kline.LowPrice, &kline.ClosePrice,
+			&kline.Volume, &kline.QuoteVolume, &kline.TradesCount, &kline.IsClosed,
+			&kline.EMAShort, &kline.EMAMedium, &kline.EMALong, &kline.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("扫描K线数据失败: %w", err)
+		}
+		klines = append(klines, kline)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历K线结果失败: %w", err)
+	}
+
+	return klines, nil
+}
+
+func (r *KlineRepoPG) GetAllTrackedSymbols() ([]*TrackedSymbol, error) {
+	var symbols []*TrackedSymbol
+	query := `
+		SELECT s.id, s.symbol_code, m.market_code
+		FROM symbols s
+		JOIN markets m ON s.market_id = m.id
+		WHERE s.is_tracking = true
+	`
+
+	rows, err := r.db.Query(context.Background(), query)
+	if err != nil {
+		return nil, fmt.Errorf("查询跟踪标的失败: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var symbol TrackedSymbol
+		if err := rows.Scan(&symbol.ID, &symbol.Code, &symbol.MarketCode); err != nil {
+			return nil, fmt.Errorf("扫描标的数据失败: %w", err)
+		}
+		symbols = append(symbols, &symbol)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历标的结果失败: %w", err)
+	}
+
+	return symbols, nil
 }

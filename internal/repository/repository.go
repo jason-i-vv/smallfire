@@ -6,6 +6,13 @@ import (
 	"github.com/smallfire/starfire/internal/models"
 )
 
+// TrackedSymbol 跟踪的标的信息
+type TrackedSymbol struct {
+	ID         int
+	Code       string
+	MarketCode string
+}
+
 // MarketRepo 市场数据访问接口
 type MarketRepo interface {
 	FindByCode(code string) (*models.Market, error)
@@ -29,6 +36,8 @@ type SymbolRepo interface {
 type KlineRepo interface {
 	GetBySymbolPeriod(symbolID int64, period string, startTime, endTime *time.Time, limit int) ([]models.Kline, error)
 	GetLatest(symbolID int64, period string) (*models.Kline, error)
+	GetLatestN(symbolID int, period string, n int) ([]models.Kline, error)
+	GetAllTrackedSymbols() ([]*TrackedSymbol, error)
 	Exists(symbolID int64, period string, openTime time.Time) (bool, error)
 	Create(kline *models.Kline) error
 	BatchCreate(klines []*models.Kline) error
@@ -51,19 +60,53 @@ type TradeTrackRepo interface {
 
 // SignalRepo 信号数据访问接口
 type SignalRepo interface {
-	// GetActiveSignals() ([]*models.Signal, error)
-	// GetByBatchID(batchID string) ([]*models.Signal, error)
-	// GetByStatus(status int) ([]*models.Signal, error)
-	// GetByMarket(marketCode string) ([]*models.Signal, error)
-	// GetBySymbol(marketCode, symbolCode string) ([]*models.Signal, error)
-	// Create(signal *models.Signal) error
-	// Update(signal *models.Signal) error
-	// BatchUpdateByBatchID(batchID string, fields map[string]interface{}) error
-	// GetHistory(startDate, endDate time.Time, page, size int) ([]*models.Signal, int, error)
+	GetActiveSignals() ([]*models.Signal, error)
+	GetByBatchID(batchID string) ([]*models.Signal, error)
+	GetByStatus(status string) ([]*models.Signal, error)
+	GetByMarket(marketCode string) ([]*models.Signal, error)
+	GetBySymbol(symbolID int) ([]*models.Signal, error)
+	Create(signal *models.Signal) error
+	Update(signal *models.Signal) error
+	BatchUpdateByBatchID(batchID string, fields map[string]interface{}) error
+	GetHistory(startDate, endDate time.Time, page, size int) ([]*models.Signal, int, error)
+}
+
+// BoxRepo 箱体数据访问接口
+type BoxRepo interface {
+	GetActiveBySymbol(symbolID int, period string) ([]*models.Box, error)
+	GetBySignalID(signalID int) (*models.Box, error)
+	GetByBatchID(batchID string) ([]*models.Box, error)
+	GetByMarket(marketCode string) ([]*models.Box, error)
+	GetBySymbol(marketCode, symbolCode string) ([]*models.Box, error)
+	Create(box *models.Box) error
+	Update(box *models.Box) error
+	GetValidBoxes(endDate string, strategy string, period string) ([]*models.Box, error)
+}
+
+// TrendRepo 趋势数据访问接口
+type TrendRepo interface {
+	GetActive(symbolID int, period string) (*models.Trend, error)
+	GetByBatchID(batchID string) ([]*models.Trend, error)
+	GetBySignalID(signalID int) (*models.Trend, error)
+	GetByBoxID(boxID int) (*models.Trend, error)
+	GetByMarket(marketCode string) ([]*models.Trend, error)
+	GetBySymbol(marketCode, symbolCode string) ([]*models.Trend, error)
+	Create(trend *models.Trend) error
+	Update(trend *models.Trend) error
+}
+
+// KeyLevelRepo 关键价位数据访问接口
+type KeyLevelRepo interface {
+	GetActive(symbolID int, period string) ([]*models.KeyLevel, error)
+	FindActive(symbolID int, period string, levelSubtype string) (*models.KeyLevel, error)
+	GetBySymbol(symbolID int) ([]*models.KeyLevel, error)
+	Create(level *models.KeyLevel) error
+	Update(level *models.KeyLevel) error
 }
 
 // StrategyRepo 策略数据访问接口
 type StrategyRepo interface {
+	// 暂时保留注释，策略配置通过配置文件管理
 	// GetActive() ([]*models.Strategy, error)
 	// GetByType(strategyType string) ([]*models.Strategy, error)
 	// GetByMarket(marketCode string) ([]*models.Strategy, error)
@@ -72,28 +115,4 @@ type StrategyRepo interface {
 	// Create(strategy *models.Strategy) error
 	// Update(strategy *models.Strategy) error
 	// BatchUpdateByType(strategyType string, fields map[string]interface{}) error
-}
-
-// BoxRepo 箱体数据访问接口
-type BoxRepo interface {
-	// GetActive() ([]*models.Box, error)
-	// GetBySignalID(signalID int64) (*models.Box, error)
-	// GetByBatchID(batchID string) ([]*models.Box, error)
-	// GetByMarket(marketCode string) ([]*models.Box, error)
-	// GetBySymbol(marketCode, symbolCode string) ([]*models.Box, error)
-	// Create(box *models.Box) error
-	// Update(box *models.Box) error
-	// GetValidBoxes(endDate time.Time, strategy string, period string) ([]*models.Box, error)
-}
-
-// TrendRepo 趋势数据访问接口
-type TrendRepo interface {
-	// GetByBatchID(batchID string) ([]*models.Trend, error)
-	// GetBySignalID(signalID int64) (*models.Trend, error)
-	// GetByBoxID(boxID int64) (*models.Trend, error)
-	// GetByMarket(marketCode string) ([]*models.Trend, error)
-	// GetBySymbol(marketCode, symbolCode string) ([]*models.Trend, error)
-	// GetTrendStatsByMarket(marketCode string) (*models.TrendStats, error)
-	// Create(trend *models.Trend) error
-	// Update(trend *models.Trend) error
 }

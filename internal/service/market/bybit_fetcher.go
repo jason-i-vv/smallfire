@@ -18,7 +18,7 @@ type BybitFetcher struct {
 
 // BybitInstrumentsResp 合约信息响应
 type BybitInstrumentsResp struct {
-	Code    string `json:"retCode"`
+	Code    int    `json:"retCode"`
 	Message string `json:"retMsg"`
 	Data    struct {
 		List []struct {
@@ -26,7 +26,7 @@ type BybitInstrumentsResp struct {
 			BaseCoin   string `json:"baseCoin"`
 			QuoteCoin  string `json:"quoteCoin"`
 			Status     string `json:"status"`
-			PriceScale int    `json:"priceScale"`
+			PriceScale string `json:"priceScale"`
 			LotSize    string `json:"lotSize"`
 		} `json:"list"`
 	} `json:"result"`
@@ -34,7 +34,7 @@ type BybitInstrumentsResp struct {
 
 // BybitKlineResp K线数据响应
 type BybitKlineResp struct {
-	Code    string `json:"retCode"`
+	Code    int    `json:"retCode"`
 	Message string `json:"retMsg"`
 	Data    struct {
 		List [][]interface{} `json:"list"`
@@ -43,7 +43,7 @@ type BybitKlineResp struct {
 
 // BybitTickerResp 行情响应
 type BybitTickerResp struct {
-	Code    string `json:"retCode"`
+	Code    int    `json:"retCode"`
 	Message string `json:"retMsg"`
 	Data    struct {
 		List []struct {

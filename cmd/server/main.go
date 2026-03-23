@@ -14,9 +14,11 @@ import (
 
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/database"
+	"github.com/smallfire/starfire/internal/handler"
 	"github.com/smallfire/starfire/internal/repository"
 	"github.com/smallfire/starfire/internal/service/ema"
 	"github.com/smallfire/starfire/internal/service/market"
+	"github.com/smallfire/starfire/internal/service/strategy"
 	"github.com/smallfire/starfire/pkg/utils"
 )
 
@@ -54,6 +56,10 @@ func main() {
 	marketRepo := repository.NewMarketRepoPG(db)
 	symbolRepo := repository.NewSymbolRepoPG(db)
 	klineRepo := repository.NewKlineRepoPG(db)
+	signalRepo := repository.NewSignalRepoPG(db)
+	boxRepo := repository.NewBoxRepoPG(db)
+	trendRepo := repository.NewTrendRepoPG(db)
+	keyLevelRepo := repository.NewKeyLevelRepoPG(db)
 
 	// 初始化 EMA 计算器
 	emaCalc := ema.NewEMACalculator(cfg.EMA.Periods)
@@ -72,6 +78,24 @@ func main() {
 	hotManager := market.NewHotManager(symbolRepo, marketRepo, factory, &cfg.Markets, utils.Logger)
 	utils.Info("热度管理器初始化成功")
 
+	// 初始化策略依赖
+	strategyDeps := strategy.Dependency{
+		BoxRepo:     boxRepo,
+		TrendRepo:   trendRepo,
+		LevelRepo:   keyLevelRepo,
+		SignalRepo:  signalRepo,
+		KlineRepo:   klineRepo,
+		Notifier:    nil, // 暂时不实现通知功能
+	}
+
+	// 初始化策略工厂
+	strategyFactory := strategy.NewFactory(&cfg.Strategies, strategyDeps, utils.Logger)
+	utils.Info("策略工厂初始化成功", zap.Int("strategy_count", len(strategyFactory.ListStrategies())))
+
+	// 初始化策略运行器
+	strategyRunner := strategy.NewRunner(strategyFactory, klineRepo, symbolRepo, signalRepo, 5*time.Minute, utils.Logger)
+	utils.Info("策略运行器初始化成功")
+
 	// 初始化同步服务
 	syncService := market.NewSyncService(factory, klineRepo, symbolRepo, emaCalc, utils.Logger, &cfg.Markets)
 	utils.Info("同步服务初始化成功")
@@ -82,6 +106,10 @@ func main() {
 	} else {
 		utils.Info("初始化热度标的成功")
 	}
+
+	// 启动策略运行器
+	strategyRunner.Start()
+	defer strategyRunner.Stop()
 
 	// 启动同步服务
 	syncService.Start()
@@ -105,6 +133,12 @@ func main() {
 		})
 	})
 
+	// 初始化 API 处理器
+	marketHandler := handler.NewMarketHandler(marketRepo, utils.Logger)
+	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, utils.Logger)
+	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
+	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
+
 	// API 版本
 	apiV1 := r.Group("/api/v1")
 	{
@@ -118,6 +152,45 @@ func main() {
 				"timestamp": time.Now().Unix(),
 			})
 		})
+
+		// 市场 API
+		marketsGroup := apiV1.Group("/markets")
+		{
+			marketsGroup.GET("", marketHandler.GetMarkets)
+			marketsGroup.GET("/:market_code", marketHandler.GetMarket)
+		}
+
+		// 交易标的 API
+		symbolsGroup := apiV1.Group("/symbols")
+		{
+			symbolsGroup.GET("", symbolHandler.GetSymbols)
+			symbolsGroup.GET("/:id/klines", symbolHandler.GetSymbolKlines)
+		}
+
+		// 市场交易标的 API
+		marketSymbolsGroup := apiV1.Group("/markets/:market_code/symbols")
+		{
+			marketSymbolsGroup.GET("", symbolHandler.GetMarketSymbols)
+		}
+
+		// 策略信号 API
+		signalsGroup := apiV1.Group("/signals")
+		{
+			signalsGroup.GET("", signalHandler.GetSignals)
+			signalsGroup.GET("/:id", signalHandler.GetSignal)
+		}
+
+		// 标的信号 API
+		symbolSignalsGroup := apiV1.Group("/symbols/:id/signals")
+		{
+			symbolSignalsGroup.GET("", signalHandler.GetSymbolSignals)
+		}
+
+		// 策略配置 API
+		strategiesGroup := apiV1.Group("/strategies")
+		{
+			strategiesGroup.GET("", strategyHandler.GetStrategies)
+		}
 	}
 
 	utils.Info("路由初始化完成")

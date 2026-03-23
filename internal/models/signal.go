@@ -45,10 +45,14 @@ type Signal struct {
 }
 
 const (
-	SignalTypeBoxBreakout    = "box_breakout"
-	SignalTypeTrendPullback  = "trend_pullback"
-	SignalTypeKeyLevelBreak  = "key_level_break"
-	SignalTypeVolumePrice    = "volume_price"
+	SignalTypeBoxBreakout   = "box_breakout"
+	SignalTypeBoxBreakdown  = "box_breakdown"
+	SignalTypeTrendReversal = "trend_reversal"
+	SignalTypeTrendRetracement = "trend_retracement"
+	SignalTypeResistanceBreak = "resistance_break"
+	SignalTypeSupportBreak = "support_break"
+	SignalTypeVolumeSurge = "volume_surge"
+	SignalTypePriceSurge = "price_surge"
 
 	SourceTypeBox       = "box"
 	SourceTypeTrend     = "trend"

@@ -67,20 +67,40 @@ type EMAConfig struct {
 }
 
 type StrategiesConfig struct {
-	Box          StrategyConfig `mapstructure:"box"`
-	Trend        StrategyConfig `mapstructure:"trend"`
-	KeyLevel     StrategyConfig `mapstructure:"key_level"`
-	VolumePrice  StrategyConfig `mapstructure:"volume_price"`
+	Box          BoxStrategyConfig          `mapstructure:"box"`
+	Trend        TrendStrategyConfig        `mapstructure:"trend"`
+	KeyLevel     KeyLevelStrategyConfig     `mapstructure:"key_level"`
+	VolumePrice  VolumePriceStrategyConfig  `mapstructure:"volume_price"`
 }
 
-type StrategyConfig struct {
-	Enabled         bool        `mapstructure:"enabled"`
-	MinKlines       int         `mapstructure:"min_klines"`
-	WidthThreshold  float64     `mapstructure:"width_threshold"`
-	EMAPeriods      []int       `mapstructure:"ema_periods"`
-	LookbackKlines  int         `mapstructure:"lookback_klines"`
-	VolatilityMultiplier float64 `mapstructure:"volatility_multiplier"`
-	VolumeMultiplier     float64 `mapstructure:"volume_multiplier"`
+type BoxStrategyConfig struct {
+	Enabled          bool    `mapstructure:"enabled"`
+	MinKlines        int     `mapstructure:"min_klines"`         // 最少K线数
+	MaxKlines        int     `mapstructure:"max_klines"`         // 最大K线数
+	WidthThreshold   float64 `mapstructure:"width_threshold"`   // 宽度阈值(%)
+	BreakoutBuffer   float64 `mapstructure:"breakout_buffer"`   // 突破缓冲(%)
+	CheckInterval    int     `mapstructure:"check_interval"`    // 检查间隔(秒)
+}
+
+type TrendStrategyConfig struct {
+	Enabled       bool  `mapstructure:"enabled"`
+	EMAPeriods    []int `mapstructure:"ema_periods"`     // [30, 60, 90]
+	CheckInterval int   `mapstructure:"check_interval"`   // 检查间隔(秒)
+}
+
+type KeyLevelStrategyConfig struct {
+	Enabled         bool    `mapstructure:"enabled"`
+	LookbackKlines int     `mapstructure:"lookback_klines"` // 回溯K线数
+	LevelDistance  float64 `mapstructure:"level_distance"`  // 价位间距阈值(%)
+	CheckInterval  int     `mapstructure:"check_interval"`
+}
+
+type VolumePriceStrategyConfig struct {
+	Enabled               bool    `mapstructure:"enabled"`
+	VolatilityMultiplier  float64 `mapstructure:"volatility_multiplier"` // 波动倍数
+	VolumeMultiplier      float64 `mapstructure:"volume_multiplier"`      // 成交量倍数
+	LookbackKlines        int     `mapstructure:"lookback_klines"`       // 回溯K线数
+	CheckInterval         int     `mapstructure:"check_interval"`
 }
 
 type TradingConfig struct {
@@ -121,6 +141,7 @@ func Load(configPath string) (*Config, error) {
 	viper.SetConfigType("yaml")
 	viper.AutomaticEnv()
 
+	viper.BindEnv("database.host", "DB_HOST")
 	viper.BindEnv("database.password", "DB_PASSWORD")
 	viper.BindEnv("jwt.secret", "JWT_SECRET")
 
