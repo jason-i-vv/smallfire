@@ -22,9 +22,9 @@ func NewKeyLevelStrategy(cfg config.KeyLevelStrategyConfig, deps Dependency) Str
 	}
 }
 
-func (s *KeyLevelStrategy) Name() string { return "key_level_strategy" }
-func (s *KeyLevelStrategy) Type() string { return "key_level" }
-func (s *KeyLevelStrategy) Enabled() bool { return s.config.Enabled }
+func (s *KeyLevelStrategy) Name() string        { return "key_level_strategy" }
+func (s *KeyLevelStrategy) Type() string        { return "key_level" }
+func (s *KeyLevelStrategy) Enabled() bool       { return s.config.Enabled }
 func (s *KeyLevelStrategy) Config() interface{} { return s.config }
 
 func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klines []models.Kline) ([]models.Signal, error) {
@@ -157,33 +157,33 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 	if level.LevelType == "resistance" {
 		if price > levelPrice+threshold {
 			return &models.Signal{
-				SymbolID:        symbolID,
-				SignalType:      models.SignalTypeResistanceBreak,
-				SourceType:      models.SourceTypeKeyLevel,
-				Direction:       "long",
-				Strength:        level.KlinesCount, // 触及次数越多信号越强
-				Price:           price,
-				StopLossPrice:   &level.Price,
-				Period:          kline.Period,
-				Status:          models.SignalStatusPending,
+				SymbolID:         symbolID,
+				SignalType:       models.SignalTypeResistanceBreak,
+				SourceType:       models.SourceTypeKeyLevel,
+				Direction:        "long",
+				Strength:         level.KlinesCount, // 触及次数越多信号越强
+				Price:            price,
+				StopLossPrice:    &level.Price,
+				Period:           kline.Period,
+				Status:           models.SignalStatusPending,
 				NotificationSent: false,
-				CreatedAt:       time.Now(),
+				CreatedAt:        time.Now(),
 			}
 		}
 	} else if level.LevelType == "support" {
 		if price < levelPrice-threshold {
 			return &models.Signal{
-				SymbolID:        symbolID,
-				SignalType:      models.SignalTypeSupportBreak,
-				SourceType:      models.SourceTypeKeyLevel,
-				Direction:       "short",
-				Strength:        level.KlinesCount,
-				Price:           price,
-				StopLossPrice:   &level.Price,
-				Period:          kline.Period,
-				Status:          models.SignalStatusPending,
+				SymbolID:         symbolID,
+				SignalType:       models.SignalTypeSupportBreak,
+				SourceType:       models.SourceTypeKeyLevel,
+				Direction:        "short",
+				Strength:         level.KlinesCount,
+				Price:            price,
+				StopLossPrice:    &level.Price,
+				Period:           kline.Period,
+				Status:           models.SignalStatusPending,
 				NotificationSent: false,
-				CreatedAt:       time.Now(),
+				CreatedAt:        time.Now(),
 			}
 		}
 	}

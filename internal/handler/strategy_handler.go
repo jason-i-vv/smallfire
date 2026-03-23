@@ -23,9 +23,9 @@ func NewStrategyHandler(config *config.StrategiesConfig, logger *zap.Logger) *St
 // GetStrategies 获取所有策略配置
 func (h *StrategyHandler) GetStrategies(c *gin.Context) {
 	HandleSuccess(c, gin.H{
-		"box":           h.config.Box,
-		"trend":         h.config.Trend,
-		"key_level":     h.config.KeyLevel,
-		"volume_price":  h.config.VolumePrice,
+		"box":          h.config.Box,
+		"trend":        h.config.Trend,
+		"key_level":    h.config.KeyLevel,
+		"volume_price": h.config.VolumePrice,
 	})
 }

@@ -58,12 +58,12 @@ func (s *KlineService) GetTradingViewKlines(symbolID int64, period string, limit
 	var result []map[string]interface{}
 	for _, k := range klines {
 		item := map[string]interface{}{
-			"time":     k.OpenTime.Unix(),
-			"open":     k.OpenPrice,
-			"high":     k.HighPrice,
-			"low":      k.LowPrice,
-			"close":    k.ClosePrice,
-			"volume":   k.Volume,
+			"time":   k.OpenTime.Unix(),
+			"open":   k.OpenPrice,
+			"high":   k.HighPrice,
+			"low":    k.LowPrice,
+			"close":  k.ClosePrice,
+			"volume": k.Volume,
 		}
 		if k.EMAShort != nil {
 			item["ema30"] = *k.EMAShort

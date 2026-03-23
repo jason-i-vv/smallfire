@@ -21,9 +21,9 @@ func NewVolumePriceStrategy(cfg config.VolumePriceStrategyConfig, deps Dependenc
 	}
 }
 
-func (s *VolumePriceStrategy) Name() string { return "volume_price_strategy" }
-func (s *VolumePriceStrategy) Type() string { return "volume" }
-func (s *VolumePriceStrategy) Enabled() bool { return s.config.Enabled }
+func (s *VolumePriceStrategy) Name() string        { return "volume_price_strategy" }
+func (s *VolumePriceStrategy) Type() string        { return "volume" }
+func (s *VolumePriceStrategy) Enabled() bool       { return s.config.Enabled }
 func (s *VolumePriceStrategy) Config() interface{} { return s.config }
 
 func (s *VolumePriceStrategy) Analyze(symbolID int, symbolCode, period string, klines []models.Kline) ([]models.Signal, error) {
@@ -74,18 +74,18 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 		expireTime := time.Now().Add(6 * time.Hour)
 
 		return &models.Signal{
-			SymbolID:        symbolID,
-			SignalType:      signalType,
-			SourceType:      models.SourceTypeVolume,
-			Direction:       direction,
-			Strength:        2,
-			Price:           latest.ClosePrice,
-			Period:          latest.Period,
-			SignalData:      &models.JSONB{},
-			Status:          models.SignalStatusPending,
-			ExpiredAt:       &expireTime,
+			SymbolID:         symbolID,
+			SignalType:       signalType,
+			SourceType:       models.SourceTypeVolume,
+			Direction:        direction,
+			Strength:         2,
+			Price:            latest.ClosePrice,
+			Period:           latest.Period,
+			SignalData:       &models.JSONB{},
+			Status:           models.SignalStatusPending,
+			ExpiredAt:        &expireTime,
 			NotificationSent: false,
-			CreatedAt:       time.Now(),
+			CreatedAt:        time.Now(),
 		}
 	}
 
@@ -120,18 +120,18 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 		expireTime := time.Now().Add(6 * time.Hour)
 
 		return &models.Signal{
-			SymbolID:        symbolID,
-			SignalType:      signalType,
-			SourceType:      models.SourceTypeVolume,
-			Direction:       direction,
-			Strength:        2,
-			Price:           latest.ClosePrice,
-			Period:          latest.Period,
-			SignalData:      &models.JSONB{},
-			Status:          models.SignalStatusPending,
-			ExpiredAt:       &expireTime,
+			SymbolID:         symbolID,
+			SignalType:       signalType,
+			SourceType:       models.SourceTypeVolume,
+			Direction:        direction,
+			Strength:         2,
+			Price:            latest.ClosePrice,
+			Period:           latest.Period,
+			SignalData:       &models.JSONB{},
+			Status:           models.SignalStatusPending,
+			ExpiredAt:        &expireTime,
 			NotificationSent: false,
-			CreatedAt:       time.Now(),
+			CreatedAt:        time.Now(),
 		}
 	}
 

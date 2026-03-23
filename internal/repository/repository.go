@@ -49,13 +49,15 @@ type KlineRepo interface {
 
 // TradeTrackRepo 交易跟踪数据访问接口
 type TradeTrackRepo interface {
-	// GetOpenPositions() ([]*models.TradeTrack, error)
-	// GetBySignalID(signalID int64) (*models.TradeTrack, error)
-	// Create(trade *models.TradeTrack) error
-	// Update(trade *models.TradeTrack) error
-	// GetBySignalBatchID(batchID string) ([]*models.TradeTrack, error)
-	// GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error)
-	// GetStats() (*models.TradingStat, error)
+	GetOpenPositions() ([]*models.TradeTrack, error)
+	GetOpenBySymbol(symbolID int) (*models.TradeTrack, error)
+	GetBySignalID(signalID int) (*models.TradeTrack, error)
+	CountClosedSince(startTime time.Time) (int, error)
+	GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error)
+	Create(trade *models.TradeTrack) error
+	Update(trade *models.TradeTrack) error
+	GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error)
+	GetByID(id int) (*models.TradeTrack, error)
 }
 
 // SignalRepo 信号数据访问接口
@@ -69,6 +71,8 @@ type SignalRepo interface {
 	Update(signal *models.Signal) error
 	BatchUpdateByBatchID(batchID string, fields map[string]interface{}) error
 	GetHistory(startDate, endDate time.Time, page, size int) ([]*models.Signal, int, error)
+	UpdateStatus(id int, status string) error
+	SetTriggeredAt(id int, triggeredAt *time.Time) error
 }
 
 // BoxRepo 箱体数据访问接口

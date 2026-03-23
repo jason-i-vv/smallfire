@@ -47,12 +47,12 @@ type BybitTickerResp struct {
 	Message string `json:"retMsg"`
 	Data    struct {
 		List []struct {
-			Symbol       string  `json:"symbol"`
-			LastPrice    string  `json:"lastPrice"`
-			Price24hPcnt string  `json:"price24hPcnt"`
-			HighPrice24h string  `json:"highPrice24h"`
-			LowPrice24h  string  `json:"lowPrice24h"`
-			Volume24h    string  `json:"volume24h"`
+			Symbol       string `json:"symbol"`
+			LastPrice    string `json:"lastPrice"`
+			Price24hPcnt string `json:"price24hPcnt"`
+			HighPrice24h string `json:"highPrice24h"`
+			LowPrice24h  string `json:"lowPrice24h"`
+			Volume24h    string `json:"volume24h"`
 		} `json:"list"`
 	} `json:"result"`
 }

@@ -23,9 +23,9 @@ func NewBoxStrategy(cfg config.BoxStrategyConfig, deps Dependency) Strategy {
 	}
 }
 
-func (s *BoxStrategy) Name() string { return "box_strategy" }
-func (s *BoxStrategy) Type() string { return "box" }
-func (s *BoxStrategy) Enabled() bool { return s.config.Enabled }
+func (s *BoxStrategy) Name() string        { return "box_strategy" }
+func (s *BoxStrategy) Type() string        { return "box" }
+func (s *BoxStrategy) Enabled() bool       { return s.config.Enabled }
 func (s *BoxStrategy) Config() interface{} { return s.config }
 
 func (s *BoxStrategy) Analyze(symbolID int, symbolCode, period string, klines []models.Kline) ([]models.Signal, error) {
@@ -162,15 +162,15 @@ func (s *BoxStrategy) buildBoxesFromSwings(swings []SwingPoint, klines []models.
 		sort.Float64s(lows)
 
 		box := models.Box{
-			Status:        models.BoxStatusActive,
-			HighPrice:     highs[len(highs)-1],
-			LowPrice:      lows[0],
-			WidthPrice:    highs[len(highs)-1] - lows[0],
-			WidthPercent:  (highs[len(highs)-1]-lows[0])/lows[0]*100,
-			KlinesCount:   len(boxKlines),
-			StartTime:     boxKlines[0].OpenTime,
-			CreatedAt:     time.Now(),
-			UpdatedAt:     time.Now(),
+			Status:       models.BoxStatusActive,
+			HighPrice:    highs[len(highs)-1],
+			LowPrice:     lows[0],
+			WidthPrice:   highs[len(highs)-1] - lows[0],
+			WidthPercent: (highs[len(highs)-1] - lows[0]) / lows[0] * 100,
+			KlinesCount:  len(boxKlines),
+			StartTime:    boxKlines[0].OpenTime,
+			CreatedAt:    time.Now(),
+			UpdatedAt:    time.Now(),
 		}
 
 		boxes = append(boxes, box)
@@ -299,20 +299,20 @@ func (s *BoxStrategy) createBreakoutSignal(box models.Box, kline models.Kline, d
 	expireTime := time.Now().Add(24 * time.Hour)
 
 	return &models.Signal{
-		SymbolID:        kline.SymbolID,
-		SignalType:      signalType,
-		SourceType:      models.SourceTypeBox,
-		Direction:       direction,
-		Strength:        strength,
-		Price:           price,
-		TargetPrice:     &target,
-		StopLossPrice:   &stopLoss,
-		Period:          kline.Period,
-		SignalData:      &models.JSONB{},
-		Status:          models.SignalStatusPending,
-		ExpiredAt:       &expireTime,
+		SymbolID:         kline.SymbolID,
+		SignalType:       signalType,
+		SourceType:       models.SourceTypeBox,
+		Direction:        direction,
+		Strength:         strength,
+		Price:            price,
+		TargetPrice:      &target,
+		StopLossPrice:    &stopLoss,
+		Period:           kline.Period,
+		SignalData:       &models.JSONB{},
+		Status:           models.SignalStatusPending,
+		ExpiredAt:        &expireTime,
 		NotificationSent: false,
-		CreatedAt:       time.Now(),
+		CreatedAt:        time.Now(),
 	}
 }
 

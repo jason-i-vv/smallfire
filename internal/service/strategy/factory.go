@@ -74,39 +74,39 @@ func (f *Factory) IsEnabled(name string) bool {
 
 // 策略配置类型定义
 type BoxConfig struct {
-	Enabled          bool
-	MinKlines        int     `yaml:"min_klines"`         // 最少K线数
-	MaxKlines        int     `yaml:"max_klines"`         // 最大K线数
-	WidthThreshold   float64 `yaml:"width_threshold"`   // 宽度阈值(%)
-	BreakoutBuffer   float64 `yaml:"breakout_buffer"`   // 突破缓冲(%)
-	CheckInterval    int     `yaml:"check_interval"`    // 检查间隔(秒)
+	Enabled        bool
+	MinKlines      int     `yaml:"min_klines"`      // 最少K线数
+	MaxKlines      int     `yaml:"max_klines"`      // 最大K线数
+	WidthThreshold float64 `yaml:"width_threshold"` // 宽度阈值(%)
+	BreakoutBuffer float64 `yaml:"breakout_buffer"` // 突破缓冲(%)
+	CheckInterval  int     `yaml:"check_interval"`  // 检查间隔(秒)
 }
 
 type TrendConfig struct {
 	Enabled       bool
-	EMAPeriods    []int `yaml:"ema_periods"`     // [30, 60, 90]
-	CheckInterval int   `yaml:"check_interval"`   // 检查间隔(秒)
+	EMAPeriods    []int `yaml:"ema_periods"`    // [30, 60, 90]
+	CheckInterval int   `yaml:"check_interval"` // 检查间隔(秒)
 }
 
 type KeyLevelConfig struct {
-	Enabled         bool
+	Enabled        bool
 	LookbackKlines int     `yaml:"lookback_klines"` // 回溯K线数
-	LevelDistance  float64 `yaml:"level_distance"` // 价位间距阈值(%)
+	LevelDistance  float64 `yaml:"level_distance"`  // 价位间距阈值(%)
 	CheckInterval  int     `yaml:"check_interval"`
 }
 
 type VolumePriceConfig struct {
-	Enabled           bool
+	Enabled              bool
 	VolatilityMultiplier float64 `yaml:"volatility_multiplier"` // 波动倍数
-	VolumeMultiplier  float64 `yaml:"volume_multiplier"`      // 成交量倍数
-	LookbackKlines    int     `yaml:"lookback_klines"`       // 回溯K线数
-	CheckInterval     int     `yaml:"check_interval"`
+	VolumeMultiplier     float64 `yaml:"volume_multiplier"`     // 成交量倍数
+	LookbackKlines       int     `yaml:"lookback_klines"`       // 回溯K线数
+	CheckInterval        int     `yaml:"check_interval"`
 }
 
 // 策略配置
 type StrategiesConfig struct {
-	Box          BoxConfig          `yaml:"box"`
-	Trend        TrendConfig        `yaml:"trend"`
-	KeyLevel     KeyLevelConfig     `yaml:"key_level"`
-	VolumePrice  VolumePriceConfig  `yaml:"volume_price"`
+	Box         BoxConfig         `yaml:"box"`
+	Trend       TrendConfig       `yaml:"trend"`
+	KeyLevel    KeyLevelConfig    `yaml:"key_level"`
+	VolumePrice VolumePriceConfig `yaml:"volume_price"`
 }

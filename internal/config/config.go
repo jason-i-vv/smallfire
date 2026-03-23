@@ -27,22 +27,22 @@ type DatabaseConfig struct {
 }
 
 type LogConfig struct {
-	Level      string `mapstructure:"level"`
-	Format     string `mapstructure:"format"`
-	Output     string `mapstructure:"output"`
-	FilePath   string `mapstructure:"file_path"`
+	Level    string `mapstructure:"level"`
+	Format   string `mapstructure:"format"`
+	Output   string `mapstructure:"output"`
+	FilePath string `mapstructure:"file_path"`
 }
 
 type FeishuConfig struct {
-	Enabled          bool   `mapstructure:"enabled"`
-	WebhookURL       string `mapstructure:"webhook_url"`
-	SendSummary      bool   `mapstructure:"send_summary"`
-	SummaryInterval  int    `mapstructure:"summary_interval"`
+	Enabled         bool   `mapstructure:"enabled"`
+	WebhookURL      string `mapstructure:"webhook_url"`
+	SendSummary     bool   `mapstructure:"send_summary"`
+	SummaryInterval int    `mapstructure:"summary_interval"`
 }
 
 type JWTConfig struct {
-	Secret   string `mapstructure:"secret"`
-	Expires  string `mapstructure:"expires"`
+	Secret  string `mapstructure:"secret"`
+	Expires string `mapstructure:"expires"`
 }
 
 type MarketsConfig struct {
@@ -52,14 +52,14 @@ type MarketsConfig struct {
 }
 
 type MarketConfig struct {
-	Enabled        bool     `mapstructure:"enabled"`
-	APIKey         string   `mapstructure:"api_key"`
-	APISecret      string   `mapstructure:"api_secret"`
-	Testnet        bool     `mapstructure:"testnet"`
-	SymbolsLimit   int      `mapstructure:"symbols_limit"`
-	HotDays        int      `mapstructure:"hot_days"`
-	Periods        []string `mapstructure:"periods"`
-	FetchInterval  int      `mapstructure:"fetch_interval"`
+	Enabled       bool     `mapstructure:"enabled"`
+	APIKey        string   `mapstructure:"api_key"`
+	APISecret     string   `mapstructure:"api_secret"`
+	Testnet       bool     `mapstructure:"testnet"`
+	SymbolsLimit  int      `mapstructure:"symbols_limit"`
+	HotDays       int      `mapstructure:"hot_days"`
+	Periods       []string `mapstructure:"periods"`
+	FetchInterval int      `mapstructure:"fetch_interval"`
 }
 
 type EMAConfig struct {
@@ -67,60 +67,73 @@ type EMAConfig struct {
 }
 
 type StrategiesConfig struct {
-	Box          BoxStrategyConfig          `mapstructure:"box"`
-	Trend        TrendStrategyConfig        `mapstructure:"trend"`
-	KeyLevel     KeyLevelStrategyConfig     `mapstructure:"key_level"`
-	VolumePrice  VolumePriceStrategyConfig  `mapstructure:"volume_price"`
+	Box         BoxStrategyConfig         `mapstructure:"box"`
+	Trend       TrendStrategyConfig       `mapstructure:"trend"`
+	KeyLevel    KeyLevelStrategyConfig    `mapstructure:"key_level"`
+	VolumePrice VolumePriceStrategyConfig `mapstructure:"volume_price"`
 }
 
 type BoxStrategyConfig struct {
-	Enabled          bool    `mapstructure:"enabled"`
-	MinKlines        int     `mapstructure:"min_klines"`         // 最少K线数
-	MaxKlines        int     `mapstructure:"max_klines"`         // 最大K线数
-	WidthThreshold   float64 `mapstructure:"width_threshold"`   // 宽度阈值(%)
-	BreakoutBuffer   float64 `mapstructure:"breakout_buffer"`   // 突破缓冲(%)
-	CheckInterval    int     `mapstructure:"check_interval"`    // 检查间隔(秒)
+	Enabled        bool    `mapstructure:"enabled"`
+	MinKlines      int     `mapstructure:"min_klines"`      // 最少K线数
+	MaxKlines      int     `mapstructure:"max_klines"`      // 最大K线数
+	WidthThreshold float64 `mapstructure:"width_threshold"` // 宽度阈值(%)
+	BreakoutBuffer float64 `mapstructure:"breakout_buffer"` // 突破缓冲(%)
+	CheckInterval  int     `mapstructure:"check_interval"`  // 检查间隔(秒)
 }
 
 type TrendStrategyConfig struct {
 	Enabled       bool  `mapstructure:"enabled"`
-	EMAPeriods    []int `mapstructure:"ema_periods"`     // [30, 60, 90]
-	CheckInterval int   `mapstructure:"check_interval"`   // 检查间隔(秒)
+	EMAPeriods    []int `mapstructure:"ema_periods"`    // [30, 60, 90]
+	CheckInterval int   `mapstructure:"check_interval"` // 检查间隔(秒)
 }
 
 type KeyLevelStrategyConfig struct {
-	Enabled         bool    `mapstructure:"enabled"`
+	Enabled        bool    `mapstructure:"enabled"`
 	LookbackKlines int     `mapstructure:"lookback_klines"` // 回溯K线数
 	LevelDistance  float64 `mapstructure:"level_distance"`  // 价位间距阈值(%)
 	CheckInterval  int     `mapstructure:"check_interval"`
 }
 
 type VolumePriceStrategyConfig struct {
-	Enabled               bool    `mapstructure:"enabled"`
-	VolatilityMultiplier  float64 `mapstructure:"volatility_multiplier"` // 波动倍数
-	VolumeMultiplier      float64 `mapstructure:"volume_multiplier"`      // 成交量倍数
-	LookbackKlines        int     `mapstructure:"lookback_klines"`       // 回溯K线数
-	CheckInterval         int     `mapstructure:"check_interval"`
+	Enabled              bool    `mapstructure:"enabled"`
+	VolatilityMultiplier float64 `mapstructure:"volatility_multiplier"` // 波动倍数
+	VolumeMultiplier     float64 `mapstructure:"volume_multiplier"`     // 成交量倍数
+	LookbackKlines       int     `mapstructure:"lookback_klines"`       // 回溯K线数
+	CheckInterval        int     `mapstructure:"check_interval"`
 }
 
 type TradingConfig struct {
-	Enabled          bool    `mapstructure:"enabled"`
-	InitialCapital   float64 `mapstructure:"initial_capital"`
-	StopLossPercent  float64 `mapstructure:"stop_loss_percent"`
-	TakeProfitPercent float64 `mapstructure:"take_profit_percent"`
-	PositionSize     float64 `mapstructure:"position_size"`
+	Enabled           bool    `mapstructure:"enabled"`
+	InitialCapital    float64 `mapstructure:"initial_capital"`     // 初始资金: 100000
+	PositionSize      float64 `mapstructure:"position_size"`       // 单笔仓位比例: 0.1
+	StopLossPercent   float64 `mapstructure:"stop_loss_percent"`   // 止损比例: 0.02
+	TakeProfitPercent float64 `mapstructure:"take_profit_percent"` // 止盈比例: 0.05
+
+	// 风控参数
+	MaxDailyTrades     int     `mapstructure:"max_daily_trades"`     // 每日最大交易: 10
+	MaxOpenPositions   int     `mapstructure:"max_open_positions"`   // 最大持仓数: 5
+	MaxDrawdownPercent float64 `mapstructure:"max_drawdown_percent"` // 最大回撤: 0.10
+	MaxLossPerTrade    float64 `mapstructure:"max_loss_per_trade"`   // 单笔最大亏损: 0.02
+
+	// 移动止损
+	TrailingStopEnabled bool    `mapstructure:"trailing_stop"`
+	TrailingDistance    float64 `mapstructure:"trailing_distance"` // 移动止损距离: 0.015
+
+	// 信号有效期
+	SignalExpireMinutes int `mapstructure:"signal_expire_minutes"` // 信号过期分钟数: 60
 }
 
 type Config struct {
-	App         AppConfig         `mapstructure:"app"`
-	Database    DatabaseConfig    `mapstructure:"database"`
-	Log         LogConfig         `mapstructure:"log"`
-	Feishu      FeishuConfig      `mapstructure:"feishu"`
-	JWT         JWTConfig         `mapstructure:"jwt"`
-	Markets     MarketsConfig     `mapstructure:"markets"`
-	Strategies  StrategiesConfig  `mapstructure:"strategies"`
-	Trading     TradingConfig     `mapstructure:"trading"`
-	EMA         EMAConfig         `mapstructure:"ema"`
+	App        AppConfig        `mapstructure:"app"`
+	Database   DatabaseConfig   `mapstructure:"database"`
+	Log        LogConfig        `mapstructure:"log"`
+	Feishu     FeishuConfig     `mapstructure:"feishu"`
+	JWT        JWTConfig        `mapstructure:"jwt"`
+	Markets    MarketsConfig    `mapstructure:"markets"`
+	Strategies StrategiesConfig `mapstructure:"strategies"`
+	Trading    TradingConfig    `mapstructure:"trading"`
+	EMA        EMAConfig        `mapstructure:"ema"`
 }
 
 func (c DatabaseConfig) DSN() string {

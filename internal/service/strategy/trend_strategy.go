@@ -22,9 +22,9 @@ func NewTrendStrategy(cfg config.TrendStrategyConfig, deps Dependency) Strategy 
 	}
 }
 
-func (s *TrendStrategy) Name() string { return "trend_strategy" }
-func (s *TrendStrategy) Type() string { return "trend" }
-func (s *TrendStrategy) Enabled() bool { return s.config.Enabled }
+func (s *TrendStrategy) Name() string        { return "trend_strategy" }
+func (s *TrendStrategy) Type() string        { return "trend" }
+func (s *TrendStrategy) Enabled() bool       { return s.config.Enabled }
 func (s *TrendStrategy) Config() interface{} { return s.config }
 
 func (s *TrendStrategy) Analyze(symbolID int, symbolCode, period string, klines []models.Kline) ([]models.Signal, error) {
@@ -100,8 +100,8 @@ func (s *TrendStrategy) determineTrend(klines []models.Kline) *models.Trend {
 	}
 
 	// 计算趋势强度（基于EMA间距）
-	shortMedGap := math.Abs(emaShort - emaMedium) / emaMedium
-	medLongGap := math.Abs(emaMedium - emaLong) / emaLong
+	shortMedGap := math.Abs(emaShort-emaMedium) / emaMedium
+	medLongGap := math.Abs(emaMedium-emaLong) / emaLong
 
 	if shortMedGap > 0.01 && medLongGap > 0.02 {
 		strength = 3
@@ -112,15 +112,15 @@ func (s *TrendStrategy) determineTrend(klines []models.Kline) *models.Trend {
 	}
 
 	return &models.Trend{
-		TrendType:  trendType,
-		Strength:   strength,
-		EMAShort:   emaShort,
-		EMAMedium:  emaMedium,
-		EMALong:    emaLong,
-		StartTime:  klines[0].OpenTime,
-		Status:     models.TrendStatusActive,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		TrendType: trendType,
+		Strength:  strength,
+		EMAShort:  emaShort,
+		EMAMedium: emaMedium,
+		EMALong:   emaLong,
+		StartTime: klines[0].OpenTime,
+		Status:    models.TrendStatusActive,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 }
 
@@ -138,10 +138,10 @@ func (s *TrendStrategy) createReversalSignal(trend *models.Trend, kline models.K
 	var stopLoss, target float64
 	if trend.EMALong != 0 {
 		if trend.TrendType == models.TrendTypeBullish {
-			stopLoss = trend.EMALong * 0.995 // 0.5% below EMA90
+			stopLoss = trend.EMALong * 0.995    // 0.5% below EMA90
 			target = price + (price-stopLoss)*3 // 3倍风险收益比
 		} else {
-			stopLoss = trend.EMALong * 1.005 // 0.5% above EMA90
+			stopLoss = trend.EMALong * 1.005    // 0.5% above EMA90
 			target = price - (stopLoss-price)*3 // 3倍风险收益比
 		}
 	}
@@ -149,19 +149,19 @@ func (s *TrendStrategy) createReversalSignal(trend *models.Trend, kline models.K
 	expireTime := time.Now().Add(24 * time.Hour)
 
 	return &models.Signal{
-		SignalType:      signalType,
-		SourceType:      models.SourceTypeTrend,
-		Direction:       direction,
-		Strength:        trend.Strength,
-		Price:           price,
-		TargetPrice:     &target,
-		StopLossPrice:   &stopLoss,
-		Period:          kline.Period,
-		SignalData:      &models.JSONB{},
-		Status:          models.SignalStatusPending,
-		ExpiredAt:       &expireTime,
+		SignalType:       signalType,
+		SourceType:       models.SourceTypeTrend,
+		Direction:        direction,
+		Strength:         trend.Strength,
+		Price:            price,
+		TargetPrice:      &target,
+		StopLossPrice:    &stopLoss,
+		Period:           kline.Period,
+		SignalData:       &models.JSONB{},
+		Status:           models.SignalStatusPending,
+		ExpiredAt:        &expireTime,
 		NotificationSent: false,
-		CreatedAt:       time.Now(),
+		CreatedAt:        time.Now(),
 	}
 }
 
@@ -200,17 +200,17 @@ func (s *TrendStrategy) checkRetracement(trend *models.Trend, klines []models.Kl
 		expireTime := time.Now().Add(12 * time.Hour)
 
 		return &models.Signal{
-			SignalType:      models.SignalTypeTrendRetracement,
-			SourceType:      models.SourceTypeTrend,
-			Direction:       direction,
-			Strength:        trend.Strength,
-			Price:           price,
-			Period:          lastKline.Period,
-			SignalData:      &models.JSONB{},
-			Status:          models.SignalStatusPending,
-			ExpiredAt:       &expireTime,
+			SignalType:       models.SignalTypeTrendRetracement,
+			SourceType:       models.SourceTypeTrend,
+			Direction:        direction,
+			Strength:         trend.Strength,
+			Price:            price,
+			Period:           lastKline.Period,
+			SignalData:       &models.JSONB{},
+			Status:           models.SignalStatusPending,
+			ExpiredAt:        &expireTime,
 			NotificationSent: false,
-			CreatedAt:       time.Now(),
+			CreatedAt:        time.Now(),
 		}
 	}
 

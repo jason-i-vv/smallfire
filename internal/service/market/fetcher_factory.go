@@ -7,8 +7,8 @@ import (
 
 // Factory 行情抓取器工厂
 type Factory struct {
-	fetchers map[string]Fetcher
-	config   *config.MarketsConfig
+	fetchers   map[string]Fetcher
+	config     *config.MarketsConfig
 	symbolRepo repository.SymbolRepo
 	klineRepo  repository.KlineRepo
 }
@@ -16,10 +16,10 @@ type Factory struct {
 // NewFactory 创建工厂实例
 func NewFactory(cfg *config.MarketsConfig, symbolRepo repository.SymbolRepo, klineRepo repository.KlineRepo) *Factory {
 	f := &Factory{
-		fetchers: make(map[string]Fetcher),
-		config:   cfg,
+		fetchers:   make(map[string]Fetcher),
+		config:     cfg,
 		symbolRepo: symbolRepo,
-		klineRepo: klineRepo,
+		klineRepo:  klineRepo,
 	}
 
 	// 注册抓取器

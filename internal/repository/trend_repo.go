@@ -157,7 +157,6 @@ func (r *TrendRepoPG) GetBySymbol(marketCode, symbolCode string) ([]*models.Tren
 	return trends, nil
 }
 
-
 func (r *TrendRepoPG) Create(trend *models.Trend) error {
 	query := `
 		INSERT INTO trends (symbol_id, period, trend_type, strength, ema_short, ema_medium, ema_long,

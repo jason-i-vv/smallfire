@@ -24,7 +24,7 @@ type Strategy interface {
 
 // Dependency 策略依赖
 type Dependency struct {
-	SignalRepo  interface {
+	SignalRepo interface {
 		Create(signal *models.Signal) error
 		GetBySymbol(symbolID int) ([]*models.Signal, error)
 		Update(signal *models.Signal) error

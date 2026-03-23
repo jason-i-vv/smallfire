@@ -225,6 +225,24 @@ func (r *SignalRepoPG) Create(signal *models.Signal) error {
 	return nil
 }
 
+func (r *SignalRepoPG) UpdateStatus(id int, status string) error {
+	query := `UPDATE signals SET status = $1 WHERE id = $2`
+	_, err := r.db.Exec(context.Background(), query, status, id)
+	if err != nil {
+		return fmt.Errorf("更新信号状态失败: %w", err)
+	}
+	return nil
+}
+
+func (r *SignalRepoPG) SetTriggeredAt(id int, triggeredAt *time.Time) error {
+	query := `UPDATE signals SET triggered_at = $1 WHERE id = $2`
+	_, err := r.db.Exec(context.Background(), query, triggeredAt, id)
+	if err != nil {
+		return fmt.Errorf("更新信号触发时间失败: %w", err)
+	}
+	return nil
+}
+
 func (r *SignalRepoPG) Update(signal *models.Signal) error {
 	query := `
 		UPDATE signals SET

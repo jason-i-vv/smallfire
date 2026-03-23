@@ -19,6 +19,7 @@ import (
 	"github.com/smallfire/starfire/internal/service/ema"
 	"github.com/smallfire/starfire/internal/service/market"
 	"github.com/smallfire/starfire/internal/service/strategy"
+	"github.com/smallfire/starfire/internal/service/trading"
 	"github.com/smallfire/starfire/pkg/utils"
 )
 
@@ -60,6 +61,27 @@ func main() {
 	boxRepo := repository.NewBoxRepoPG(db)
 	trendRepo := repository.NewTrendRepoPG(db)
 	keyLevelRepo := repository.NewKeyLevelRepoPG(db)
+	trackRepo := repository.NewTradeTrackRepoPG(db)
+
+	// 初始化交易服务
+	tradingDeps := trading.Dependency{
+		TrackRepo:  trackRepo,
+		SignalRepo: signalRepo,
+		Logger:     utils.Logger,
+	}
+	tradeExecutor := trading.NewTradeExecutor(&cfg.Trading, tradingDeps)
+	_ = tradeExecutor
+	utils.Info("交易执行器初始化成功")
+
+	// 初始化统计分析服务
+	statsService := trading.NewStatisticsService(trackRepo, &cfg.Trading)
+	_ = statsService
+	utils.Info("统计分析服务初始化成功")
+
+	// 初始化持仓监控服务
+	positionMonitor := trading.NewPositionMonitor(tradeExecutor, trackRepo, symbolRepo, utils.Logger)
+	positionMonitor.Start() // 启动持仓监控
+	defer positionMonitor.Stop()
 
 	// 初始化 EMA 计算器
 	emaCalc := ema.NewEMACalculator(cfg.EMA.Periods)
@@ -138,6 +160,7 @@ func main() {
 	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, utils.Logger)
 	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
+	tradeHandler := handler.NewTradeHandler(trackRepo, statsService, utils.Logger)
 
 	// API 版本
 	apiV1 := r.Group("/api/v1")
@@ -190,6 +213,18 @@ func main() {
 		strategiesGroup := apiV1.Group("/strategies")
 		{
 			strategiesGroup.GET("", strategyHandler.GetStrategies)
+		}
+
+		// 交易跟踪 API
+		tradesGroup := apiV1.Group("/trades")
+		{
+			tradesGroup.GET("/positions", tradeHandler.GetOpenPositions)
+			tradesGroup.GET("/history", tradeHandler.GetTradeHistory)
+			tradesGroup.GET("/closed", tradeHandler.GetClosedPositions)
+			tradesGroup.GET("/stats", tradeHandler.GetTradeStats)
+			tradesGroup.GET("/signal-analysis", tradeHandler.GetSignalAnalysis)
+			tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
+			tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
 		}
 	}
 

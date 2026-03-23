@@ -28,21 +28,21 @@ type Fetcher interface {
 type SymbolInfo struct {
 	Code     string  `json:"code"`
 	Name     string  `json:"name"`
-	Type     string  `json:"type"`    // spot, futures
+	Type     string  `json:"type"` // spot, futures
 	HotScore float64 `json:"hot_score"`
 }
 
 // KlineData K线数据
 type KlineData struct {
-	OpenTime     time.Time `json:"open_time"`
-	CloseTime    time.Time `json:"close_time"`
-	Open         float64   `json:"open"`
-	High         float64   `json:"high"`
-	Low          float64   `json:"low"`
-	Close        float64   `json:"close"`
-	Volume       float64   `json:"volume"`
-	QuoteVolume  float64   `json:"quote_volume"`
-	TradesCount  int       `json:"trades_count"`
+	OpenTime    time.Time `json:"open_time"`
+	CloseTime   time.Time `json:"close_time"`
+	Open        float64   `json:"open"`
+	High        float64   `json:"high"`
+	Low         float64   `json:"low"`
+	Close       float64   `json:"close"`
+	Volume      float64   `json:"volume"`
+	QuoteVolume float64   `json:"quote_volume"`
+	TradesCount int       `json:"trades_count"`
 }
 
 // Ticker 实时行情
@@ -61,18 +61,18 @@ type Ticker struct {
 // convertToModel 将KlineData转换为models.Kline
 func convertToModel(symbolID int, period string, k KlineData) *models.Kline {
 	return &models.Kline{
-		SymbolID:     symbolID,
-		Period:       period,
-		OpenTime:     k.OpenTime,
-		CloseTime:    k.CloseTime,
-		OpenPrice:    k.Open,
-		HighPrice:    k.High,
-		LowPrice:     k.Low,
-		ClosePrice:   k.Close,
-		Volume:       k.Volume,
-		QuoteVolume:  k.QuoteVolume,
-		TradesCount:  k.TradesCount,
-		IsClosed:     true,
-		CreatedAt:    time.Now(),
+		SymbolID:    symbolID,
+		Period:      period,
+		OpenTime:    k.OpenTime,
+		CloseTime:   k.CloseTime,
+		OpenPrice:   k.Open,
+		HighPrice:   k.High,
+		LowPrice:    k.Low,
+		ClosePrice:  k.Close,
+		Volume:      k.Volume,
+		QuoteVolume: k.QuoteVolume,
+		TradesCount: k.TradesCount,
+		IsClosed:    true,
+		CreatedAt:   time.Now(),
 	}
 }
