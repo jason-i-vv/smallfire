@@ -124,6 +124,12 @@ type TradingConfig struct {
 	SignalExpireMinutes int `mapstructure:"signal_expire_minutes"` // 信号过期分钟数: 60
 }
 
+type MonitoringConfig struct {
+	PriceCheckInterval  int `mapstructure:"price_check_interval"`  // 价格检查间隔(秒)
+	MaxConcurrentMonitors int `mapstructure:"max_concurrent_monitors"` // 最大并发监测数
+	CleanupInterval     int `mapstructure:"cleanup_interval"`      // 清理间隔(秒)
+}
+
 type Config struct {
 	App        AppConfig        `mapstructure:"app"`
 	Database   DatabaseConfig   `mapstructure:"database"`
@@ -134,6 +140,7 @@ type Config struct {
 	Strategies StrategiesConfig `mapstructure:"strategies"`
 	Trading    TradingConfig    `mapstructure:"trading"`
 	EMA        EMAConfig        `mapstructure:"ema"`
+	Monitoring MonitoringConfig `mapstructure:"monitoring"`
 }
 
 func (c DatabaseConfig) DSN() string {

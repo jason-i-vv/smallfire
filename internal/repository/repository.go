@@ -120,3 +120,19 @@ type StrategyRepo interface {
 	// Update(strategy *models.Strategy) error
 	// BatchUpdateByType(strategyType string, fields map[string]interface{}) error
 }
+
+// MonitorRepo 监测数据访问接口
+type MonitorRepo interface {
+	GetActiveMonitors() ([]*models.Monitoring, error)
+	GetByID(id int64) (*models.Monitoring, error)
+	Create(monitor *models.Monitoring) error
+	Update(monitor *models.Monitoring) error
+	UpdateTriggered(id int64, currentPrice float64, triggeredAt *time.Time) error
+	Delete(id int64) error
+}
+
+// TickerRepo 行情数据访问接口（用于监测服务获取价格）
+type TickerRepo interface {
+	GetPrice(symbolID int64) float64
+	GetPrevPrice(symbolID int64) float64
+}

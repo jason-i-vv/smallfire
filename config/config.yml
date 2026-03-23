@@ -108,3 +108,9 @@ trading:
 
   # 信号有效期
   signal_expire_minutes: 60            # 信号过期分钟数: 60
+
+# 实时监测配置
+monitoring:
+  price_check_interval: 1              # 价格检查间隔(秒)
+  max_concurrent_monitors: 1000       # 最大并发监测数
+  cleanup_interval: 300                 # 清理间隔(秒)

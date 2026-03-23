@@ -3,8 +3,9 @@ package models
 import "time"
 
 type Monitoring struct {
-	ID              int        `json:"id" db:"id"`
-	SymbolID        int        `json:"symbol_id" db:"symbol_id"`
+	ID              int64      `json:"id" db:"id"`
+	SymbolID        int64      `json:"symbol_id" db:"symbol_id"`
+	SymbolCode      string     `json:"symbol_code" db:"symbol_code"`
 	MonitorType     string     `json:"monitor_type" db:"monitor_type"`
 	TargetPrice     *float64   `json:"target_price,omitempty" db:"target_price"`
 	ConditionType   string     `json:"condition_type" db:"condition_type"`
@@ -16,9 +17,18 @@ type Monitoring struct {
 	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
 }
 
+// MonitorType 常量
 const (
 	MonitorTypePrice = "price"
-
-	ConditionTypePriceAbove = "price_above"
-	ConditionTypePriceBelow = "price_below"
+	MonitorTypeBox   = "box"
+	MonitorTypeTrend = "trend"
 )
+
+// ConditionType 常量
+const (
+	ConditionGreater    = "greater"    // 价格大于目标
+	ConditionLess       = "less"       // 价格小于目标
+	ConditionCrossUp    = "cross_up"   // 价格从下往上穿过
+	ConditionCrossDown  = "cross_down" // 价格从上往下穿过
+)
+
