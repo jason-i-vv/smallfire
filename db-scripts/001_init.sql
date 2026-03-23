@@ -228,6 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_tracks_entry ON trade_tracks(entry_time DESC);
 CREATE TABLE IF NOT EXISTS monitorings (
     id                  SERIAL PRIMARY KEY,
     symbol_id           INTEGER REFERENCES symbols(id),
+    symbol_code         VARCHAR(30),
     monitor_type        VARCHAR(20) NOT NULL,
     target_price        DECIMAL(20, 8),
     condition_type      VARCHAR(20) NOT NULL,
