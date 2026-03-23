@@ -6,7 +6,7 @@ services:
   # ============================================
   postgres:
     image: postgres:18
-    container_name: starfire-postgres
+    container_name: starfire-postgres-dev
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
@@ -14,7 +14,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data_dev:/var/lib/postgresql
       - ./db-scripts:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -31,7 +31,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: starfire-backend
+    container_name: starfire-backend-dev
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,9 +47,30 @@ services:
       - starfire-network
     restart: unless-stopped
 
+  # ============================================
+  # 前端开发服务
+  # ============================================
+  frontend:
+    image: node:20-alpine
+    container_name: starfire-frontend-dev
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./starfire-frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_API_BASE: http://localhost:8080/api
+    depends_on:
+      - backend
+    networks:
+      - starfire-network
+    restart: unless-stopped
+
 networks:
   starfire-network:
     driver: bridge
 
 volumes:
-  postgres_data:
+  postgres_data_dev:
