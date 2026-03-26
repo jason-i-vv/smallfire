@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -54,6 +55,36 @@ func (h *SymbolHandler) GetSymbolKlines(c *gin.Context) {
 	symbolID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		HandleError(c, http.StatusBadRequest, err)
+		return
+	}
+
+	period := c.DefaultQuery("period", "15m")
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	if err != nil || limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+
+	klines, err := h.klineRepo.GetBySymbolPeriod(int64(symbolID), period, nil, nil, limit)
+	if err != nil {
+		h.logger.Error("获取K线数据失败", zap.Int("symbol_id", symbolID), zap.String("period", period), zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	HandleSuccess(c, klines)
+}
+
+// GetKlines 通用K线数据获取接口
+func (h *SymbolHandler) GetKlines(c *gin.Context) {
+	symbolIDStr := c.Query("symbol_id")
+	if symbolIDStr == "" {
+		HandleError(c, http.StatusBadRequest, errors.New("symbol_id is required"))
+		return
+	}
+
+	symbolID, err := strconv.Atoi(symbolIDStr)
+	if err != nil {
+		HandleError(c, http.StatusBadRequest, errors.New("invalid symbol_id"))
 		return
 	}
 

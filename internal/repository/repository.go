@@ -39,6 +39,7 @@ type KlineRepo interface {
 	GetLatestN(symbolID int, period string, n int) ([]models.Kline, error)
 	GetAllTrackedSymbols() ([]*TrackedSymbol, error)
 	Exists(symbolID int64, period string, openTime time.Time) (bool, error)
+	GetByTime(symbolID int64, period string, openTime time.Time) (*models.Kline, error)
 	Create(kline *models.Kline) error
 	BatchCreate(klines []*models.Kline) error
 	Update(kline *models.Kline) error
@@ -62,6 +63,7 @@ type TradeTrackRepo interface {
 
 // SignalRepo 信号数据访问接口
 type SignalRepo interface {
+	GetByID(id int) (*models.Signal, error)
 	GetActiveSignals() ([]*models.Signal, error)
 	GetByBatchID(batchID string) ([]*models.Signal, error)
 	GetByStatus(status string) ([]*models.Signal, error)
@@ -71,12 +73,16 @@ type SignalRepo interface {
 	Update(signal *models.Signal) error
 	BatchUpdateByBatchID(batchID string, fields map[string]interface{}) error
 	GetHistory(startDate, endDate time.Time, page, size int) ([]*models.Signal, int, error)
+	Query(query *models.SignalQuery) ([]*models.Signal, int, error)
+	CountByMarket(market string) (int, error)
+	CountBySignalType(signalType string) (int, error)
 	UpdateStatus(id int, status string) error
 	SetTriggeredAt(id int, triggeredAt *time.Time) error
 }
 
 // BoxRepo 箱体数据访问接口
 type BoxRepo interface {
+	GetByID(id int) (*models.Box, error)
 	GetActiveBySymbol(symbolID int, period string) ([]*models.Box, error)
 	GetBySignalID(signalID int) (*models.Box, error)
 	GetByBatchID(batchID string) ([]*models.Box, error)
@@ -85,6 +91,7 @@ type BoxRepo interface {
 	Create(box *models.Box) error
 	Update(box *models.Box) error
 	GetValidBoxes(endDate string, strategy string, period string) ([]*models.Box, error)
+	ListAll(page, size int, status, boxType string) ([]*models.Box, int, error)
 }
 
 // TrendRepo 趋势数据访问接口

@@ -11,7 +11,7 @@ database:
   host: "localhost"
   port: 5432
   user: "postgres"
-  password: "${DB_PASSWORD}"
+  password: "postgres"
   dbname: "starfire_quant"
   sslmode: "disable"
   max_open_conns: 25
@@ -90,6 +90,17 @@ strategies:
     volatility_multiplier: 2.0
     volume_multiplier: 2.0
     lookback_klines: 20
+    check_interval: 60
+  wick:
+    enabled: true
+    lookback_klines: 100
+    body_percent_max: 30        # 实体占比上限（%）
+    shadow_min_ratio: 2.0      # 引线最小倍数
+    require_trend: true        # 是否要求趋势确认
+    fake_breakout_enabled: true # 是否识别假突破
+    breakout_threshold: 0.5     # 突破阈值（%）
+    strength_lookback: 20      # 历史引线回溯数
+    signal_cooldown: 30        # 信号冷却期（分钟）
     check_interval: 60
 
 # 交易配置

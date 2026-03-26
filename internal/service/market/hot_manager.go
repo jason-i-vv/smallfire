@@ -34,13 +34,16 @@ func NewHotManager(symbolRepo repository.SymbolRepo,
 
 // UpdateHotSymbols 更新热度标的
 func (m *HotManager) UpdateHotSymbols() error {
-	for _, fetcher := range m.factory.ListEnabledFetchers() {
+	enabledFetchers := m.factory.ListEnabledFetchers()
+
+	for _, fetcher := range enabledFetchers {
 		if err := m.updateMarketHot(fetcher); err != nil {
 			m.logger.Error("更新热度标的失败",
 				zap.String("market", fetcher.MarketCode()),
 				zap.Error(err))
 		}
 	}
+
 	return nil
 }
 
@@ -49,13 +52,12 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 	limit := m.getLimit(marketCode)
 	hotDays := m.getHotDays(marketCode)
 
-	m.logger.Info("开始更新市场热度",
-		zap.String("market", marketCode),
-		zap.Int("limit", limit))
-
 	// 获取所有交易对
 	symbols, err := fetcher.FetchSymbols()
 	if err != nil {
+		m.logger.Error("获取交易对列表失败",
+			zap.String("market", marketCode),
+			zap.Error(err))
 		return err
 	}
 
@@ -78,11 +80,16 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 	// 获取市场ID
 	market, err := m.marketRepo.FindByCode(marketCode)
 	if err != nil {
+		m.logger.Error("获取市场信息失败",
+			zap.String("market", marketCode),
+			zap.Error(err))
 		return err
 	}
 
 	// 更新数据库
 	now := time.Now()
+	createdCount := 0
+	updatedCount := 0
 	for _, sym := range symbols {
 		// 查找或创建标的
 		symbol, err := m.symbolRepo.FindByCode(marketCode, sym.Code)
@@ -105,6 +112,7 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 					zap.Error(err))
 				continue
 			}
+			createdCount++
 		} else {
 			// 更新热度
 			symbol.HotScore = sym.HotScore
@@ -116,7 +124,9 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 				m.logger.Error("更新标的失败",
 					zap.String("code", sym.Code),
 					zap.Error(err))
+				continue
 			}
+			updatedCount++
 		}
 	}
 
@@ -126,9 +136,9 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 		m.logger.Error("清理过期热度标的失败", zap.Error(err))
 	}
 
-	m.logger.Info("完成市场热度更新",
+	m.logger.Info("热度标的更新完成",
 		zap.String("market", marketCode),
-		zap.Int("updated", len(symbols)))
+		zap.Int("total", createdCount+updatedCount))
 
 	return nil
 }

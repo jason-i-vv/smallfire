@@ -1,21 +1,39 @@
 <template>
   <div class="signal-list">
-    <!-- 筛选栏 -->
+    <!-- 市场筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">市场</h3>
+      <div class="filter-cards">
+        <div
+          v-for="market in marketOptions"
+          :key="market.value"
+          :class="['filter-card', { active: filters.market === market.value }]"
+          @click="selectMarket(market.value)"
+        >
+          <span class="card-label">{{ market.label }}</span>
+          <span class="card-count">{{ market.count }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 信号类型筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">信号类型</h3>
+      <div class="filter-cards">
+        <div
+          v-for="signal in signalTypeOptions"
+          :key="signal.value"
+          :class="['filter-card', { active: filters.signalType === signal.value }]"
+          @click="selectSignalType(signal.value)"
+        >
+          <span class="card-label">{{ signal.label }}</span>
+          <span class="card-count">{{ signal.count }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 其他筛选条件 -->
     <div class="filter-bar">
-      <el-select v-model="filters.market" placeholder="市场" clearable style="width: 120px">
-        <el-option label="全部" value="" />
-        <el-option label="Bybit" value="bybit" />
-        <el-option label="A股" value="a_stock" />
-        <el-option label="美股" value="us_stock" />
-      </el-select>
-
-      <el-select v-model="filters.signalType" placeholder="信号类型" clearable style="width: 140px">
-        <el-option label="箱体突破" value="box_breakout" />
-        <el-option label="趋势回撤" value="trend_retracement" />
-        <el-option label="阻力突破" value="resistance_break" />
-        <el-option label="量价异常" value="volume_surge" />
-      </el-select>
-
       <el-select v-model="filters.direction" placeholder="方向" clearable style="width: 100px">
         <el-option label="做多" value="long" />
         <el-option label="做空" value="short" />
@@ -44,6 +62,12 @@
 
       <el-table-column prop="symbol_code" label="标的" width="120" />
 
+      <el-table-column prop="source_type" label="来源" width="100">
+        <template #default="{ row }">
+          {{ getSourceTypeName(row.source_type) }}
+        </template>
+      </el-table-column>
+
       <el-table-column prop="signal_type" label="信号类型" width="120">
         <template #default="{ row }">
           {{ getSignalTypeName(row.signal_type) }}
@@ -60,7 +84,21 @@
 
       <el-table-column prop="strength" label="强度" width="100">
         <template #default="{ row }">
-          <span class="strength">{{ '⭐'.repeat(row.strength || 1) }}</span>
+          <span class="strength">{{ '⭐'.repeat(Math.min(row.strength || 1, 5)) }}</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="放大倍数" width="150">
+        <template #default="{ row }">
+          <span v-if="row.signal_data">
+            <span v-if="row.signal_data.volume_amplification" class="amp-badge">
+              量 {{ row.signal_data.volume_amplification.toFixed(2) }}x
+            </span>
+            <span v-if="row.signal_data.price_amplification" class="amp-badge amp-price">
+              价 {{ row.signal_data.price_amplification.toFixed(2) }}x
+            </span>
+          </span>
+          <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
 
@@ -84,7 +122,7 @@
 
       <el-table-column label="操作" width="180">
         <template #default="{ row }">
-          <el-button size="small" link @click="handleView(row)">查看</el-button>
+          <el-button size="small" link type="primary" @click="handleView(row)">查看</el-button>
           <el-button
             v-if="row.status === 'pending'"
             type="primary"
@@ -111,24 +149,85 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { signalApi } from '@/api/signals'
 import { formatTime, formatPrice } from '@/utils/formatters'
 
+const router = useRouter()
 const signals = ref([])
+
+// 市场选项
+const marketOptions = reactive([
+  { label: '全部', value: '', count: 0 },
+  { label: 'Bybit', value: 'bybit', count: 0 },
+  { label: 'A股', value: 'a_stock', count: 0 },
+  { label: '美股', value: 'us_stock', count: 0 }
+])
+
+// 信号类型选项
+const signalTypeOptions = reactive([
+  { label: '全部', value: '', count: 0 },
+  { label: '箱体突破', value: 'box_breakout', count: 0 },
+  { label: '箱体跌破', value: 'box_breakdown', count: 0 },
+  { label: '趋势回撤', value: 'trend_retracement', count: 0 },
+  { label: '阻力突破', value: 'resistance_break', count: 0 },
+  { label: '量价齐升', value: 'volume_price_rise', count: 0 },
+  { label: '量价齐跌', value: 'volume_price_fall', count: 0 },
+  { label: '价格飙升', value: 'price_surge', count: 0 },
+  { label: '上引线反转', value: 'upper_wick_reversal', count: 0 },
+  { label: '下引线反转', value: 'lower_wick_reversal', count: 0 },
+  { label: '假突破上引', value: 'fake_breakout_upper', count: 0 },
+  { label: '假突破下引', value: 'fake_breakout_lower', count: 0 }
+])
+
 const filters = reactive({
-  market: '',
-  signalType: '',
+  market: 'bybit', // 默认选中Bybit
+  signalType: 'box_breakout', // 默认选中箱体突破
   direction: '',
   strength: null,
   status: 'pending'
 })
+
 const pagination = reactive({
   page: 1,
   pageSize: 20,
   total: 0
 })
+
+// 选择市场
+const selectMarket = (value) => {
+  filters.market = value
+}
+
+// 选择信号类型
+const selectSignalType = (value) => {
+  filters.signalType = value
+}
+
+// 获取信号数量统计
+const fetchSignalCounts = async () => {
+  try {
+    const res = await signalApi.getCounts()
+    const data = res.data || {}
+
+    const marketCounts = data.market || {}
+    const signalTypeCounts = data.signal_type || {}
+
+    // 更新市场数量
+    marketOptions.forEach(opt => {
+      opt.count = marketCounts[opt.value] || 0
+    })
+
+    // 更新信号类型数量
+    signalTypeOptions.forEach(opt => {
+      opt.count = signalTypeCounts[opt.value] || 0
+    })
+  } catch (error) {
+    console.error('Failed to fetch signal counts:', error)
+  }
+}
 
 const fetchSignals = async () => {
   try {
@@ -137,8 +236,14 @@ const fetchSignals = async () => {
       page: pagination.page,
       page_size: pagination.pageSize
     }
+    // 移除空值
+    Object.keys(params).forEach(key => {
+      if (params[key] === '' || params[key] === null) {
+        delete params[key]
+      }
+    })
     const res = await signalApi.list(params)
-    signals.value = res.data?.items || []
+    signals.value = res.data?.list || []
     pagination.total = res.data?.total || 0
   } catch (error) {
     console.error('Failed to fetch signals:', error)
@@ -147,7 +252,7 @@ const fetchSignals = async () => {
       id: i + 1,
       created_at: Date.now() - i * 1000 * 60 * 60,
       symbol_code: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'AVAXUSDT'][i],
-      signal_type: 'box_breakout',
+      signal_type: filters.signalType || 'box_breakout',
       direction: i % 2 === 0 ? 'long' : 'short',
       strength: Math.floor(Math.random() * 3) + 1,
       price: 3000 + i * 100,
@@ -160,7 +265,33 @@ const fetchSignals = async () => {
 }
 
 const handleView = (signal) => {
-  console.log('View signal:', signal)
+  const query = {
+    symbolId: signal.symbol_id,
+    signalId: signal.id,
+    period: signal.period || '15m',
+    sourceType: signal.signal_type
+  }
+
+  // 箱体相关信号，传递箱体价格
+  const boxSignalTypes = ['box_breakout', 'box_breakdown']
+  if (boxSignalTypes.includes(signal.signal_type) && signal.signal_data) {
+    if (signal.signal_data.box_high) query.boxHigh = signal.signal_data.box_high
+    if (signal.signal_data.box_low) query.boxLow = signal.signal_data.box_low
+    if (signal.signal_data.breakout_price) query.breakoutPrice = signal.signal_data.breakout_price
+    if (signal.signal_time) query.signalTime = signal.signal_time
+  }
+
+  // 关键价位信号，传递价位信息
+  const keyLevelSignalTypes = ['resistance_break', 'support_break']
+  if (keyLevelSignalTypes.includes(signal.signal_type) && signal.signal_data) {
+    if (signal.signal_data.level_price) query.levelPrice = signal.signal_data.level_price
+  }
+
+  router.push({
+    name: 'KlineChart',
+    params: { symbol: signal.symbol_code },
+    query
+  })
 }
 
 const handleTrack = async (signal) => {
@@ -173,19 +304,47 @@ const handleTrack = async (signal) => {
   }
 }
 
+const getSourceTypeName = (type) => {
+  const names = {
+    box: '箱体',
+    trend: '趋势',
+    key_level: '关键位',
+    volume: '量价',
+    wick: '引线'
+  }
+  return names[type] || type
+}
+
 const getSignalTypeName = (type) => {
   const names = {
+    // 箱体类信号
     box_breakout: '箱体突破',
     box_breakdown: '箱体跌破',
+    // 趋势类信号
     trend_retracement: '趋势回撤',
+    trend_reversal: '趋势反转',
+    // 关键价位信号
     resistance_break: '阻力突破',
     support_break: '支撑跌破',
-    volume_surge: '量能放大'
+    // 量价信号
+    volume_surge: '量能放大',
+    price_surge: '价格飙升',
+    volume_price_fall: '量价齐跌',
+    volume_price_rise: '量价齐升',
+    // 上下引线信号
+    upper_wick_reversal: '上引线反转',
+    lower_wick_reversal: '下引线反转',
+    fake_breakout_upper: '假突破上引',
+    fake_breakout_lower: '假突破下引',
+    // 交易信号
+    long_signal: '做多信号',
+    short_signal: '做空信号'
   }
   return names[type] || type
 }
 
 onMounted(() => {
+  fetchSignalCounts()
   fetchSignals()
 })
 
@@ -201,6 +360,68 @@ watch(filters, () => {
 
 .signal-list {
   padding: 24px;
+
+  .filter-section {
+    margin-bottom: 20px;
+
+    .filter-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: $text-secondary;
+      margin-bottom: 12px;
+    }
+
+    .filter-cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .filter-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 90px;
+      padding: 12px 16px;
+      background: $surface;
+      border: 1px solid $border;
+      border-radius: $border-radius;
+      cursor: pointer;
+      transition: all 0.2s ease;
+
+      &:hover {
+        border-color: $primary;
+        background: rgba($primary, 0.05);
+      }
+
+      &.active {
+        background: rgba($primary, 0.1);
+        border-color: $primary;
+        color: $primary;
+      }
+
+      .card-label {
+        font-size: 14px;
+        font-weight: 500;
+        color: $text-primary;
+      }
+
+      .card-count {
+        font-size: 12px;
+        color: $text-secondary;
+        margin-top: 4px;
+      }
+
+      &.active .card-label {
+        color: $primary;
+      }
+
+      &.active .card-count {
+        color: $primary;
+      }
+    }
+  }
 
   .filter-bar {
     display: flex;
@@ -224,4 +445,20 @@ watch(filters, () => {
 .dir-long { color: $success; }
 .dir-short { color: $danger; }
 .strength { color: $warning; }
+.amp-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  margin-right: 4px;
+  background: rgba($primary, 0.1);
+  color: $primary;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.amp-price {
+  background: rgba($warning, 0.1);
+  color: $warning;
+}
+.text-muted {
+  color: $text-tertiary;
+}
 </style>

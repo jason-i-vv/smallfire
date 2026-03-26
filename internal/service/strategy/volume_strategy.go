@@ -22,7 +22,7 @@ func NewVolumePriceStrategy(cfg config.VolumePriceStrategyConfig, deps Dependenc
 }
 
 func (s *VolumePriceStrategy) Name() string        { return "volume_price_strategy" }
-func (s *VolumePriceStrategy) Type() string        { return "volume" }
+func (s *VolumePriceStrategy) Type() string        { return "volume_price" }
 func (s *VolumePriceStrategy) Enabled() bool       { return s.config.Enabled }
 func (s *VolumePriceStrategy) Config() interface{} { return s.config }
 
@@ -71,17 +71,29 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 
 		signalType := models.SignalTypePriceSurge
 
+		// 计算价格放大倍数
+		priceAmplification := currentVol / avgVol
+
+		// 根据放大倍数动态计算强度
+		// 2倍触发，2-3倍为1星，3-4倍为2星，4-5倍为3星，5倍以上为4星
+		strength := calculateStrength(priceAmplification, s.config.VolatilityMultiplier)
+
 		expireTime := time.Now().Add(6 * time.Hour)
 
 		return &models.Signal{
-			SymbolID:         symbolID,
-			SignalType:       signalType,
-			SourceType:       models.SourceTypeVolume,
-			Direction:        direction,
-			Strength:         2,
-			Price:            latest.ClosePrice,
-			Period:           latest.Period,
-			SignalData:       &models.JSONB{},
+			SymbolID:   symbolID,
+			SignalType: signalType,
+			SourceType: models.SourceTypeVolume,
+			Direction:  direction,
+			Strength:   strength,
+			Price:      latest.ClosePrice,
+			Period:     latest.Period,
+			SignalData: &models.JSONB{
+				"price_amplification": priceAmplification,
+				"volatility_threshold": threshold,
+				"current_volatility":  currentVol,
+				"avg_volatility":       avgVol,
+			},
 			Status:           models.SignalStatusPending,
 			ExpiredAt:        &expireTime,
 			NotificationSent: false,
@@ -117,17 +129,29 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 			signalType = "volume_price_fall" // 量价齐跌
 		}
 
+		// 计算量能放大倍数
+		volumeAmplification := latest.Volume / avgVol
+
+		// 根据放大倍数动态计算强度
+		strength := calculateStrength(volumeAmplification, s.config.VolumeMultiplier)
+
 		expireTime := time.Now().Add(6 * time.Hour)
 
 		return &models.Signal{
-			SymbolID:         symbolID,
-			SignalType:       signalType,
-			SourceType:       models.SourceTypeVolume,
-			Direction:        direction,
-			Strength:         2,
-			Price:            latest.ClosePrice,
-			Period:           latest.Period,
-			SignalData:       &models.JSONB{},
+			SymbolID:   symbolID,
+			SignalType: signalType,
+			SourceType: models.SourceTypeVolume,
+			Direction:  direction,
+			Strength:   strength,
+			Price:      latest.ClosePrice,
+			Period:     latest.Period,
+			SignalData: &models.JSONB{
+				"volume_amplification":  volumeAmplification,
+				"volume_threshold":     threshold,
+				"current_volume":       latest.Volume,
+				"avg_volume":           avgVol,
+				"price_change_percent":  priceChange * 100,
+			},
 			Status:           models.SignalStatusPending,
 			ExpiredAt:        &expireTime,
 			NotificationSent: false,
@@ -136,4 +160,34 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 	}
 
 	return nil
+}
+
+// calculateStrength 根据放大倍数计算信号强度
+// thresholdMultiplier: 触发阈值倍数（用于判断是否触发）
+// amplification: 实际放大倍数
+func calculateStrength(amplification, thresholdMultiplier float64) int {
+	// 基准强度为1星（刚好触发）
+	// 每超过1个阈值倍数，增加1星强度
+	// 2倍阈值 = 1星
+	// 3倍阈值 = 2星
+	// 4倍阈值 = 3星
+	// 5倍阈值 = 4星
+	// 6倍及以上 = 5星
+
+	if amplification >= thresholdMultiplier*6 {
+		return 5
+	}
+	if amplification >= thresholdMultiplier*5 {
+		return 5
+	}
+	if amplification >= thresholdMultiplier*4 {
+		return 4
+	}
+	if amplification >= thresholdMultiplier*3 {
+		return 3
+	}
+	if amplification >= thresholdMultiplier*2 {
+		return 2
+	}
+	return 1
 }

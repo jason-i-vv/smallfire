@@ -42,13 +42,25 @@ func (r *Runner) Start() {
 	r.wg.Add(1)
 	go r.runAnalysisLoop()
 
-	r.logger.Info("策略运行器已启动")
+	r.logger.Info("策略执行器已启动", zap.Duration("check_interval", r.interval))
 }
 
 func (r *Runner) Stop() {
 	close(r.stopCh)
-	r.wg.Wait()
-	r.logger.Info("策略运行器已停止")
+
+	// 等待最多10秒让当前任务完成
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		r.logger.Info("策略运行器已停止")
+	case <-time.After(10 * time.Second):
+		r.logger.Warn("策略运行器停止超时，强制退出")
+	}
 }
 
 func (r *Runner) runAnalysisLoop() {
@@ -71,6 +83,8 @@ func (r *Runner) runAnalysisLoop() {
 }
 
 func (r *Runner) analyzeAllSymbols() {
+	r.logger.Info("策略执行器开始分析所有标的")
+
 	// 获取所有跟踪的标的
 	symbols, err := r.klineRepo.GetAllTrackedSymbols()
 	if err != nil {
@@ -93,8 +107,23 @@ func (r *Runner) analyzeAllSymbols() {
 				continue
 			}
 
-			// 运行所有策略
+			// GetLatestN 返回倒序，需要反转为正序（旧->新）
+			for i, j := 0, len(klines)-1; i < j; i, j = i+1, j-1 {
+				klines[i], klines[j] = klines[j], klines[i]
+			}
+
+			//r.logger.Debug("策略执行器监听到新K线",
+			//	zap.String("symbol", symbol.Code),
+			//	zap.String("period", period),
+			//	zap.Int("kline_count", len(klines)))
+
+	// 运行所有策略
 			for _, strategy := range r.factory.ListStrategies() {
+				r.logger.Debug("运行策略",
+					zap.String("strategy", strategy.Name()),
+					zap.String("symbol", symbol.Code),
+					zap.String("period", period),
+					zap.Int("klines", len(klines)))
 				signals, err := strategy.Analyze(symbol.ID, symbol.Code, period, klines)
 				if err != nil {
 					r.logger.Error("策略分析失败",

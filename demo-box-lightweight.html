@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>K线图箱体绘制 Demo · Starfire</title>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #c9d1d9; font-family: monospace; padding: 20px; }
+    h1 { color: #00e5a0; font-size: 16px; margin-bottom: 12px; }
+    #chart-wrap {
+      position: relative;
+      width: 1100px;
+      height: 550px;
+      border: 1px solid #1a2535;
+    }
+    #chart {
+      position: absolute;
+      top: 0; left: 0;
+      width: 1100px;
+      height: 550px;
+      z-index: 1;
+    }
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+    #debug {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #ffd740;
+      white-space: pre;
+    }
+  </style>
+</head>
+<body>
+  <h1>Starfire · 箱体 Demo</h1>
+  <div id="chart-wrap">
+    <div id="chart"></div>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div id="debug">loading...</div>
+
+  <script>
+  // ── K线数据（确定性随机）
+  function makeKline(n) {
+    const BASE = 1704067200; // 2024-01-01 00:00 UTC
+    const BAR  = 4 * 3600;
+    const bars = [];
+    let p = 42000;
+    const rng = (s) => { const x = Math.sin(s) * 43758.5453; return x - Math.floor(x); };
+    for (let i = 0; i < n; i++) {
+      const r1 = rng(i * 3 + 1);
+      const r2 = rng(i * 3 + 2);
+      const r3 = rng(i * 3 + 3);
+      const c  = p + (r1 - 0.48) * 600;
+      const hi = Math.max(p, c) + r2 * 300 + 50;
+      const lo = Math.min(p, c) - r3 * 300 - 50;
+      bars.push({ time: BASE + i * BAR, open: +p.toFixed(1), high: +hi.toFixed(1), low: +lo.toFixed(1), close: +c.toFixed(1) });
+      p = c;
+    }
+    return bars;
+  }
+
+  const kdata = makeKline(80);
+
+  // 计算某段 bar 的 high/low 包络（用来确保箱体在可视范围内）
+  function rangeOf(bars, s, e) {
+    let hi = -Infinity, lo = Infinity;
+    for (let i = s; i <= e; i++) {
+      if (bars[i].high > hi) hi = bars[i].high;
+      if (bars[i].low  < lo) lo = bars[i].low;
+    }
+    // 取 60% 内侧区间，作为箱体上下轨
+    const mid  = (hi + lo) / 2;
+    const half = (hi - lo) / 2;
+    return { high: +(mid + half * 0.6).toFixed(1), low: +(mid - half * 0.6).toFixed(1) };
+  }
+
+  // 箱体定义（high/low 从数据推算，保证在可视范围内）
+  const rawBoxes = [
+    { s:  5, e: 18, rail: '#00e5a0', border: '#ff6b35', fill: 'rgba(0,229,160,0.18)' },
+    { s: 28, e: 45, rail: '#00bcd4', border: '#ffd740', fill: 'rgba(0,188,212,0.18)' },
+    { s: 55, e: 72, rail: '#b388ff', border: '#ff80ab', fill: 'rgba(179,136,255,0.18)' },
+  ];
+
+  const boxes = rawBoxes.map(b => {
+    const r = rangeOf(kdata, b.s, b.e);
+    return {
+      ...b,
+      high:      r.high,
+      low:       r.low,
+      startTime: kdata[b.s].time,
+      endTime:   kdata[b.e].time,
+    };
+  });
+
+  // ── 图表
+  const chartDiv = document.getElementById('chart');
+  const chart = LightweightCharts.createChart(chartDiv, {
+    width:  1100,
+    height: 550,
+    layout: { background: { color: '#0d1117' }, textColor: '#6b7888' },
+    grid:   { vertLines: { color: '#141e2b' }, horzLines: { color: '#141e2b' } },
+    rightPriceScale: { borderColor: '#1a2535' },
+    timeScale: { borderColor: '#1a2535', timeVisible: true },
+  });
+
+  const series = chart.addCandlestickSeries({
+    upColor: '#00e5a0', downColor: '#ff4d6d',
+    borderUpColor: '#00e5a0', borderDownColor: '#ff4d6d',
+    wickUpColor: '#00c87a', wickDownColor: '#cc3358',
+    priceLineVisible: false, lastValueVisible: false,
+  });
+  series.setData(kdata);
+  chart.timeScale().fitContent();
+
+  // ── overlay canvas（尺寸与图表完全一致）
+  const canvas = document.getElementById('overlay');
+  canvas.width  = 1100;
+  canvas.height = 550;
+  canvas.style.width  = '1100px';
+  canvas.style.height = '550px';
+  const ctx = canvas.getContext('2d');
+
+  function drawBoxes() {
+    ctx.clearRect(0, 0, 1100, 550);
+    const lines = ['drawBoxes called'];
+
+    for (const box of boxes) {
+      const x0 = chart.timeScale().timeToCoordinate(box.startTime);
+      const x1 = chart.timeScale().timeToCoordinate(box.endTime);
+      const y0 = series.priceToCoordinate(box.high);
+      const y1 = series.priceToCoordinate(box.low);
+
+      lines.push(`[${box.s}-${box.e}] x0=${x0?.toFixed(1)} x1=${x1?.toFixed(1)} y0=${y0?.toFixed(1)} y1=${y1?.toFixed(1)} high=${box.high} low=${box.low}`);
+
+      if (x0 == null || x1 == null || y0 == null || y1 == null) continue;
+      if (x1 <= x0) continue;
+
+      const lx = Math.min(x0, x1), rx = Math.max(x0, x1);
+      const ty = Math.min(y0, y1), by = Math.max(y0, y1);
+      const bw = rx - lx, bh = by - ty;
+
+      // 填充
+      ctx.fillStyle = box.fill;
+      ctx.fillRect(lx, ty, bw, bh);
+
+      // 上轨
+      ctx.strokeStyle = box.rail;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(lx, ty); ctx.lineTo(rx, ty); ctx.stroke();
+
+      // 下轨
+      ctx.beginPath(); ctx.moveTo(lx, by); ctx.lineTo(rx, by); ctx.stroke();
+
+      // 左边界（虚线）
+      ctx.strokeStyle = box.border;
+      ctx.setLineDash([6, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(lx, ty); ctx.lineTo(lx, by); ctx.stroke();
+
+      // 右边界（虚线）
+      ctx.beginPath(); ctx.moveTo(rx, ty); ctx.lineTo(rx, by); ctx.stroke();
+
+      ctx.setLineDash([]);
+    }
+
+    document.getElementById('debug').textContent = lines.join('\n');
+  }
+
+  chart.timeScale().subscribeVisibleLogicalRangeChange(() => requestAnimationFrame(drawBoxes));
+  setTimeout(drawBoxes, 200);
+  </script>
+</body>
+</html>

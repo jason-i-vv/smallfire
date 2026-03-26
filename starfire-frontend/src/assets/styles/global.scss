@@ -24,7 +24,7 @@ a {
   transition: color $transition-fast;
 
   &:hover {
-    color: $primary-light;
+    color: $primary-dark;
   }
 }
 
@@ -54,20 +54,25 @@ input, textarea, select {
   border-radius: 4px;
 
   &:hover {
-    background: $text-secondary;
+    background: $text-tertiary;
   }
 }
 
-// Element Plus 组件样式覆盖
+// Element Plus 组件样式覆盖 - 浅色主题
 .el-card {
   background: $surface !important;
   border-color: $border !important;
+  box-shadow: $shadow-sm !important;
 }
 
 .el-card__header {
   background: $surface !important;
   border-color: $border !important;
   color: $text-primary;
+}
+
+.el-card__body {
+  background-color: $surface;
 }
 
 .el-table {
@@ -77,53 +82,53 @@ input, textarea, select {
   --el-table-row-hover-bg-color: #{$surface-hover};
   --el-table-border-color: #{$border};
   --el-table-text-color: #{$text-primary};
+  --el-table-header-text-color: #{$text-secondary};
 }
 
 .el-button--primary {
   --el-button-bg-color: #{$primary};
   --el-button-border-color: #{$primary};
-  --el-button-hover-bg-color: #{$primary-light};
-  --el-button-hover-border-color: #{$primary-light};
+  --el-button-hover-bg-color: #{$primary-dark};
+  --el-button-hover-border-color: #{$primary-dark};
+  --el-button-active-bg-color: #{$primary-dark};
+  --el-button-active-border-color: #{$primary-dark};
 }
 
 .el-input__wrapper {
-  background-color: $background;
+  background-color: $surface;
   box-shadow: 0 0 0 1px $border inset;
+}
+
+.el-input__wrapper:hover {
+  box-shadow: 0 0 0 1px $primary inset;
+}
+
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px $primary inset;
 }
 
 .el-input__inner {
   color: $text-primary;
 }
 
+.el-input__inner::placeholder {
+  color: $text-tertiary;
+}
+
 .el-form-item__label {
   color: $text-secondary;
 }
 
-.el-card__body {
-  background-color: $surface;
-}
-
 .el-pagination {
-  --el-pagination-fill-color: #{$surface};
   --el-pagination-bg-color: #{$surface};
   --el-pagination-border-color: #{$border};
   --el-pagination-text-color: #{$text-primary};
-}
-
-.el-radio-button__inner {
-  background-color: $surface;
-  border-color: $border;
-  color: $text-secondary;
-}
-
-.el-radio-button__orig-radio:checked + .el-radio-button__inner {
-  background-color: $primary;
-  border-color: $primary;
-  color: $background;
+  --el-pagination-button-bg-color: #{$surface};
+  --el-pagination-hover-color: #{$primary};
 }
 
 .el-select .el-input__wrapper {
-  background-color: $background;
+  background-color: $surface;
 }
 
 .el-option {
@@ -135,14 +140,21 @@ input, textarea, select {
   }
 }
 
+.el-option.is-selected {
+  color: $primary;
+  font-weight: 500;
+}
+
 .el-popper {
   background-color: $surface !important;
   border-color: $border !important;
+  box-shadow: $shadow !important;
 }
 
 .el-dropdown-menu {
   background-color: $surface !important;
   border-color: $border !important;
+  box-shadow: $shadow !important;
 }
 
 .el-dropdown-menu__item {
@@ -150,5 +162,104 @@ input, textarea, select {
 
   &:hover {
     background-color: $surface-hover !important;
+    color: $primary;
+  }
+}
+
+.el-menu {
+  background-color: $surface !important;
+  border-color: $border !important;
+}
+
+.el-menu-item {
+  color: $text-primary;
+
+  &:hover {
+    background-color: $surface-hover !important;
+  }
+}
+
+.el-menu-item.is-active {
+  color: $primary !important;
+}
+
+.el-sub-menu__title {
+  color: $text-primary;
+
+  &:hover {
+    background-color: $surface-hover !important;
+  }
+}
+
+// 标签样式
+.el-tag {
+  border-color: $border;
+}
+
+// 标签页
+.el-tabs__item {
+  color: $text-secondary;
+
+  &:hover {
+    color: $primary;
+  }
+}
+
+.el-tabs__item.is-active {
+  color: $primary;
+}
+
+.el-tabs__active-bar {
+  background-color: $primary;
+}
+
+// 对话框
+.el-dialog {
+  background-color: $surface !important;
+}
+
+.el-dialog__header {
+  border-bottom: 1px solid $border;
+}
+
+.el-dialog__body {
+  color: $text-primary;
+}
+
+// 消息提示
+.el-message {
+  background-color: $surface;
+  border-color: $border;
+}
+
+// 导航栏头部
+.app-header {
+  background: $surface !important;
+  border-bottom: 1px solid $border !important;
+  box-shadow: $shadow-sm !important;
+}
+
+.app-footer {
+  background: $surface !important;
+  border-top: 1px solid $border !important;
+}
+
+// 侧边栏菜单样式
+.el-menu--collapse {
+  width: $sidebar-collapsed-width !important;
+}
+
+.el-menu--vertical {
+  width: $sidebar-width;
+}
+
+// 统计卡片
+.stat-card {
+  background: $surface !important;
+  border-color: $border !important;
+  box-shadow: $shadow-sm !important;
+
+  &:hover {
+    box-shadow: $shadow !important;
   }
 }

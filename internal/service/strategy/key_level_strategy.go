@@ -156,6 +156,17 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 
 	if level.LevelType == "resistance" {
 		if price > levelPrice+threshold {
+			// 构建突破信号数据，记录被突破的阻力位信息
+			signalData := &models.JSONB{
+				"level_id":         level.ID,
+				"level_type":       level.LevelType,
+				"level_subtype":    level.LevelSubtype,
+				"level_price":      level.Price,         // 突破的阻力位价格
+				"level_distance":   (price - level.Price) / level.Price * 100, // 突破幅度%
+				"klines_count":     level.KlinesCount,   // 阻力位被触及次数
+				"breakout_price":   price,               // 突破价格
+			}
+
 			return &models.Signal{
 				SymbolID:         symbolID,
 				SignalType:       models.SignalTypeResistanceBreak,
@@ -165,6 +176,7 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 				Price:            price,
 				StopLossPrice:    &level.Price,
 				Period:           kline.Period,
+				SignalData:       signalData,
 				Status:           models.SignalStatusPending,
 				NotificationSent: false,
 				CreatedAt:        time.Now(),
@@ -172,6 +184,17 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 		}
 	} else if level.LevelType == "support" {
 		if price < levelPrice-threshold {
+			// 构建跌破信号数据，记录被跌破的支撑位信息
+			signalData := &models.JSONB{
+				"level_id":         level.ID,
+				"level_type":       level.LevelType,
+				"level_subtype":    level.LevelSubtype,
+				"level_price":      level.Price,         // 跌破的支撑位价格
+				"level_distance":   (level.Price - price) / level.Price * 100, // 跌破幅度%
+				"klines_count":     level.KlinesCount,   // 支撑位被触及次数
+				"breakout_price":   price,               // 跌破价格
+			}
+
 			return &models.Signal{
 				SymbolID:         symbolID,
 				SignalType:       models.SignalTypeSupportBreak,
@@ -181,6 +204,7 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 				Price:            price,
 				StopLossPrice:    &level.Price,
 				Period:           kline.Period,
+				SignalData:       signalData,
 				Status:           models.SignalStatusPending,
 				NotificationSent: false,
 				CreatedAt:        time.Now(),

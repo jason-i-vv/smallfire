@@ -17,8 +17,11 @@ type Fetcher interface {
 	// 获取交易对列表
 	FetchSymbols() ([]SymbolInfo, error)
 
-	// 获取K线数据
+	// 获取K线数据（按数量限制）
 	FetchKlines(symbol string, period string, limit int) ([]KlineData, error)
+
+	// 获取指定时间范围的K线数据
+	FetchKlinesByTimeRange(symbol string, period string, startTime, endTime time.Time) ([]KlineData, error)
 
 	// 获取实时价格
 	FetchTicker(symbol string) (*Ticker, error)

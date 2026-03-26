@@ -1,0 +1,1 @@
+import{v as s}from"./index-CZx4TIkS.js";const a={positions:()=>s.get("/trades/positions"),closePosition:(t,o)=>s.post(`/trades/${t}/close`,o),history:t=>s.get("/trades/history",{params:t}),stats:t=>s.get("/trades/stats",{params:t}),equity:t=>s.get("/trades/stats",{params:t})};export{a as t};

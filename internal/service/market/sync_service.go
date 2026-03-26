@@ -42,8 +42,11 @@ func NewSyncService(factory *Factory, klineRepo repository.KlineRepo,
 func (s *SyncService) Start() {
 	s.stopCh = make(chan struct{})
 
+	// 获取启用的抓取器
+	enabledFetchers := s.factory.ListEnabledFetchers()
+
 	// 启动每个市场的同步任务
-	for _, fetcher := range s.factory.ListEnabledFetchers() {
+	for _, fetcher := range enabledFetchers {
 		s.wg.Add(1)
 		go s.runSyncLoop(fetcher)
 	}
@@ -52,13 +55,25 @@ func (s *SyncService) Start() {
 	s.wg.Add(1)
 	go s.runHotUpdateLoop()
 
-	s.logger.Info("同步服务已启动")
+	s.logger.Info("行情抓取服务已启动", zap.Int("market_count", len(enabledFetchers)))
 }
 
 func (s *SyncService) Stop() {
 	close(s.stopCh)
-	s.wg.Wait()
-	s.logger.Info("同步服务已停止")
+
+	// 等待最多30秒让当前任务完成，避免无限等待
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		s.logger.Info("同步服务已停止")
+	case <-time.After(30 * time.Second):
+		s.logger.Warn("同步服务停止超时，强制退出")
+	}
 }
 
 func (s *SyncService) runSyncLoop(fetcher Fetcher) {
@@ -76,15 +91,35 @@ func (s *SyncService) runSyncLoop(fetcher Fetcher) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 
+	// 记录开始时间，用于统计
+	syncStart := time.Now()
+	syncedCount := 0
+	failedCount := 0
+
 	for {
 		select {
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
+			s.logger.Info("开始行情抓取",
+				zap.String("market", marketCode),
+				zap.Strings("periods", periods))
+
+			// 重置统计
+			syncStart = time.Now()
+			syncedCount = 0
+			failedCount = 0
+
 			// 获取需要同步的标的
 			symbols, err := s.symbolRepo.GetTrackingByMarket(marketCode)
 			if err != nil {
 				s.logger.Error("获取跟踪标的失败", zap.String("market", marketCode), zap.Error(err))
+				continue
+			}
+
+			if len(symbols) == 0 {
+				s.logger.Warn("没有找到需要同步的标的，请检查热度标的是否已初始化",
+					zap.String("market", marketCode))
 				continue
 			}
 
@@ -96,9 +131,20 @@ func (s *SyncService) runSyncLoop(fetcher Fetcher) {
 							zap.String("symbol", symbol.SymbolCode),
 							zap.String("period", period),
 							zap.Error(err))
+						failedCount++
+					} else {
+						syncedCount++
 					}
 				}
 			}
+
+			// 输出同步统计
+			s.logger.Info("行情抓取完成",
+				zap.String("market", marketCode),
+				zap.Int("symbol_count", len(symbols)),
+				zap.Int("success", syncedCount),
+				zap.Int("failed", failedCount),
+				zap.Duration("duration", time.Since(syncStart)))
 		}
 	}
 }

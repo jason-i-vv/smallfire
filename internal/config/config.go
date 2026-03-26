@@ -72,6 +72,7 @@ type StrategiesConfig struct {
 	Trend       TrendStrategyConfig       `mapstructure:"trend"`
 	KeyLevel    KeyLevelStrategyConfig    `mapstructure:"key_level"`
 	VolumePrice VolumePriceStrategyConfig `mapstructure:"volume_price"`
+	Wick        WickStrategyConfig        `mapstructure:"wick"`
 }
 
 type BoxStrategyConfig struct {
@@ -102,6 +103,31 @@ type VolumePriceStrategyConfig struct {
 	VolumeMultiplier     float64 `mapstructure:"volume_multiplier"`     // 成交量倍数
 	LookbackKlines       int     `mapstructure:"lookback_klines"`       // 回溯K线数
 	CheckInterval        int     `mapstructure:"check_interval"`
+}
+
+// WickStrategyConfig 上下引线策略配置
+type WickStrategyConfig struct {
+	Enabled            bool    `mapstructure:"enabled"`
+	LookbackKlines    int     `mapstructure:"lookback_klines"`     // 回溯K线数（用于趋势判断）
+
+	// 形态参数
+	BodyPercentMax    float64 `mapstructure:"body_percent_max"`   // 实体占比上限（默认30%）
+	ShadowMinRatio    float64 `mapstructure:"shadow_min_ratio"`    // 引线最小倍数（默认2.0）
+
+	// 趋势确认
+	RequireTrend      bool    `mapstructure:"require_trend"`       // 是否要求趋势确认（默认true）
+
+	// 假突破识别
+	FakeBreakoutEnabled  bool    `mapstructure:"fake_breakout_enabled"` // 是否识别假突破
+	BreakoutThreshold   float64 `mapstructure:"breakout_threshold"`   // 突破阈值（默认0.5%）
+
+	// 强度计算
+	StrengthLookback  int     `mapstructure:"strength_lookback"`   // 历史引线回溯数
+
+	// 信号过滤
+	SignalCooldown    int     `mapstructure:"signal_cooldown"`     // 信号冷却期（分钟）
+
+	CheckInterval     int     `mapstructure:"check_interval"`      // 检查间隔（秒）
 }
 
 type TradingConfig struct {

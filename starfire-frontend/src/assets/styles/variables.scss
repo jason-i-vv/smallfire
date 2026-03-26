@@ -1,27 +1,39 @@
+// 星火量化 - 浅色绿色主题
 $primary: #00C853;
 $primary-light: #69F0AE;
 $primary-dark: #00A843;
 
-$background: #0D1117;
-$surface: #161B22;
-$surface-hover: #1C2128;
-$border: #30363D;
+// 浅色背景
+$background: #F5F7FA;
+$surface: #FFFFFF;
+$surface-hover: #F0F4F8;
+$border: #E4E7ED;
 
-$text-primary: #E6EDF3;
-$text-secondary: #8B949E;
-$text-tertiary: #6E7681;
+// 文字颜色
+$text-primary: #303133;
+$text-secondary: #606266;
+$text-tertiary: #909399;
 
-$success: #26A69A;
+// 状态颜色
+$success: #00C853;
 $danger: #EF5350;
 $warning: #FF9800;
 $info: #42A5F5;
 
-$shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-$shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-$shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3);
+// 阴影
+$shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+$shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+$shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.12);
 
+// 过渡
 $transition-fast: 0.15s ease;
 $transition: 0.25s ease;
 $transition-slow: 0.35s ease;
 
 $border-radius: 8px;
+
+// 侧边栏
+$sidebar-width: 240px;
+$sidebar-collapsed-width: 64px;
+$sidebar-header-height: 64px;
+$top-header-height: 64px;

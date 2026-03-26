@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Signal Overlay Demo - Starfire</title>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #c9d1d9; font-family: monospace; padding: 20px; }
+    .page-title { color: #00e5a0; font-size: 16px; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 20px; }
+    .section { margin-bottom: 28px; }
+    .section-title { font-size: 11px; color: #3d4f60; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; border-left: 2px solid #1a2535; padding-left: 8px; }
+    .chart-wrap { position: relative; width: 1100px; height: 280px; border: 1px solid #1a2535; }
+    .chart-div  { position: absolute; inset: 0; z-index: 1; }
+    canvas.ov   { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+    .legend { display: flex; gap: 18px; margin-top: 8px; font-size: 10px; color: #506070; align-items: center; flex-wrap: wrap; }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+    .lh  { width: 18px; height: 2px; display: inline-block; }
+    .ld  { width: 18px; height: 0; border-top: 2px dashed; display: inline-block; }
+  </style>
+</head>
+<body>
+  <div class="page-title">Starfire - Signal Overlay Demo</div>
+
+  <div class="section">
+    <div class="section-title">1. Box Breakout</div>
+    <div class="chart-wrap"><div class="chart-div" id="c1"></div><canvas class="ov" id="ov1"></canvas></div>
+    <div class="legend">
+      <span><span class="lh" style="background:#00e5a0"></span>上轨</span>
+      <span><span class="lh" style="background:#ff4d6d"></span>下轨</span>
+      <span><span class="ld" style="border-color:#ffd740"></span>左/右边界</span>
+      <span><span class="dot" style="background:#00e5a0"></span>向上突破</span>
+      <span><span class="dot" style="background:#ff4d6d"></span>向下突破</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">2. Trend Pullback</div>
+    <div class="chart-wrap"><div class="chart-div" id="c2"></div><canvas class="ov" id="ov2"></canvas></div>
+    <div class="legend">
+      <span><span class="ld" style="border-color:#00bcd4"></span>趋势线</span>
+      <span><span class="dot" style="background:#00e5a0"></span>回调买点</span>
+      <span><span class="dot" style="background:#ff4d6d"></span>回调卖点</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">3. Resistance and Support</div>
+    <div class="chart-wrap"><div class="chart-div" id="c3"></div><canvas class="ov" id="ov3"></canvas></div>
+    <div class="legend">
+      <span><span class="ld" style="border-color:#ff4d6d"></span>阻力位</span>
+      <span><span class="ld" style="border-color:#00e5a0"></span>支撑位</span>
+      <span><span class="dot" style="background:#ff4d6d"></span>触碰阻力</span>
+      <span><span class="dot" style="background:#00e5a0"></span>触碰支撑</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">4. Volume Anomaly</div>
+    <div class="chart-wrap"><div class="chart-div" id="c4"></div><canvas class="ov" id="ov4"></canvas></div>
+    <div class="legend">
+      <span><span class="dot" style="background:#ffd740"></span>量价异常(放量)</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">5. Upper / Lower Wick</div>
+    <div class="chart-wrap"><div class="chart-div" id="c5"></div><canvas class="ov" id="ov5"></canvas></div>
+    <div class="legend">
+      <span><span class="dot" style="background:#b388ff"></span>长上引线(看跌)</span>
+      <span><span class="dot" style="background:#ff80ab"></span>长下引线(看涨)</span>
+    </div>
+  </div>
+
+<script>
+
+const W=1100,H=280;
+const CFG={width:W,height:H,layout:{background:{color:'#0d1117'},textColor:'#6b7888'},grid:{vertLines:{color:'#141e2b'},horzLines:{color:'#141e2b'}},rightPriceScale:{borderColor:'#1a2535'},timeScale:{borderColor:'#1a2535',timeVisible:true,secondsVisible:false},crosshair:{mode:1}};
+
+function rng(s){const x=Math.sin(s+1)*43758.5453;return x-Math.floor(x);}
+function makeKline(n,seed,sp,trend){
+  const BASE=1704067200,BAR=14400,bars=[];let p=sp;
+  for(let i=0;i<n;i++){
+    const r1=rng(seed*1000+i*3),r2=rng(seed*1000+i*3+1),r3=rng(seed*1000+i*3+2);
+    const c=p+(r1-0.48)*400+trend*(30+r1*60);
+    const hi=Math.max(p,c)+r2*200+20,lo=Math.min(p,c)-r3*200-20;
+    bars.push({time:BASE+i*BAR,open:+p.toFixed(1),high:+hi.toFixed(1),low:+lo.toFixed(1),close:+c.toFixed(1)});
+    p=c;
+  }
+  return bars;
+}
+function makeChart(id){
+  const chart=LightweightCharts.createChart(document.getElementById(id),CFG);
+  const candle=chart.addCandlestickSeries({upColor:'#00e5a0',downColor:'#ff4d6d',borderUpColor:'#00e5a0',borderDownColor:'#ff4d6d',wickUpColor:'#00c87a',wickDownColor:'#cc3358',priceLineVisible:false,lastValueVisible:false});
+  return{chart,candle};
+}
+function makeOv(id){const cv=document.getElementById(id);cv.width=W;cv.height=H;return cv.getContext('2d');}
+function tx(chart,t){return chart.timeScale().timeToCoordinate(t);}
+function py(s,p){return s.priceToCoordinate(p);}
+function barRange(bars,s,e){let hi=-Infinity,lo=Infinity;for(let i=s;i<=e;i++){if(bars[i].high>hi)hi=bars[i].high;if(bars[i].low<lo)lo=bars[i].low;}return{hi,lo};}
+function dl(ctx,x0,y0,x1,y1,c,lw,dash){ctx.save();ctx.strokeStyle=c;ctx.lineWidth=lw;ctx.setLineDash(dash||[]);ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();ctx.restore();}
+function dd(ctx,x,y,r,c){ctx.save();ctx.fillStyle=c;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.restore();}
+function dt(ctx,x,y,text,c){ctx.save();ctx.fillStyle=c;ctx.font='bold 9px monospace';ctx.fillText(text,x,y);ctx.restore();}
+
+// 1. Box Breakout
+(function(){
+  const bars=makeKline(80,1,42000,0);
+  const {chart,candle}=makeChart('c1');
+  candle.setData(bars);
+  const ctx=makeOv('ov1');
+  const S=10,E=40;
+  const {hi,lo}=barRange(bars,S,E);
+  const pad=(hi-lo)*0.05,BH=hi-pad,BL=lo+pad;
+  const bks=[];
+  for(let i=E+1;i<bars.length;i++){
+    if(bars[i].close>BH&&bars[i-1].close<=BH)bks.push({i,d:'up'});
+    if(bars[i].close<BL&&bars[i-1].close>=BL)bks.push({i,d:'dn'});
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    const x0=tx(chart,bars[S].time),x1=tx(chart,bars[E].time);
+    const yH=py(candle,BH),yL=py(candle,BL);
+    if(x0==null||x1==null||yH==null||yL==null)return;
+    const lx=Math.min(x0,x1),rx=Math.max(x0,x1),ty=Math.min(yH,yL),by=Math.max(yH,yL);
+    ctx.fillStyle='rgba(0,229,160,0.07)';ctx.fillRect(lx,ty,rx-lx,by-ty);
+    dl(ctx,lx,ty,rx,ty,'#00e5a0',2);dl(ctx,lx,by,rx,by,'#ff4d6d',2);
+    dl(ctx,lx,ty,lx,by,'#ffd740',1.5,[6,4]);dl(ctx,rx,ty,rx,by,'#ffd740',1.5,[6,4]);
+    for(const b of bks){
+      const bx=tx(chart,bars[b.i].time);if(bx==null)continue;
+      if(b.d==='up'){const wy=py(candle,bars[b.i].high);if(wy==null)continue;dd(ctx,bx,wy-10,5,'#00e5a0');dt(ctx,bx-18,wy-16,'BreakUp','#00e5a0');}
+      else{const wy=py(candle,bars[b.i].low);if(wy==null)continue;dd(ctx,bx,wy+10,5,'#ff4d6d');dt(ctx,bx-18,wy+24,'BreakDn','#ff4d6d');}
+    }
+  }
+  chart.timeScale().fitContent();
+  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>requestAnimationFrame(draw));
+  setTimeout(draw,300);
+})();
+
+// 2. Trend Pullback
+(function(){
+  const bars=makeKline(80,2,38000,1);
+  const {chart,candle}=makeChart('c2');
+  candle.setData(bars);
+  const ctx=makeOv('ov2');
+  const A=5,B=60,pA=bars[5].low,pB=bars[60].low;
+  const slope=(pB-pA)/(B-A);
+  const tp=i=>pA+slope*(i-A);
+  const pbs=[];
+  for(let i=A+2;i<B;i++){const diff=(bars[i].low-tp(i))/tp(i);if(Math.abs(diff)<0.015&&bars[i].close>tp(i))pbs.push({i,d:bars[i].close>bars[i].open?'buy':'sell'});}
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    const endI=Math.min(B+8,bars.length-1);
+    const xA=tx(chart,bars[A].time),xE=tx(chart,bars[endI].time);
+    const yA=py(candle,pA),yE=py(candle,tp(endI));
+    if(xA==null||xE==null||yA==null||yE==null)return;
+    dl(ctx,xA,yA,xE,yE,'#00bcd4',2,[8,4]);
+    dt(ctx,xA+4,yA-6,'TrendLine','#00bcd4');
+    for(const pb of pbs){
+      const px=tx(chart,bars[pb.i].time);if(px==null)continue;
+      if(pb.d==='buy'){const wy=py(candle,bars[pb.i].low);if(wy==null)continue;dd(ctx,px,wy+10,5,'#00e5a0');dt(ctx,px-8,wy+22,'Buy','#00e5a0');}
+      else{const wy=py(candle,bars[pb.i].high);if(wy==null)continue;dd(ctx,px,wy-10,5,'#ff4d6d');dt(ctx,px-8,wy-14,'Sell','#ff4d6d');}
+    }
+  }
+  chart.timeScale().fitContent();
+  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>requestAnimationFrame(draw));
+  setTimeout(draw,300);
+})();
+
+// 3. Resistance and Support
+(function(){
+  const bars=makeKline(80,3,40000,0);
+  const {chart,candle}=makeChart('c3');
+  candle.setData(bars);
+  const ctx=makeOv('ov3');
+  const {hi:resP}=barRange(bars,5,25),{lo:supP}=barRange(bars,5,25);
+  const thr=(resP-supP)*0.03;
+  const resT=[],supT=[];
+  for(let i=26;i<bars.length;i++){
+    if(Math.abs(bars[i].high-resP)<thr)resT.push(i);
+    if(Math.abs(bars[i].low-supP)<thr)supT.push(i);
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    const x0=tx(chart,bars[0].time),xN=tx(chart,bars[bars.length-1].time);
+    const yR=py(candle,resP),yS=py(candle,supP);
+    if(x0==null||xN==null||yR==null||yS==null)return;
+    dl(ctx,x0,yR,xN,yR,'#ff4d6d',1.5,[10,5]);
+    dt(ctx,x0+4,yR-5,'Resistance','#ff4d6d');
+    dl(ctx,x0,yS,xN,yS,'#00e5a0',1.5,[10,5]);
+    dt(ctx,x0+4,yS+13,'Support','#00e5a0');
+    for(const i of resT){
+      const bx=tx(chart,bars[i].time);if(bx==null)continue;
+      const wy=py(candle,bars[i].high);if(wy==null)continue;
+      dd(ctx,bx,wy-8,4,'#ff4d6d');
+    }
+    for(const i of supT){
+      const bx=tx(chart,bars[i].time);if(bx==null)continue;
+      const wy=py(candle,bars[i].low);if(wy==null)continue;
+      dd(ctx,bx,wy+8,4,'#00e5a0');
+    }
+  }
+  chart.timeScale().fitContent();
+  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>requestAnimationFrame(draw));
+  setTimeout(draw,300);
+})();
+
+// 4. Volume Anomaly
+(function(){
+  const bars=makeKline(80,4,40000,0);
+  const {chart,candle}=makeChart('c4');
+  candle.setData(bars);
+  const ctx=makeOv('ov4');
+  const vols=bars.map((b,i)=>{const base=500+rng(i*7+99)*1000;return(i===15||i===38||i===60)?base*4.5:base;});
+  const avgVol=vols.reduce((a,b)=>a+b,0)/vols.length;
+  const anomalies=vols.map((v,i)=>v>avgVol*3?i:-1).filter(i=>i>=0);
+  const volSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',lastValueVisible:false,priceLineVisible:false});
+  chart.priceScale('vol').applyOptions({scaleMargins:{top:0.75,bottom:0}});
+  volSeries.setData(bars.map((b,i)=>({time:b.time,value:vols[i],color:anomalies.includes(i)?'rgba(255,215,64,0.8)':'rgba(100,120,140,0.4)'})));
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    for(const i of anomalies){
+      const bx=tx(chart,bars[i].time);if(bx==null)continue;
+      const body=Math.abs(bars[i].close-bars[i].open);
+      const range=bars[i].high-bars[i].low;
+      if(range<0.001)continue;
+      const ratio=body/range;
+      const wy=py(candle,bars[i].high);if(wy==null)continue;
+      ctx.save();
+      ctx.strokeStyle='#ffd740';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);
+      ctx.beginPath();ctx.moveTo(bx,-5);ctx.lineTo(bx,H);ctx.stroke();
+      ctx.restore();
+      dd(ctx,bx,wy-10,5,'#ffd740');
+      dt(ctx,bx-16,wy-17,'VolSpike','#ffd740');
+    }
+  }
+  chart.timeScale().fitContent();
+  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>requestAnimationFrame(draw));
+  setTimeout(draw,300);
+})();
+
+// 5. Upper / Lower Wick
+(function(){
+  const bars=makeKline(80,5,45000,0);
+  const {chart,candle}=makeChart('c5');
+  candle.setData(bars);
+  const ctx=makeOv('ov5');
+  const longUpper=[],longLower=[];
+  for(let i=0;i<bars.length;i++){
+    const b=bars[i];
+    const range=b.high-b.low;if(range<0.001)continue;
+    const body=Math.abs(b.close-b.open);
+    const upperWick=b.high-Math.max(b.open,b.close);
+    const lowerWick=Math.min(b.open,b.close)-b.low;
+    if(upperWick>body*2&&upperWick/range>0.4)longUpper.push(i);
+    if(lowerWick>body*2&&lowerWick/range>0.4)longLower.push(i);
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    for(const i of longUpper){
+      const bx=tx(chart,bars[i].time);if(bx==null)continue;
+      const wy=py(candle,bars[i].high);if(wy==null)continue;
+      dd(ctx,bx,wy-8,5,'#b388ff');
+      ctx.save();ctx.fillStyle='#b388ff';ctx.font='bold 9px monospace';
+      ctx.fillText('UpWick',bx-18,wy-15);
+      ctx.restore();
+      const yBody=py(candle,Math.max(bars[i].open,bars[i].close));if(yBody==null)continue;
+      dl(ctx,bx,wy,bx,yBody,'rgba(179,136,255,0.5)',1.5);
+    }
+    for(const i of longLower){
+      const bx=tx(chart,bars[i].time);if(bx==null)continue;
+      const wy=py(candle,bars[i].low);if(wy==null)continue;
+      dd(ctx,bx,wy+8,5,'#ff80ab');
+      ctx.save();ctx.fillStyle='#ff80ab';ctx.font='bold 9px monospace';
+      ctx.fillText('LowWick',bx-20,wy+22);
+      ctx.restore();
+      const yBody=py(candle,Math.min(bars[i].open,bars[i].close));if(yBody==null)continue;
+      dl(ctx,bx,wy,bx,yBody,'rgba(255,128,171,0.5)',1.5);
+    }
+  }
+  chart.timeScale().fitContent();
+  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>requestAnimationFrame(draw));
+  setTimeout(draw,300);
+})();
+
+</script>
+</body>
+</html>

@@ -55,9 +55,24 @@ const routes = [
         component: () => import('@/views/kline/KlineChart.vue')
       },
       {
+        path: 'boxes',
+        name: 'BoxList',
+        component: () => import('@/views/boxes/BoxList.vue')
+      },
+      {
+        path: 'tracking',
+        name: 'TrackingList',
+        component: () => import('@/views/symbols/TrackingList.vue')
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/settings/Settings.vue')
+      },
+      {
+        path: 'backtest',
+        name: 'Backtest',
+        component: () => import('@/views/backtest/Backtest.vue')
       }
     ]
   }

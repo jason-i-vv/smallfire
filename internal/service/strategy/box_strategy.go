@@ -36,7 +36,7 @@ func (s *BoxStrategy) Analyze(symbolID int, symbolCode, period string, klines []
 	var signals []models.Signal
 
 	// 1. 检测箱体
-	boxes := s.detectBoxes(klines)
+	boxes := s.detectBoxes(symbolID, klines)
 
 	// 2. 检查已有箱体状态
 	activeBoxes, _ := s.deps.BoxRepo.GetActiveBySymbol(symbolID, period)
@@ -48,8 +48,12 @@ func (s *BoxStrategy) Analyze(symbolID int, symbolCode, period string, klines []
 				signals = append(signals, *sig)
 			}
 		} else {
-			// 新箱体
-			s.deps.BoxRepo.Create(&box)
+			// 新箱体，先创建再检查突破
+			if err := s.deps.BoxRepo.Create(&box); err == nil {
+				if sig := s.checkBreakout(&box, klines[len(klines)-1]); sig != nil {
+					signals = append(signals, *sig)
+				}
+			}
 		}
 	}
 
@@ -57,7 +61,7 @@ func (s *BoxStrategy) Analyze(symbolID int, symbolCode, period string, klines []
 }
 
 // detectBoxes 检测箱体
-func (s *BoxStrategy) detectBoxes(klines []models.Kline) []models.Box {
+func (s *BoxStrategy) detectBoxes(symbolID int, klines []models.Kline) []models.Box {
 	if len(klines) < 5 {
 		return nil
 	}
@@ -66,7 +70,7 @@ func (s *BoxStrategy) detectBoxes(klines []models.Kline) []models.Box {
 	swings := s.detectSwingPoints(klines)
 
 	// 2. 从Swing点构建箱体
-	boxes := s.buildBoxesFromSwings(swings, klines)
+	boxes := s.buildBoxesFromSwings(symbolID, swings, klines)
 
 	// 3. 过滤无效箱体
 	return s.filterValidBoxes(boxes, klines)
@@ -133,7 +137,7 @@ func (s *BoxStrategy) detectSwingPoints(klines []models.Kline) []SwingPoint {
 }
 
 // buildBoxesFromSwings 从波峰波谷构建箱体
-func (s *BoxStrategy) buildBoxesFromSwings(swings []SwingPoint, klines []models.Kline) []models.Box {
+func (s *BoxStrategy) buildBoxesFromSwings(symbolID int, swings []SwingPoint, klines []models.Kline) []models.Box {
 	var boxes []models.Box
 
 	for i := 0; i < len(swings)-1; i++ {
@@ -146,7 +150,12 @@ func (s *BoxStrategy) buildBoxesFromSwings(swings []SwingPoint, klines []models.
 		}
 
 		// 提取箱体的K线
-		boxKlines := klines[startSwing.Index : endSwing.Index+1]
+		startIdx := startSwing.Index
+		endIdx := endSwing.Index
+		if startIdx > endIdx {
+			startIdx, endIdx = endIdx, startIdx
+		}
+		boxKlines := klines[startIdx : endIdx+1]
 		if len(boxKlines) < s.config.MinKlines {
 			continue
 		}
@@ -162,6 +171,7 @@ func (s *BoxStrategy) buildBoxesFromSwings(swings []SwingPoint, klines []models.
 		sort.Float64s(lows)
 
 		box := models.Box{
+			SymbolID:     symbolID,
 			Status:       models.BoxStatusActive,
 			HighPrice:    highs[len(highs)-1],
 			LowPrice:     lows[0],
@@ -216,15 +226,12 @@ func (s *BoxStrategy) isOverlappingBox(a, b *models.Box) bool {
 	// 价格范围重叠度
 	priceOverlap := calculateOverlap(a.LowPrice, a.HighPrice, b.LowPrice, b.HighPrice)
 
-	// 时间范围重叠 - 处理可能为nil的EndTime
-	var timeOverlap bool
+	// 时间范围重叠 - 如果任一箱体没有结束时间（active 状态），只判断价格重叠
 	if a.EndTime == nil || b.EndTime == nil {
-		// 如果任一箱体没有结束时间，认为不重叠
-		timeOverlap = false
-	} else {
-		timeOverlap = a.StartTime.Before(*b.EndTime) && b.StartTime.Before(*a.EndTime)
+		return priceOverlap > 0.8
 	}
 
+	timeOverlap := a.StartTime.Before(*b.EndTime) && b.StartTime.Before(*a.EndTime)
 	return priceOverlap > 0.8 && timeOverlap
 }
 

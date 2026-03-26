@@ -27,6 +27,7 @@ func (j *JSONB) Scan(value interface{}) error {
 type Signal struct {
 	ID               int        `json:"id" db:"id"`
 	SymbolID         int        `json:"symbol_id" db:"symbol_id"`
+	SymbolCode       string     `json:"symbol_code" db:"symbol_code"`
 	SignalType       string     `json:"signal_type" db:"signal_type"`
 	SourceType       string     `json:"source_type" db:"source_type"`
 	Direction        string     `json:"direction" db:"direction"`
@@ -44,20 +45,40 @@ type Signal struct {
 	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
 }
 
+// SignalQuery 信号查询参数
+type SignalQuery struct {
+	Market     string // 市场代码: bybit, a_stock, us_stock
+	SignalType string // 信号类型
+	Direction  string // 方向: long, short
+	Strength   *int   // 强度: 1, 2, 3
+	Status     string // 状态: pending, active, triggered, expired
+	StartDate  *time.Time
+	EndDate    *time.Time
+	Page       int
+	PageSize   int
+}
+
 const (
-	SignalTypeBoxBreakout      = "box_breakout"
-	SignalTypeBoxBreakdown     = "box_breakdown"
-	SignalTypeTrendReversal    = "trend_reversal"
-	SignalTypeTrendRetracement = "trend_retracement"
-	SignalTypeResistanceBreak  = "resistance_break"
+	SignalTypeBoxBreakout       = "box_breakout"
+	SignalTypeBoxBreakdown      = "box_breakdown"
+	SignalTypeTrendReversal     = "trend_reversal"
+	SignalTypeTrendRetracement  = "trend_retracement"
+	SignalTypeResistanceBreak   = "resistance_break"
 	SignalTypeSupportBreak     = "support_break"
-	SignalTypeVolumeSurge      = "volume_surge"
-	SignalTypePriceSurge       = "price_surge"
+	SignalTypeVolumeSurge       = "volume_surge"
+	SignalTypePriceSurge        = "price_surge"
+
+	// 上下引线信号类型
+	SignalTypeUpperWickReversal = "upper_wick_reversal"  // 上引线反转（空头）
+	SignalTypeLowerWickReversal = "lower_wick_reversal"  // 下引线反转（多头）
+	SignalTypeFakeBreakoutUpper = "fake_breakout_upper"  // 假突破上引线（空头）
+	SignalTypeFakeBreakoutLower = "fake_breakout_lower"  // 假突破下引线（多头）
 
 	SourceTypeBox      = "box"
-	SourceTypeTrend    = "trend"
+	SourceTypeTrend   = "trend"
 	SourceTypeKeyLevel = "key_level"
 	SourceTypeVolume   = "volume"
+	SourceTypeWick     = "wick"
 
 	DirectionLong  = "long"
 	DirectionShort = "short"

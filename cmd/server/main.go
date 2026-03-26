@@ -20,6 +20,7 @@ import (
 	"github.com/smallfire/starfire/internal/service/market"
 	"github.com/smallfire/starfire/internal/service/monitoring"
 	"github.com/smallfire/starfire/internal/service/notification"
+	"github.com/smallfire/starfire/internal/service/backtest"
 	"github.com/smallfire/starfire/internal/service/strategy"
 	"github.com/smallfire/starfire/internal/service/trading"
 	"github.com/smallfire/starfire/pkg/utils"
@@ -162,6 +163,10 @@ func main() {
 	strategyRunner := strategy.NewRunner(strategyFactory, klineRepo, symbolRepo, signalRepo, 5*time.Minute, utils.Logger)
 	utils.Info("策略运行器初始化成功")
 
+	// 初始化回测服务
+	backtestService := backtest.NewBacktestService(klineRepo, symbolRepo, strategyFactory, factory, utils.Logger)
+	utils.Info("回测服务初始化成功")
+
 	// 初始化同步服务
 	syncService := market.NewSyncService(factory, klineRepo, symbolRepo, emaCalc, utils.Logger, &cfg.Markets)
 	utils.Info("同步服务初始化成功")
@@ -189,6 +194,19 @@ func main() {
 	// 创建 Gin 实例
 	r := gin.Default()
 
+	// CORS 中间件
+	r.Use(func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
+		c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Type")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
+
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -205,6 +223,9 @@ func main() {
 	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
 	tradeHandler := handler.NewTradeHandler(trackRepo, statsService, utils.Logger)
+	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
+	boxHandler := handler.NewBoxHandler(boxRepo, symbolRepo, utils.Logger)
+	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelRepo, utils.Logger)
 
 	// API 版本
 	apiV1 := r.Group("/api/v1")
@@ -234,6 +255,9 @@ func main() {
 			symbolsGroup.GET("/:id/klines", symbolHandler.GetSymbolKlines)
 		}
 
+		// K线数据 API
+		apiV1.GET("/klines", symbolHandler.GetKlines)
+
 		// 市场交易标的 API
 		marketSymbolsGroup := apiV1.Group("/markets/:market_code/symbols")
 		{
@@ -244,6 +268,7 @@ func main() {
 		signalsGroup := apiV1.Group("/signals")
 		{
 			signalsGroup.GET("", signalHandler.GetSignals)
+			signalsGroup.GET("/counts", signalHandler.GetSignalCounts)
 			signalsGroup.GET("/:id", signalHandler.GetSignal)
 		}
 
@@ -257,6 +282,39 @@ func main() {
 		strategiesGroup := apiV1.Group("/strategies")
 		{
 			strategiesGroup.GET("", strategyHandler.GetStrategies)
+		}
+
+		// 箱体 API
+		boxesGroup := apiV1.Group("/boxes")
+		{
+			boxesGroup.GET("", boxHandler.GetBoxes)
+			boxesGroup.GET("/:id", boxHandler.GetBox)
+		}
+
+		// 标的箱体 API
+		symbolBoxesGroup := apiV1.Group("/symbols/:id/boxes")
+		{
+			symbolBoxesGroup.GET("", boxHandler.GetBoxesBySymbol)
+		}
+
+		// 关键价位 API
+		keyLevelsGroup := apiV1.Group("/key-levels")
+		{
+			keyLevelsGroup.GET("", keyLevelHandler.GetAllKeyLevels)
+		}
+
+		// 标的的关键价位 API
+		symbolKeyLevelsGroup := apiV1.Group("/symbols/:id/key-levels")
+		{
+			symbolKeyLevelsGroup.GET("", keyLevelHandler.GetKeyLevelsBySymbol)
+		}
+
+		// 回测 API
+		backtestGroup := apiV1.Group("/backtest")
+		{
+			backtestGroup.POST("", backtestHandler.RunBacktest)
+			backtestGroup.GET("/strategies", backtestHandler.GetSupportedStrategies)
+			backtestGroup.GET("/periods", backtestHandler.GetSupportedPeriods)
 		}
 
 		// 交易跟踪 API
@@ -294,11 +352,17 @@ func main() {
 	<-quit
 	utils.Info("正在关闭服务器...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// 先关闭HTTP服务器
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := srv.Shutdown(ctx); err != nil {
-		utils.Fatal("服务器强制关闭", zap.Error(err))
+		utils.Warn("HTTP服务器强制关闭", zap.Error(err))
 	}
+	cancel()
+
+	// 后台服务关闭（每个服务有自己的清理逻辑，可能需要更长时间）
+	// 注意：defer 会按注册顺序的反序执行
+	utils.Info("等待后台服务关闭...")
+	time.Sleep(1 * time.Second) // 给一点时间让 defer 开始执行
 
 	utils.Info("服务器已关闭")
 }

@@ -1210,3 +1210,89 @@ strategies:
 **执行人**: Claude Code
 **预计工时**: 8小时
 **实际完成时间**: 2026-03-23
+
+---
+
+## 13. 需求变更记录
+
+### 13.1 REQ-STRATEGY-002: 量价信号放大倍数和动态强度优化
+
+**变更时间**: 2026-03-24
+**变更类型**: 功能优化
+**优先级**: P1
+**状态**: 已完成
+
+#### 变更背景
+
+原有量价策略（`volume_price_strategy`）存在以下问题：
+1. 信号只显示 `strength: 2`，无法判断价格和成交量的具体变化幅度
+2. 强度判定没有依据，是硬编码的值
+3. 用户无法判断信号是否有效
+
+#### 变更内容
+
+**1. 后端修改 - volume_strategy.go**
+
+- 新增 `calculateStrength` 函数，根据放大倍数动态计算信号强度
+- `checkPriceAnomaly` 函数：
+  - 计算价格放大倍数：`currentVol / avgVol`
+  - 将放大倍数及详细信息存入 `SignalData`
+  - 根据放大倍数动态计算 `Strength`
+
+- `checkVolumeAnomaly` 函数：
+  - 计算量能放大倍数：`latest.Volume / avgVol`
+  - 将放大倍数及详细信息存入 `SignalData`
+  - 根据放大倍数动态计算 `Strength`
+
+**2. 前端修改 - SignalList.vue**
+
+- 新增"放大倍数"列，同时显示量能放大倍数和价格放大倍数
+- 使用 Badge 样式区分量能（绿色）和价格（橙色）放大倍数
+
+#### SignalData 新增字段
+
+**价格波动信号 (price_surge)**:
+```json
+{
+  "price_amplification": 2.35,       // 价格放大倍数
+  "volatility_threshold": 0.005,     // 波动阈值
+  "current_volatility": 0.01175,    // 当前波动幅度
+  "avg_volatility": 0.005           // 平均波动幅度
+}
+```
+
+**成交量信号 (volume_surge, volume_price_rise, volume_price_fall)**:
+```json
+{
+  "volume_amplification": 3.21,      // 量能放大倍数
+  "volume_threshold": 1000000,      // 成交量阈值
+  "current_volume": 3210000,        // 当前成交量
+  "avg_volume": 1000000,            // 平均成交量
+  "price_change_percent": 2.5       // 价格变化百分比
+}
+```
+
+#### 强度计算规则
+
+| 放大倍数 | 强度 |
+|---------|------|
+| 1x ~ 2x (触发阈值) | ⭐ (1星) |
+| 2x ~ 3x | ⭐⭐ (2星) |
+| 3x ~ 4x | ⭐⭐⭐ (3星) |
+| 4x ~ 5x | ⭐⭐⭐⭐ (4星) |
+| 5x+ | ⭐⭐⭐⭐⭐ (5星) |
+
+#### 验收标准
+
+- [x] 量价信号中显示量能放大倍数和价格放大倍数
+- [x] 信号强度根据实际放大倍数动态计算
+- [x] 前端表格正确展示放大倍数信息
+- [x] 不同类型的信号（价格波动/成交量）正确展示对应的放大倍数
+
+#### 变更文件
+
+```
+internal/service/strategy/volume_strategy.go   # 新增放大倍数存储和强度计算
+starfire-frontend/src/views/signals/SignalList.vue  # 新增放大倍数显示列
+pdms/03_requirement_strategy.md               # 更新需求文档
+```

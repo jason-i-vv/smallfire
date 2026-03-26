@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>箱体渲染 Demo - Box Rectangle Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 20px;
+    }
+
+    .demo-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .demo-header {
+      margin-bottom: 20px;
+    }
+
+    .demo-header h1 {
+      color: #58a6ff;
+      font-size: 24px;
+      margin-bottom: 8px;
+    }
+
+    .demo-header p {
+      color: #8b949e;
+      font-size: 14px;
+    }
+
+    .chart-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 16px;
+      padding: 16px;
+      background: #161b22;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .control-group label {
+      font-size: 12px;
+      color: #8b949e;
+    }
+
+    .control-group input {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 8px 12px;
+      color: #c9d1d9;
+      font-size: 14px;
+      width: 140px;
+    }
+
+    .control-group input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #238636;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #2ea043;
+    }
+
+    .btn-secondary {
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+    }
+
+    .btn-secondary:hover {
+      background: #30363d;
+    }
+
+    .btn-danger {
+      background: #da3633;
+      color: #fff;
+    }
+
+    .btn-danger:hover {
+      background: #f85149;
+    }
+
+    .chart-container {
+      background: #0d1117;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      overflow: hidden;
+    }
+
+    #chart {
+      width: 100%;
+      height: 500px;
+    }
+
+    .legend {
+      display: flex;
+      gap: 24px;
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: #161b22;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      font-size: 13px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .legend-color {
+      width: 24px;
+      height: 3px;
+      border-radius: 2px;
+    }
+
+    .box-highlight {
+      background: #FFD700;
+    }
+
+    .box-lowlight {
+      background: #FFD700;
+    }
+
+    .box-left {
+      background: #FFD700;
+    }
+
+    .box-right {
+      background: #FFD700;
+    }
+
+    .code-info {
+      margin-top: 16px;
+      padding: 16px;
+      background: #161b22;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+    }
+
+    .code-info h3 {
+      color: #58a6ff;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+
+    .code-info pre {
+      background: #0d1117;
+      padding: 12px;
+      border-radius: 6px;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      color: #c9d1d9;
+    }
+
+    .code-info code {
+      color: #79c0ff;
+    }
+
+    .status-bar {
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: #161b22;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      font-size: 13px;
+      color: #8b949e;
+    }
+
+    .status-bar span {
+      color: #FFD700;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-container">
+    <div class="demo-header">
+      <h1>箱体渲染 Demo</h1>
+      <p>使用 lightweight-charts 绘制带有左边线和右边线的箱体矩形结构</p>
+    </div>
+
+    <div class="chart-controls">
+      <div class="control-group">
+        <label>箱顶价格 (High)</label>
+        <input type="number" id="boxHigh" value="0.16" step="0.001">
+      </div>
+      <div class="control-group">
+        <label>箱底价格 (Low)</label>
+        <input type="number" id="boxLow" value="0.14" step="0.001">
+      </div>
+      <div class="control-group">
+        <label>开始时间</label>
+        <input type="datetime-local" id="boxStart">
+      </div>
+      <div class="control-group">
+        <label>结束时间</label>
+        <input type="datetime-local" id="boxEnd">
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="drawBox()">绘制箱体</button>
+        <button class="btn btn-danger" onclick="clearBox()">清除箱体</button>
+        <button class="btn btn-secondary" onclick="generateKlines()">生成模拟K线</button>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <div id="chart"></div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item">
+        <span class="legend-color box-highlight"></span>
+        <span>箱顶 / 箱底 (水平线)</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-color box-left"></span>
+        <span>左边线 / 右边线 (垂直边)</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-color" style="background: #26A69A"></span>
+        <span>K线 (上涨)</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-color" style="background: #EF5350"></span>
+        <span>K线 (下跌)</span>
+      </div>
+    </div>
+
+    <div class="status-bar" id="statusBar">
+      状态: <span>请点击"生成模拟K线"开始</span>
+    </div>
+
+    <div class="code-info">
+      <h3>实现原理</h3>
+      <pre><code>// 箱体由 4 条独立的 LineSeries 组成:
+// 1. 顶边: 从 boxStart 到 boxEnd 的水平线
+// 2. 底边: 从 boxStart 到 boxEnd 的水平线
+// 3. 左边: 从箱顶到箱底的垂直线
+// 4. 右边: 从箱顶到箱底的垂直线</code></pre>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script>
+    let chart = null;
+    let candlestickSeries = null;
+    let volumeSeries = null;
+    let boxLineSeriesList = []; // 存储箱体的四条边线
+    let currentKlines = []; // 当前K线数据
+
+    // 更新状态栏
+    function updateStatus(message) {
+      document.getElementById('statusBar').innerHTML = '状态: <span>' + message + '</span>';
+    }
+
+    // 初始化图表
+    function initChart() {
+      const chartContainer = document.getElementById('chart');
+
+      chart = LightweightCharts.createChart(chartContainer, {
+        width: chartContainer.clientWidth,
+        height: 500,
+        layout: {
+          background: '#0D1117',
+          textColor: '#8B949E',
+          attributionLogo: false
+        },
+        grid: {
+          vertLines: { color: '#30363D' },
+          horzLines: { color: '#30363D' }
+        },
+        rightPriceScale: {
+          borderColor: '#30363D'
+        },
+        timeScale: {
+          borderColor: '#30363D',
+          timeVisible: true,
+          secondsVisible: false
+        },
+        crosshair: {
+          mode: LightweightCharts.CrosshairMode.Normal
+        }
+      });
+
+      // 蜡烛图系列
+      candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#26A69A',
+        downColor: '#EF5350',
+        borderUpColor: '#26A69A',
+        borderDownColor: '#EF5350',
+        wickUpColor: '#26A69A',
+        wickDownColor: '#EF5350'
+      });
+
+      // 成交量系列
+      volumeSeries = chart.addHistogramSeries({
+        color: '#26A69A',
+        priceFormat: { type: 'volume' },
+        priceScaleId: ''
+      });
+      volumeSeries.priceScale().applyOptions({
+        scaleMargins: { top: 0.8, bottom: 0 }
+      });
+
+      // 响应式调整
+      window.addEventListener('resize', () => {
+        if (chart) {
+          chart.applyOptions({ width: chartContainer.clientWidth });
+        }
+      });
+    }
+
+    // 格式化时间
+    function formatDateTime(timestamp) {
+      const date = new Date(timestamp * 1000);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
+    // 生成模拟K线数据
+    function generateKlines() {
+      if (!candlestickSeries || !volumeSeries) return;
+
+      // 清除旧箱体
+      clearBox();
+
+      const klines = [];
+      const now = Math.floor(Date.now() / 1000);
+      let basePrice = 0.15;
+
+      for (let i = 100; i >= 0; i--) {
+        const openTime = now - i * 15 * 60;
+        const volatility = basePrice * 0.02;
+        const open = basePrice + (Math.random() - 0.5) * volatility;
+        const close = open + (Math.random() - 0.5) * volatility;
+        const high = Math.max(open, close) + Math.random() * volatility / 2;
+        const low = Math.min(open, close) - Math.random() * volatility / 2;
+        const volume = Math.floor(Math.random() * 1000000) + 100000;
+
+        klines.push({
+          time: openTime,
+          open: open,
+          high: high,
+          low: low,
+          close: close
+        });
+
+        basePrice = close;
+      }
+
+      currentKlines = klines;
+
+      // 设置K线数据
+      candlestickSeries.setData(klines);
+
+      // 设置成交量数据
+      const volumeData = klines.map(k => ({
+        time: k.time,
+        value: Math.floor(Math.random() * 1000000) + 100000,
+        color: k.close >= k.open ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
+      }));
+      volumeSeries.setData(volumeData);
+
+      chart.timeScale().fitContent();
+
+      // 更新输入框的默认时间
+      const startInput = document.getElementById('boxStart');
+      const endInput = document.getElementById('boxEnd');
+      const firstKline = klines[0];
+      const lastKline = klines[klines.length - 1];
+
+      startInput.value = formatDateTime(firstKline.time);
+      endInput.value = formatDateTime(lastKline.time);
+
+      // 设置默认箱体价格 (基于中间价格)
+      const midPrice = (klines[50].high + klines[50].low) / 2;
+      document.getElementById('boxHigh').value = (midPrice * 1.05).toFixed(4);
+      document.getElementById('boxLow').value = (midPrice * 0.95).toFixed(4);
+
+      updateStatus('K线已生成，共 ' + klines.length + ' 根K线');
+    }
+
+    // 绘制箱体
+    function drawBox() {
+      if (!chart || !candlestickSeries) {
+        updateStatus('图表未初始化');
+        return;
+      }
+
+      // 清除旧的箱体
+      clearBox();
+
+      const boxHigh = parseFloat(document.getElementById('boxHigh').value);
+      const boxLow = parseFloat(document.getElementById('boxLow').value);
+      const boxStartStr = document.getElementById('boxStart').value;
+      const boxEndStr = document.getElementById('boxEnd').value;
+
+      if (!boxStartStr || !boxEndStr) {
+        updateStatus('请设置箱体的开始时间和结束时间');
+        return;
+      }
+
+      if (boxHigh <= boxLow) {
+        updateStatus('箱顶价格必须大于箱底价格');
+        return;
+      }
+
+      // 转换时间
+      const boxStartTime = Math.floor(new Date(boxStartStr).getTime() / 1000);
+      const boxEndTime = Math.floor(new Date(boxEndStr).getTime() / 1000);
+
+      if (boxEndTime <= boxStartTime) {
+        updateStatus('结束时间必须大于开始时间');
+        return;
+      }
+
+      // 箱体线条样式
+      const lineOptions = {
+        color: '#FFD700',
+        lineWidth: 2,
+        lineStyle: 0, // 实线
+        crosshairMarkerVisible: false,
+        priceLineVisible: false,
+        lastValueVisible: false
+      };
+
+      // 1. 顶边 (水平线)
+      const topSeries = chart.addLineSeries(lineOptions);
+      topSeries.setData([
+        { time: boxStartTime, value: boxHigh },
+        { time: boxEndTime, value: boxHigh }
+      ]);
+      boxLineSeriesList.push(topSeries);
+
+      // 2. 底边 (水平线)
+      const bottomSeries = chart.addLineSeries(lineOptions);
+      bottomSeries.setData([
+        { time: boxStartTime, value: boxLow },
+        { time: boxEndTime, value: boxLow }
+      ]);
+      boxLineSeriesList.push(bottomSeries);
+
+      // 3. 左边 (垂直线 - 用极小时间差，视觉上就是垂直的)
+      const leftSeries = chart.addLineSeries(lineOptions);
+      leftSeries.setData([
+        { time: boxStartTime, value: boxHigh },
+        { time: boxStartTime + 1, value: boxLow }
+      ]);
+      boxLineSeriesList.push(leftSeries);
+
+      // 4. 右边 (垂直线 - 同样用极小时间差)
+      const rightSeries = chart.addLineSeries(lineOptions);
+      rightSeries.setData([
+        { time: boxEndTime, value: boxHigh },
+        { time: boxEndTime + 1, value: boxLow }
+      ]);
+      boxLineSeriesList.push(rightSeries);
+
+      // 添加价格标签 (使用 priceLine 更清晰)
+      const highLine = candlestickSeries.createPriceLine({
+        price: boxHigh,
+        color: '#FFD700',
+        lineWidth: 1,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `箱顶: ${boxHigh.toFixed(4)}`
+      });
+      boxLineSeriesList.push({ type: 'priceLine', line: highLine });
+
+      const lowLine = candlestickSeries.createPriceLine({
+        price: boxLow,
+        color: '#FFD700',
+        lineWidth: 1,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `箱底: ${boxLow.toFixed(4)}`
+      });
+      boxLineSeriesList.push({ type: 'priceLine', line: lowLine });
+
+      // 调整视图到箱体位置
+      chart.timeScale().setVisibleRange({
+        from: boxStartTime - 20 * 15 * 60,
+        to: boxEndTime + 20 * 15 * 60
+      });
+
+      updateStatus('箱体已绘制 - 箱顶: ' + boxHigh.toFixed(4) + ', 箱底: ' + boxLow.toFixed(4) + ', 振幅: ' + ((boxHigh - boxLow) / boxLow * 100).toFixed(2) + '%');
+    }
+
+    // 清除箱体
+    function clearBox() {
+      if (!chart) return;
+
+      boxLineSeriesList.forEach(item => {
+        try {
+          if (item.type === 'priceLine') {
+            candlestickSeries.removePriceLine(item.line);
+          } else {
+            chart.removeSeries(item);
+          }
+        } catch (e) {
+          // ignore
+        }
+      });
+      boxLineSeriesList = [];
+      updateStatus('箱体已清除');
+    }
+
+    // 页面加载时初始化
+    document.addEventListener('DOMContentLoaded', () => {
+      initChart();
+      updateStatus('请点击"生成模拟K线"开始');
+    });
+  </script>
+</body>
+</html>

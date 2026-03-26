@@ -122,6 +122,91 @@ func (f *BybitFetcher) FetchKlines(symbol, period string, limit int) ([]KlineDat
 	return parseBybitKlines(result.Data.List), nil
 }
 
+// FetchKlinesByTimeRange 获取指定时间范围的K线数据
+func (f *BybitFetcher) FetchKlinesByTimeRange(symbol, period string, startTime, endTime time.Time) ([]KlineData, error) {
+	var allKlines []KlineData
+
+	// Bybit API 每次最多返回1000条
+	limit := 1000
+	currentEnd := endTime
+
+	for {
+		start := currentEnd.Add(-time.Duration(limit) * getPeriodDuration(period))
+		if start.Before(startTime) {
+			start = startTime
+		}
+
+		url := fmt.Sprintf("%s/v5/market/kline?category=linear&symbol=%s&interval=%s&start=%d&end=%d&limit=%d",
+			f.baseURL, symbol, period,
+			start.UnixMilli(), currentEnd.UnixMilli(), limit)
+
+		resp, err := f.client.Get(url)
+		if err != nil {
+			return nil, err
+		}
+
+		var result BybitKlineResp
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+		resp.Body.Close()
+
+		klines := parseBybitKlines(result.Data.List)
+		if len(klines) == 0 {
+			break
+		}
+
+		allKlines = append(allKlines, klines...)
+
+		// 如果返回的数据少于limit，说明已经取完了
+		if len(klines) < limit {
+			break
+		}
+
+		// 更新end时间，继续获取更早的数据
+		currentEnd = klines[0].OpenTime.Add(-time.Second)
+		if currentEnd.Before(startTime) || currentEnd.Equal(startTime) {
+			break
+		}
+
+		// 防止无限循环，最多循环100次（约10万条数据）
+		if len(allKlines) >= limit*100 {
+			break
+		}
+	}
+
+	return allKlines, nil
+}
+
+// getPeriodDuration 获取周期对应的时长
+func getPeriodDuration(period string) time.Duration {
+	switch period {
+	case "1":
+		return time.Minute
+	case "3":
+		return 3 * time.Minute
+	case "5":
+		return 5 * time.Minute
+	case "15":
+		return 15 * time.Minute
+	case "30":
+		return 30 * time.Minute
+	case "60":
+		return time.Hour
+	case "240":
+		return 4 * time.Hour
+	case "D":
+		return 24 * time.Hour
+	case "W":
+		return 7 * 24 * time.Hour
+	case "M":
+		return 30 * 24 * time.Hour
+	default:
+		return time.Minute
+	}
+}
+
 func (f *BybitFetcher) FetchTicker(symbol string) (*Ticker, error) {
 	url := fmt.Sprintf("%s/v5/market/tickers?category=linear&symbol=%s",
 		f.baseURL, symbol)

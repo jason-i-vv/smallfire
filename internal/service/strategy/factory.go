@@ -35,6 +35,9 @@ func NewFactory(cfg *config.StrategiesConfig, deps Dependency, logger *zap.Logge
 	if cfg.VolumePrice.Enabled {
 		f.strategies["volume_price"] = NewVolumePriceStrategy(cfg.VolumePrice, deps)
 	}
+	if cfg.Wick.Enabled {
+		f.strategies["wick"] = NewWickStrategy(cfg.Wick, deps)
+	}
 
 	logger.Info("策略工厂初始化成功", zap.Int("strategy_count", len(f.strategies)))
 	return f
@@ -67,6 +70,8 @@ func (f *Factory) IsEnabled(name string) bool {
 		return f.config.KeyLevel.Enabled
 	case "volume_price":
 		return f.config.VolumePrice.Enabled
+	case "wick":
+		return f.config.Wick.Enabled
 	default:
 		return false
 	}
@@ -103,10 +108,25 @@ type VolumePriceConfig struct {
 	CheckInterval        int     `yaml:"check_interval"`
 }
 
+// WickConfig 上下引线策略配置
+type WickConfig struct {
+	Enabled            bool
+	LookbackKlines    int     `yaml:"lookback_klines"`     // 回溯K线数
+	BodyPercentMax    float64 `yaml:"body_percent_max"`   // 实体占比上限
+	ShadowMinRatio    float64 `yaml:"shadow_min_ratio"`    // 引线最小倍数
+	RequireTrend      bool    `yaml:"require_trend"`       // 是否要求趋势确认
+	FakeBreakoutEnabled bool   `yaml:"fake_breakout_enabled"` // 是否识别假突破
+	BreakoutThreshold float64 `yaml:"breakout_threshold"`   // 突破阈值
+	StrengthLookback  int     `yaml:"strength_lookback"`   // 历史引线回溯数
+	SignalCooldown    int     `yaml:"signal_cooldown"`     // 信号冷却期（分钟）
+	CheckInterval     int     `yaml:"check_interval"`
+}
+
 // 策略配置
 type StrategiesConfig struct {
 	Box         BoxConfig         `yaml:"box"`
 	Trend       TrendConfig       `yaml:"trend"`
 	KeyLevel    KeyLevelConfig    `yaml:"key_level"`
 	VolumePrice VolumePriceConfig `yaml:"volume_price"`
+	Wick        WickConfig        `yaml:"wick"`
 }

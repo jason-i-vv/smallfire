@@ -117,6 +117,30 @@ func (r *KlineRepoPG) Exists(symbolID int64, period string, openTime time.Time) 
 	return count > 0, nil
 }
 
+func (r *KlineRepoPG) GetByTime(symbolID int64, period string, openTime time.Time) (*models.Kline, error) {
+	var kline models.Kline
+	query := `
+		SELECT id, symbol_id, period, open_time, close_time, open_price, high_price,
+		       low_price, close_price, volume, quote_volume, trades_count,
+		       is_closed, ema_short, ema_medium, ema_long, created_at, updated_at
+		FROM klines
+		WHERE symbol_id = $1 AND period = $2 AND open_time = $3
+	`
+
+	err := r.db.QueryRow(context.Background(), query, symbolID, period, openTime).Scan(
+		&kline.ID, &kline.SymbolID, &kline.Period, &kline.OpenTime, &kline.CloseTime,
+		&kline.OpenPrice, &kline.HighPrice, &kline.LowPrice, &kline.ClosePrice,
+		&kline.Volume, &kline.QuoteVolume, &kline.TradesCount, &kline.IsClosed,
+		&kline.EMAShort, &kline.EMAMedium, &kline.EMALong,
+		&kline.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("获取K线失败: %w", err)
+	}
+
+	return &kline, nil
+}
+
 func (r *KlineRepoPG) Create(kline *models.Kline) error {
 	query := `
 		INSERT INTO klines (symbol_id, period, open_time, close_time, open_price, high_price,
