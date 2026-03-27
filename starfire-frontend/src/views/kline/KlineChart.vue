@@ -73,6 +73,7 @@ import { createChart, CrosshairMode } from 'lightweight-charts'
 import { klineApi } from '@/api/klines'
 import { signalApi } from '@/api/signals'
 import { keyLevelApi } from '@/api/key_levels'
+import { symbolApi } from '@/api/symbols'
 import { formatPrice } from '@/utils/formatters'
 import { ArrowLeft, Clock, DataLine, Lightning, TrendCharts } from '@element-plus/icons-vue'
 
@@ -80,8 +81,23 @@ const route = useRoute()
 const router = useRouter()
 
 const symbolCode = ref(route.params.symbol || route.query.symbol || 'BTCUSDT')
-const symbolId = ref(route.query.symbolId ? parseInt(route.query.symbolId) : 1)
+const symbolId = ref(route.query.symbolId ? parseInt(route.query.symbolId) : null)
 const signalId = ref(route.query.signalId ? parseInt(route.query.signalId) : null)
+
+// 通过 symbolCode 获取 symbolId
+const fetchSymbolIdByCode = async () => {
+  if (symbolId.value) return
+  try {
+    // 这里简化处理，实际应该有一个通过 symbol_code 获取标的详情的 API
+    // 暂时我们抛出警告
+    console.error('No symbolId provided! Please pass symbolId from the caller.')
+    // 不设置默认值，让错误暴露出来
+    throw new Error('symbolId is required')
+  } catch (error) {
+    console.error('Failed to fetch symbolId:', error)
+    throw error
+  }
+}
 
 // 从路由获取周期参数，默认为15m
 const period = ref(route.query.period || '15m')
@@ -194,6 +210,32 @@ const initChart = () => {
     },
     crosshair: {
       mode: CrosshairMode.Normal
+    },
+    // 关键配置：告诉 lightweight-charts 我们使用 UTC 时间
+    localization: {
+      locale: 'zh-CN',
+      // 使用自定义的时间格式化函数，确保显示 UTC+8 的本地时间
+      timeFormatter: (businessDayOrTimestamp) => {
+        // 输入是秒级时间戳（UTC）
+        let timestamp;
+        if (typeof businessDayOrTimestamp === 'number') {
+          timestamp = businessDayOrTimestamp;
+        } else {
+          // 处理 businessDay 对象的情况
+          timestamp = businessDayOrTimestamp && businessDayOrTimestamp.timestamp
+            ? businessDayOrTimestamp.timestamp
+            : Math.floor(Date.now() / 1000);
+        }
+
+        const date = new Date(timestamp * 1000);
+        // 注意：Date 对象会自动将 UTC 时间戳转换为本地时区时间
+        // 在显示时，直接使用本地时区的时间
+        const hours = date.getHours().toString().padStart(2, '0');
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        return `${month}-${day} ${hours}:${minutes}`;
+      }
     }
   })
 
@@ -261,23 +303,45 @@ const generateMockKlines = (basePrice = 0.15) => {
 // 获取K线数据
 const fetchKlines = async () => {
   try {
-    const res = await klineApi.list({
+    if (!symbolId.value) {
+      console.error('SymbolId not available')
+      // 使用模拟数据
+      updateKlineData(generateMockKlines())
+      return
+    }
+
+    const params = {
       symbol_id: symbolId.value,
       period: period.value,
       limit: 500
-    })
+    }
+
+    const hasTimeRange = !!(boxStart.value && boxEnd.value)
+
+    // 如果有箱体时间参数，获取包含箱体时间范围的K线
+    if (hasTimeRange) {
+      // 统一使用时间戳，避免时区转换
+      // 为了确保箱体完整显示在图表上，需要获取箱体前后一段时间的K线数据
+      const periodSeconds = getPeriodSeconds(period.value)
+      // 在箱体时间范围前后各增加50个周期的数据作为上下文
+      params.start_time = boxStart.value - 50 * periodSeconds
+      params.end_time = boxEnd.value + 50 * periodSeconds
+      console.log('调整后的K线请求时间范围:', new Date(params.start_time * 1000), '到', new Date(params.end_time * 1000))
+    }
+
+    const res = await klineApi.list(params)
 
     // API返回结构: {code: 0, data: [数组]}
     let klines = res.data || []
     if (klines.length === 0) {
       updateKlineData(generateMockKlines())
     } else {
-      // 标准化时间戳并排序
+      // 标准化时间戳
       klines = klines.map(k => ({
         ...k,
         _normalizedTime: normalizeTimestamp(k.time || k.open_time)
       }))
-      // 按时间升序排列（lightweight-charts 要求）
+      // 确保数据按时间升序排列（图表要求）
       klines = klines.sort((a, b) => a._normalizedTime - b._normalizedTime)
       // 移除临时字段
       klines = klines.map(({ _normalizedTime, ...rest }) => rest)
@@ -294,21 +358,53 @@ const fetchKlines = async () => {
 const normalizeTimestamp = (time) => {
   if (!time) return Math.floor(Date.now() / 1000)
 
-  // 如果已经是数字
+  // 如果是数字，直接处理
   if (typeof time === 'number') {
     // 毫秒级转秒级
     if (time > 1e12) {
       return Math.floor(time / 1000)
     }
+    // 有效的秒级时间戳
     return time
   }
 
-  // 如果是字符串或对象，转换为时间戳
+  // 如果是字符串
+  if (typeof time === 'string') {
+    // 纯数字字符串解析为数字
+    if (/^\d+$/.test(time)) {
+      const numTime = parseInt(time, 10)
+      if (!isNaN(numTime)) {
+        if (numTime > 1e12) {
+          return Math.floor(numTime / 1000)
+        }
+        return numTime
+      }
+    }
+
+    // 处理 ISO8601/RFC3339 格式（带 Z 后缀表示 UTC）
+    // Go 的 time.Time 序列化为 JSON 时是 RFC3339 格式，例如 "2026-03-25T08:30:00Z"
+    // 这里我们需要确保正确处理时区
+    if (time.includes('T') && time.endsWith('Z')) {
+      const date = new Date(time)
+      if (!isNaN(date.getTime())) {
+        // 得到 UTC 时间戳（秒）
+        const utcTimestamp = Math.floor(date.getTime() / 1000)
+        return utcTimestamp
+      }
+    }
+
+    // 其他格式，使用 Date 解析
+    const date = new Date(time)
+    if (!isNaN(date.getTime())) {
+      return Math.floor(date.getTime() / 1000)
+    }
+  }
+
+  // 最后尝试 Date 解析
   const timestamp = new Date(time).getTime()
   if (isNaN(timestamp)) {
     return Math.floor(Date.now() / 1000)
   }
-  // 毫秒级转秒级
   return Math.floor(timestamp / 1000)
 }
 
@@ -357,6 +453,17 @@ const updateKlineData = (klines) => {
 
   klineCount.value = klines.length
 
+  // 计算 K 线价格范围
+  const klineHighs = klines.map(k => parseFloat(k.high || k.high_price || 0))
+  const klineLows = klines.map(k => parseFloat(k.low || k.low_price || 0))
+  const maxHigh = Math.max(...klineHighs)
+  const minLow = Math.min(...klineLows)
+  if (boxHigh.value && boxLow.value) {
+    if (boxHigh.value < minLow || boxLow.value > maxHigh) {
+      console.warn('⚠️ 箱体不在 K 线价格范围内！')
+    }
+  }
+
   chart?.timeScale().fitContent()
 
   // 构建 overlay 信号数据（不含箱体，箱体由 drawBoxRect 处理）
@@ -376,6 +483,10 @@ const updateKlineData = (klines) => {
     if (sourceType.value !== 'box') {
       // 箱体突破/跌破信号：额外标记突破K线
       markBreakoutCandle(klines)
+    } else if (boxStart.value && boxEnd.value) {
+      // 滚动到箱体中间位置
+      const boxMiddleTime = (boxStart.value + boxEnd.value) / 2
+      scrollToTime(boxMiddleTime)
     } else if (signalTime.value) {
       scrollToTime(signalTime.value)
     }
@@ -859,9 +970,19 @@ const drawOverlay = () => {
   for (const box of overlayData.boxes) {
     const x0 = tx(box.startTime), x1 = tx(box.endTime)
     const yH = py(box.high), yL = py(box.low)
-    if (x0 == null || x1 == null || yH == null || yL == null) continue
+    console.log('绘制箱体 - 坐标转换:', {
+      box,
+      x0, x1, yH, yL,
+      canvasWidth: W,
+      canvasHeight: H
+    })
+    if (x0 == null || x1 == null || yH == null || yL == null) {
+      console.warn('箱体坐标无效，跳过绘制')
+      continue
+    }
     const lx = Math.min(x0, x1), rx = Math.max(x0, x1)
     const ty = Math.min(yH, yL), by = Math.max(yH, yL)
+    console.log('箱体绘制坐标:', { lx, rx, ty, by, width: rx - lx, height: by - ty })
     overlayCtx.fillStyle = 'rgba(0,229,160,0.07)'
     overlayCtx.fillRect(lx, ty, rx - lx, by - ty)
     _dl(overlayCtx, lx, ty, rx, ty, '#00e5a0', 2)
@@ -981,7 +1102,13 @@ watch(
     }
     // 更新回测参数
     if (newQuery.signalTime) {
-      signalTime.value = new Date(newQuery.signalTime).getTime() / 1000
+      // 统一使用时间戳，避免时区转换
+      if (!isNaN(Number(newQuery.signalTime))) {
+        signalTime.value = Number(newQuery.signalTime)
+      } else {
+        // 处理 ISO8601 格式时间字符串（确保使用 UTC 时间）
+        signalTime.value = new Date(newQuery.signalTime).getTime() / 1000
+      }
     }
     if (newQuery.signalType) {
       signalType.value = newQuery.signalType
@@ -1011,10 +1138,20 @@ watch(
       boxLow.value = parseFloat(newQuery.boxLow)
     }
     if (newQuery.boxStart) {
-      boxStart.value = normalizeTimestamp(newQuery.boxStart)
+      // 统一使用时间戳，避免时区转换
+      if (!isNaN(Number(newQuery.boxStart))) {
+        boxStart.value = Number(newQuery.boxStart)
+      } else {
+        boxStart.value = normalizeTimestamp(newQuery.boxStart)
+      }
     }
     if (newQuery.boxEnd) {
-      boxEnd.value = normalizeTimestamp(newQuery.boxEnd)
+      // 统一使用时间戳，避免时区转换
+      if (!isNaN(Number(newQuery.boxEnd))) {
+        boxEnd.value = Number(newQuery.boxEnd)
+      } else {
+        boxEnd.value = normalizeTimestamp(newQuery.boxEnd)
+      }
     }
     if (newQuery.sourceType) {
       sourceType.value = newQuery.sourceType
@@ -1032,8 +1169,11 @@ watch(
   }
 )
 
-onMounted(() => {
+onMounted(async () => {
   initChart()
+
+  // 获取 symbolId
+  await fetchSymbolIdByCode()
 
   // 从路由获取参数
   if (route.query.symbol) {
@@ -1050,7 +1190,12 @@ onMounted(() => {
   }
   // 回测传递的参数
   if (route.query.signalTime) {
-    signalTime.value = new Date(route.query.signalTime).getTime() / 1000
+    // 统一使用时间戳，避免时区转换
+    if (!isNaN(Number(route.query.signalTime))) {
+      signalTime.value = Number(route.query.signalTime)
+    } else {
+      signalTime.value = new Date(route.query.signalTime).getTime() / 1000
+    }
   }
   if (route.query.signalType) {
     signalType.value = route.query.signalType
@@ -1080,11 +1225,21 @@ onMounted(() => {
     boxLow.value = parseFloat(route.query.boxLow)
   }
   if (route.query.boxStart) {
-    boxStart.value = normalizeTimestamp(route.query.boxStart)
+    // 统一使用时间戳，避免时区转换
+    if (!isNaN(Number(route.query.boxStart))) {
+      boxStart.value = Number(route.query.boxStart)
+    } else {
+      boxStart.value = normalizeTimestamp(route.query.boxStart)
+    }
     console.log('Box Start:', boxStart.value, 'Raw:', route.query.boxStart)
   }
   if (route.query.boxEnd) {
-    boxEnd.value = normalizeTimestamp(route.query.boxEnd)
+    // 统一使用时间戳，避免时区转换
+    if (!isNaN(Number(route.query.boxEnd))) {
+      boxEnd.value = Number(route.query.boxEnd)
+    } else {
+      boxEnd.value = normalizeTimestamp(route.query.boxEnd)
+    }
     console.log('Box End:', boxEnd.value, 'Raw:', route.query.boxEnd)
   }
   if (route.query.sourceType) {

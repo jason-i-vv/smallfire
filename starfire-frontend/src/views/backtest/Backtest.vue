@@ -750,22 +750,55 @@ const viewChart = (type, item) => {
     period: form.value.period
   }
 
+  // 优先从箱体/信号数据中获取 symbol_id，否则从 symbols 列表中查找
+  let targetSymbolId = item.symbol_id
+  if (!targetSymbolId) {
+    const foundSymbol = symbols.value.find(s => s.symbol_code === form.value.symbol_code)
+    targetSymbolId = foundSymbol?.id
+  }
+  if (targetSymbolId) {
+    query.symbolId = targetSymbolId
+  }
+
+  // 辅助函数：转换任意时间格式为时间戳
+  const toTimestamp = (timeValue) => {
+    if (!timeValue) return null
+
+    // 如果是字符串，可能是 RFC3339 格式（带 Z 后缀表示 UTC）
+    if (typeof timeValue === 'string') {
+      // Go 的 time.Time 序列化为 JSON 时是 RFC3339 格式，例如 "2026-03-25T08:30:00Z"
+      // 我们需要确保正确解析这个时间字符串
+      try {
+        // 直接使用 Date 解析，它能正确处理 ISO8601 格式
+        const date = new Date(timeValue)
+        if (!isNaN(date.getTime())) {
+          return date.getTime() / 1000
+        }
+      } catch (e) {
+        console.error('时间解析错误:', e)
+      }
+    }
+
+    // 其他情况，正常解析
+    const ts = new Date(timeValue).getTime()
+    return isNaN(ts) ? null : ts / 1000
+  }
+
   if (type === 'signal') {
     // 信号时间用于定位
-    query.signalTime = item.created_at
+    query.signalTime = toTimestamp(item.created_at)
     query.signalType = item.signal_type
     query.direction = item.direction
     query.price = item.price
   } else if (type === 'trade') {
     // 交易入场时间用于定位
-    query.signalTime = item.entry_time
+    query.signalTime = toTimestamp(item.entry_time)
     query.tradeDirection = item.direction
     query.entryPrice = item.entry_price
     query.exitPrice = item.exit_price
     query.pnl = item.pnl
   } else if (type === 'box') {
     // 箱体开始时间用于定位
-    query.signalTime = item.start_time
     query.boxHigh = item.high_price
     query.boxLow = item.low_price
     query.sourceType = 'box'
@@ -773,21 +806,15 @@ const viewChart = (type, item) => {
     const periodSeconds = { '1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '4h': 14400, '1d': 86400 }
     const periodSec = periodSeconds[form.value.period] || 900
     // 确保传递的时间戳是标准格式
-    const startTime = new Date(item.start_time).getTime() / 1000
+    const startTime = toTimestamp(item.start_time)
     const endTime = startTime + (item.klines_count || 20) * periodSec
     query.boxStart = startTime
     query.boxEnd = endTime
-    console.log('Box params passed to KlineChart:', {
-      boxHigh: item.high_price,
-      boxLow: item.low_price,
-      boxStart: startTime,
-      boxEnd: endTime,
-      symbol: form.value.symbol_code,
-      period: form.value.period
-    })
+    // 同时设置 signalTime 为箱体中间时间用于定位
+    query.signalTime = (startTime + endTime) / 2
   } else if (type === 'trend') {
     // 趋势开始时间用于定位
-    query.signalTime = item.start_time
+    query.signalTime = toTimestamp(item.start_time)
     query.trendType = item.trend_type
   }
 
