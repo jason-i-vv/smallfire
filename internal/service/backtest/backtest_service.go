@@ -403,6 +403,30 @@ func (a *boxStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string, k
 		if alreadyExists {
 			continue
 		}
+		// 跨窗口去重：检查新箱体是否与已有活跃箱体高度重叠
+		overlapsActive := false
+		for _, activeBox := range a.activeBoxes {
+			overlap := calculateContainmentOverlap(box.LowPrice, box.HighPrice, activeBox.LowPrice, activeBox.HighPrice)
+			if overlap > 0.7 {
+				overlapsActive = true
+				break
+			}
+		}
+		if overlapsActive {
+			continue
+		}
+		// 跨窗口去重：检查新箱体是否与已有已结束箱体高度重叠（防止重复添加）
+		overlapsExisting := false
+		for _, existingBox := range a.boxes {
+			overlap := calculateContainmentOverlap(box.LowPrice, box.HighPrice, existingBox.LowPrice, existingBox.HighPrice)
+			if overlap > 0.7 {
+				overlapsExisting = true
+				break
+			}
+		}
+		if overlapsExisting {
+			continue
+		}
 
 		// 关键逻辑：检查箱体是否已经被突破
 		// 突破发生在 EndTime 之后的第一根K线
