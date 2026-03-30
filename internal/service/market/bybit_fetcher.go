@@ -92,7 +92,9 @@ func (f *BybitFetcher) FetchSymbols() ([]SymbolInfo, error) {
 
 	var symbols []SymbolInfo
 	for _, item := range result.Data.List {
-		if item.QuoteCoin == "USDT" && item.Status == "Trading" {
+		// 过滤条件：只保留永续合约，排除带有到期日期后缀的合约（如 ETHUSDT-25DEC26）
+		// 永续合约通常没有 "-" 符号或者格式更简单
+		if item.QuoteCoin == "USDT" && item.Status == "Trading" && !hasExpirationSuffix(item.Symbol) {
 			symbols = append(symbols, SymbolInfo{
 				Code: item.Symbol,
 				Name: item.BaseCoin,
@@ -102,6 +104,35 @@ func (f *BybitFetcher) FetchSymbols() ([]SymbolInfo, error) {
 	}
 
 	return symbols, nil
+}
+
+// hasExpirationSuffix 判断标的是否带有到期日期后缀
+func hasExpirationSuffix(symbol string) bool {
+	// 到期合约通常包含格式如 "-25DEC26" 的后缀
+	// 其中包含 "-" 字符，并且后面跟着数字和字母组合
+	for i, c := range symbol {
+		if c == '-' && i > 0 && i < len(symbol)-1 {
+			// 检查 "-" 后面是否包含有效的日期格式
+			suffix := symbol[i+1:]
+			// 简单的检查：长度应该在 6-8 字符之间，并且包含字母和数字
+			if len(suffix) >= 6 && len(suffix) <= 8 {
+				hasDigit := false
+				hasLetter := false
+				for _, s := range suffix {
+					if s >= '0' && s <= '9' {
+						hasDigit = true
+					} else if (s >= 'A' && s <= 'Z') || (s >= 'a' && s <= 'z') {
+						hasLetter = true
+					}
+				}
+				// 如果同时包含数字和字母，很可能是到期日期后缀
+				if hasDigit && hasLetter {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (f *BybitFetcher) FetchKlines(symbol, period string, limit int) ([]KlineData, error) {
@@ -119,7 +150,7 @@ func (f *BybitFetcher) FetchKlines(symbol, period string, limit int) ([]KlineDat
 		return nil, err
 	}
 
-	return parseBybitKlines(result.Data.List), nil
+	return parseBybitKlines(result.Data.List, period), nil
 }
 
 // FetchKlinesByTimeRange 获取指定时间范围的K线数据
@@ -152,7 +183,7 @@ func (f *BybitFetcher) FetchKlinesByTimeRange(symbol, period string, startTime, 
 		}
 		resp.Body.Close()
 
-		klines := parseBybitKlines(result.Data.List)
+		klines := parseBybitKlines(result.Data.List, period)
 		if len(klines) == 0 {
 			break
 		}
@@ -246,7 +277,7 @@ func (f *BybitFetcher) FetchTicker(symbol string) (*Ticker, error) {
 	return nil, fmt.Errorf("symbol %s not found in ticker data", symbol)
 }
 
-func parseBybitKlines(rawData [][]interface{}) []KlineData {
+func parseBybitKlines(rawData [][]interface{}, period string) []KlineData {
 	var klines []KlineData
 
 	for _, item := range rawData {
@@ -267,7 +298,7 @@ func parseBybitKlines(rawData [][]interface{}) []KlineData {
 
 		klines = append(klines, KlineData{
 			OpenTime:  timestamp,
-			CloseTime: timestamp.Add(parsePeriodDuration(MapPeriod("bybit", item[6].(string)))),
+			CloseTime: timestamp.Add(parsePeriodDuration(period)),
 			Open:      open,
 			High:      high,
 			Low:       low,

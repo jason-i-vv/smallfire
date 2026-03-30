@@ -86,6 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_klines_symbol_period_time ON klines(symbol_id, pe
 CREATE TABLE IF NOT EXISTS price_boxes (
     id                  SERIAL PRIMARY KEY,
     symbol_id           INTEGER REFERENCES symbols(id),
+    period              VARCHAR(10) NOT NULL,  -- 周期字段，如 '15m', '1h', '1d'
     box_type            VARCHAR(10) NOT NULL,
     status              VARCHAR(20) NOT NULL DEFAULT 'active',
     high_price          DECIMAL(20, 8) NOT NULL,
@@ -105,6 +106,7 @@ CREATE TABLE IF NOT EXISTS price_boxes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_boxes_symbol ON price_boxes(symbol_id);
+CREATE INDEX IF NOT EXISTS idx_boxes_symbol_period ON price_boxes(symbol_id, period);
 CREATE INDEX IF NOT EXISTS idx_boxes_status ON price_boxes(status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_boxes_start ON price_boxes(start_time DESC);
 

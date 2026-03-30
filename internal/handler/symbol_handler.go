@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/smallfire/starfire/internal/repository"
@@ -94,7 +95,31 @@ func (h *SymbolHandler) GetKlines(c *gin.Context) {
 		limit = 100
 	}
 
-	klines, err := h.klineRepo.GetBySymbolPeriod(int64(symbolID), period, nil, nil, limit)
+	// 支持按时间范围获取K线（使用时间戳）
+	var startTime, endTime *time.Time
+	if startStr := c.Query("start_time"); startStr != "" {
+		// 支持两种格式：1) 时间戳数字字符串 2) ISO8601字符串
+		if unixSec, err := strconv.ParseInt(startStr, 10, 64); err == nil {
+			// 时间戳（秒级）
+			t := time.Unix(unixSec, 0)
+			startTime = &t
+		} else if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			// ISO8601格式（兼容）
+			startTime = &t
+		}
+	}
+	if endStr := c.Query("end_time"); endStr != "" {
+		if unixSec, err := strconv.ParseInt(endStr, 10, 64); err == nil {
+			// 时间戳（秒级）
+			t := time.Unix(unixSec, 0)
+			endTime = &t
+		} else if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			// ISO8601格式（兼容）
+			endTime = &t
+		}
+	}
+
+	klines, err := h.klineRepo.GetBySymbolPeriod(int64(symbolID), period, startTime, endTime, limit)
 	if err != nil {
 		h.logger.Error("获取K线数据失败", zap.Int("symbol_id", symbolID), zap.String("period", period), zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)

@@ -73,8 +73,18 @@ strategies:
     enabled: true
     min_klines: 5
     max_klines: 100
-    width_threshold: 2.0
+    width_threshold: 2.0      # 固定阈值回退值（动态阈值失效时使用）
     breakout_buffer: 0.1
+
+    # 动态阈值参数
+    use_dynamic_threshold: true   # 启用动态阈值
+    atr_period: 14               # ATR 计算周期（K线数）
+    atr_multiplier: 2.0          # 阈值 = ATR均值/价格*100 * 倍数
+    min_width_threshold: 0.3     # 最小宽度下限（%）
+    max_width_threshold: 5.0    # 最大宽度上限（%）
+
+    # Swing 点检测
+    swing_lookback: 2            # 波峰波谷检测回溯K线数
     check_interval: 60
   trend:
     enabled: true

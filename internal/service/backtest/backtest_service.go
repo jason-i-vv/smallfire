@@ -6,8 +6,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
+	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
 	"github.com/smallfire/starfire/internal/repository"
 	"github.com/smallfire/starfire/internal/service/market"
@@ -127,7 +129,10 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 	// 9. 生成权益曲线
 	equityCurve := s.generateEquityCurve(req, trades)
 
-	// 10. 构建响应
+	// 10. 对返回数据进行排序（按时间正序）
+	s.sortBacktestResult(boxes, signals, trades, trends, equityCurve)
+
+	// 11. 构建响应
 	response := &models.BacktestResponse{
 		Request:     req,
 		Statistics:  stats,
@@ -278,23 +283,93 @@ type strategyAnalyzer interface {
 
 // boxStrategyAnalyzer 箱体策略分析器
 type boxStrategyAnalyzer struct {
-	delegate         strategy.Strategy
-	boxes           []*models.Box
-	activeBoxes     map[string]*models.Box // key: box key
-	widthThreshold  float64                // 最小箱体幅度 %
-	minKlines       int                    // 最小K线数
-	swingLookback   int                   // 波峰波谷回溯数
+	delegate     strategy.Strategy
+	boxes        []*models.Box
+	activeBoxes  map[string]*models.Box // key: box key
+	minKlines    int                    // 最小K线数
+	maxKlines    int                    // 最大K线数
+	swingLookback int                   // 波峰波谷回溯数
+
+	// 动态阈值参数
+	atrPeriod          int     // ATR 计算周期
+	atrMultiplier      float64 // ATR 倍数
+	minWidthThreshold  float64 // 最小宽度下限(%)
+	maxWidthThreshold  float64 // 最大宽度上限(%)
+	widthThreshold     float64 // 固定阈值回退值
 }
 
 func newBoxStrategyAnalyzer(delegate strategy.Strategy) *boxStrategyAnalyzer {
-	return &boxStrategyAnalyzer{
-		delegate:        delegate,
-		boxes:          make([]*models.Box, 0),
-		activeBoxes:    make(map[string]*models.Box),
-		widthThreshold: 1.0,  // 1% 最小幅度
-		minKlines:       5,
-		swingLookback:   3,
+	// 从委托策略的配置中读取参数
+	cfg, ok := delegate.Config().(config.BoxStrategyConfig)
+	if !ok {
+		cfg = config.BoxStrategyConfig{
+			MinKlines:      5,
+			MaxKlines:      100,
+			WidthThreshold:  2.0,
+			SwingLookback:  2,
+			ATRPeriod:      14,
+			ATRMultiplier:  2.0,
+			MinWidthThreshold: 0.3,
+			MaxWidthThreshold: 5.0,
+		}
 	}
+	return &boxStrategyAnalyzer{
+		delegate:           delegate,
+		boxes:             make([]*models.Box, 0),
+		activeBoxes:       make(map[string]*models.Box),
+		minKlines:         cfg.MinKlines,
+		maxKlines:         cfg.MaxKlines,
+		swingLookback:     cfg.SwingLookback,
+		atrPeriod:         cfg.ATRPeriod,
+		atrMultiplier:     cfg.ATRMultiplier,
+		minWidthThreshold: cfg.MinWidthThreshold,
+		maxWidthThreshold: cfg.MaxWidthThreshold,
+		widthThreshold:    cfg.WidthThreshold,
+	}
+}
+
+// calculateDynamicThreshold 计算动态箱体宽度阈值
+func (a *boxStrategyAnalyzer) calculateDynamicThreshold(klines []models.Kline) float64 {
+	period := a.atrPeriod
+	if period < 5 {
+		period = 14
+	}
+
+	if len(klines) < period+1 {
+		return a.widthThreshold
+	}
+
+	lookbackKlines := klines[len(klines)-period-1 : len(klines)-1]
+
+	var trSum float64
+	for i := range lookbackKlines {
+		if i == 0 {
+			continue
+		}
+		tr := math.Max(
+			lookbackKlines[i].HighPrice-lookbackKlines[i].LowPrice,
+			math.Max(
+				math.Abs(lookbackKlines[i].HighPrice-lookbackKlines[i-1].ClosePrice),
+				math.Abs(lookbackKlines[i].LowPrice-lookbackKlines[i-1].ClosePrice),
+			),
+		)
+		trSum += tr
+	}
+
+	atr := trSum / float64(period)
+	latestClose := klines[len(klines)-1].ClosePrice
+	atrPercent := (atr / latestClose) * 100
+
+	threshold := atrPercent * a.atrMultiplier
+
+	if threshold < a.minWidthThreshold {
+		threshold = a.minWidthThreshold
+	}
+	if threshold > a.maxWidthThreshold {
+		threshold = a.maxWidthThreshold
+	}
+
+	return threshold
 }
 
 func (a *boxStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string, klines []models.Kline) ([]models.Signal, error) {
@@ -310,24 +385,94 @@ func (a *boxStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string, k
 	// 1. 检测箱体
 	newBoxes := a.detectBoxes(symbolID, period, klines)
 
-	// 2. 添加新箱体到活跃列表
+	// 2. 检查每个新检测到的箱体
 	for _, box := range newBoxes {
 		key := boxKey(box)
-		if _, exists := a.activeBoxes[key]; !exists {
+		// 如果箱体已经在 activeBoxes 中，说明之前已检测并正在延续
+		if _, exists := a.activeBoxes[key]; exists {
+			continue
+		}
+		// 检查是否在 a.boxes 中已存在相同价格区间的箱体
+		alreadyExists := false
+		for _, existingBox := range a.boxes {
+			if boxKey(existingBox) == key {
+				alreadyExists = true
+				break
+			}
+		}
+		if alreadyExists {
+			continue
+		}
+
+		// 关键逻辑：检查箱体是否已经被突破
+		// 突破发生在 EndTime 之后的第一根K线
+		// 我们需要找到 EndTime 之后的K线，检查价格是否已突破
+		buffer := box.WidthPrice * 0.001
+
+		// 找到 EndTime 在 klines 中的索引
+		boxEndIdx := -1
+		for i := len(klines) - 1; i >= 0; i-- {
+			if klines[i].OpenTime.Equal(box.StartTime) {
+				// 找到箱体起始位置，往后找
+				for j := i; j < len(klines); j++ {
+					if klines[j].OpenTime.Equal(*box.EndTime) {
+						boxEndIdx = j
+						break
+					}
+				}
+				break
+			}
+		}
+
+		// 检查 EndTime 之后是否有突破
+		broken := false
+		breakoutPrice := latestPrice
+		if boxEndIdx >= 0 && boxEndIdx < len(klines)-1 {
+			// 检查 EndTime 之后的K线
+			for i := boxEndIdx + 1; i < len(klines); i++ {
+				if klines[i].ClosePrice < box.LowPrice-buffer {
+					broken = true
+					breakoutPrice = klines[i].ClosePrice
+					break
+				}
+				if klines[i].ClosePrice > box.HighPrice+buffer {
+					broken = true
+					breakoutPrice = klines[i].ClosePrice
+					break
+				}
+			}
+		}
+
+		if broken {
+			// 箱体已被突破，添加到 boxes 列表（已结束）
+			box.Status = models.BoxStatusClosed
+			box.BreakoutPrice = &breakoutPrice
+			if breakoutPrice < box.LowPrice-buffer {
+				dir := models.BreakoutDirectionDown
+				box.BreakoutDirection = &dir
+			} else {
+				dir := models.BreakoutDirectionUp
+				box.BreakoutDirection = &dir
+			}
+			a.boxes = append(a.boxes, box)
+		} else {
+			// 箱体未被突破，添加到活跃列表
 			a.activeBoxes[key] = box
 			a.boxes = append(a.boxes, box)
 		}
 	}
 
-	// 3. 检查活跃箱体是否被突破
+	// 3. 检查活跃箱体是否被突破，未突破则尝试延续
 	for key, box := range a.activeBoxes {
 		if sig := a.checkBreakout(box, latestKline, latestPrice, period); sig != nil {
 			signals = append(signals, *sig)
 			// 箱体被突破后关闭
 			box.Status = models.BoxStatusClosed
-			box.EndTime = &latestKline.OpenTime
 			box.BreakoutPrice = &latestPrice
 			delete(a.activeBoxes, key)
+		} else {
+			// 未突破，尝试延续箱体
+			a.tryExtendBox(box, latestKline)
 		}
 	}
 
@@ -337,69 +482,311 @@ func (a *boxStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string, k
 	return signals, nil
 }
 
-// detectBoxes 检测箱体
-func (a *boxStrategyAnalyzer) detectBoxes(symbolID int, period string, klines []models.Kline) []*models.Box {
-	var boxes []*models.Box
+// tryExtendBox 尝试延续活跃箱体
+func (a *boxStrategyAnalyzer) tryExtendBox(box *models.Box, latestKline models.Kline) {
+	buffer := box.WidthPrice * 0.001 // 0.1% 缓冲
+	// 使用 K 线高低价判断，确保实体在边界内
+	highInRange := latestKline.HighPrice <= box.HighPrice+buffer
+	lowInRange := latestKline.LowPrice >= box.LowPrice-buffer
+	if highInRange && lowInRange {
+		box.KlinesCount++
+		box.EndTime = &latestKline.CloseTime
+		box.UpdatedAt = time.Now()
+	}
+}
 
+// detectBoxes 检测箱体 - 使用滑动窗口多Swing点聚合方式
+func (a *boxStrategyAnalyzer) detectBoxes(symbolID int, period string, klines []models.Kline) []*models.Box {
 	// 检测波峰波谷
 	swings := a.detectSwingPoints(klines)
-
-	// 从相邻的波峰波谷构建箱体
-	for i := 0; i < len(swings)-1; i++ {
-		s1 := swings[i]
-		s2 := swings[i+1]
-
-		// 需要不同类型的Swing
-		if s1.Type == s2.Type {
-			continue
-		}
-
-		// 提取箱体K线
-		startIdx := s1.Index
-		endIdx := s2.Index
-		if startIdx > endIdx {
-			startIdx, endIdx = endIdx, startIdx
-		}
-
-		boxKlines := klines[startIdx : endIdx+1]
-		if len(boxKlines) < a.minKlines {
-			continue
-		}
-
-		// 计算箱体边界
-		var highs, lows []float64
-		for _, k := range boxKlines {
-			highs = append(highs, k.HighPrice)
-			lows = append(lows, k.LowPrice)
-		}
-
-		highPrice := maxFloat(highs)
-		lowPrice := minFloat(lows)
-		widthPrice := highPrice - lowPrice
-		widthPercent := widthPrice / lowPrice * 100
-
-		// 过滤幅度太小的箱体
-		if widthPercent < a.widthThreshold {
-			continue
-		}
-
-		box := &models.Box{
-			SymbolID:     symbolID,
-			Status:       models.BoxStatusActive,
-			HighPrice:    highPrice,
-			LowPrice:     lowPrice,
-			WidthPrice:   widthPrice,
-			WidthPercent: widthPercent,
-			KlinesCount:  len(boxKlines),
-			StartTime:    boxKlines[0].OpenTime,
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		}
-
-		boxes = append(boxes, box)
+	if len(swings) < 4 {
+		return nil
 	}
 
-	return boxes
+	var allBoxes []*models.Box
+
+	// 滑动窗口：从每个起始 Swing 点出发，向后扩展，寻找最长的有效箱体
+	// 注意：klines 是分析窗口切片，swings 的索引是相对于这个切片的
+	for start := 0; start <= len(swings)-4; start++ {
+		for end := start + 3; end < len(swings); end++ {
+			window := swings[start : end+1]
+			box := a.buildBoxFromSwingRange(symbolID, period, window, klines, 0) // 0表示不需要偏移，因为klines已经是分析窗口
+			if box == nil {
+				continue
+			}
+			// 关键修复：跳过已经在 activeBoxes 中的价格区间，避免重复创建箱体
+			key := boxKey(box)
+			if _, exists := a.activeBoxes[key]; exists {
+				continue
+			}
+			// 调试日志：打印 window 的索引范围
+			// 调试日志
+			// fmt.Printf("[detectBoxes] window: startIdx=%d, endIdx=%d, len(window)=%d\n",
+			// 	window[0].Index, window[len(window)-1].Index, len(window))
+			// fmt.Printf("[detectBoxes] built box: High=%.4f, Low=%.4f, KlinesCount=%d, StartTime=%v, EndTime=%v\n",
+			// 	box.HighPrice, box.LowPrice, box.KlinesCount, box.StartTime, *box.EndTime)
+			// 验证箱体有效性（震荡次数、价格非单调、K线在边界内）
+			valid := a.isValidBox(box, window, klines, window[0].Index, window[len(window)-1].Index)
+			if valid {
+				allBoxes = append(allBoxes, box)
+			} else {
+				// fmt.Printf("[detectBoxes] INVALID box: High=%.4f, KlinesCount=%d, StartTime=%v\n",
+				// 	box.HighPrice, box.KlinesCount, box.StartTime)
+			}
+		}
+	}
+
+	// 去重
+	allBoxes = a.deduplicateBoxes(allBoxes)
+
+	// 使用动态阈值过滤
+	widthThreshold := a.calculateDynamicThreshold(klines)
+
+	// 过滤幅度太小的箱体和宽度过大的箱体
+	var validBoxes []*models.Box
+	for _, box := range allBoxes {
+		if box.WidthPercent >= widthThreshold && box.WidthPercent <= a.maxWidthThreshold && box.KlinesCount <= a.maxKlines {
+			validBoxes = append(validBoxes, box)
+		}
+	}
+
+	return validBoxes
+}
+
+// buildBoxFromSwingRange 从一段连续的Swing区间构建箱体
+// 关键修复：箱体边界直接使用窗口内所有K线的实际极值，而非Swing点的价格
+func (a *boxStrategyAnalyzer) buildBoxFromSwingRange(symbolID int, period string, rangeSwings []SwingPoint, klines []models.Kline, windowOffset int) *models.Box {
+	if len(rangeSwings) < 4 {
+		return nil
+	}
+
+	// 按时间排序（数据已从旧到新排列）
+	sort.Slice(rangeSwings, func(i, j int) bool {
+		return rangeSwings[i].Index < rangeSwings[j].Index
+	})
+
+	// 获取窗口的K线范围
+	// 注意：数据是从旧到新排列的，firstIdx < lastIdx
+	firstIdx := rangeSwings[0].Index
+	lastIdx := rangeSwings[len(rangeSwings)-1].Index
+
+	// 由于数组是从旧到新排列的，直接使用正常顺序
+	boxKlines := klines[firstIdx : lastIdx+1]
+
+	if len(boxKlines) < a.minKlines {
+		return nil
+	}
+
+	// 关键修复：箱体边界直接使用窗口内所有K线的实际极值
+	boxHigh := boxKlines[0].HighPrice
+	boxLow := boxKlines[0].LowPrice
+	for _, k := range boxKlines {
+		if k.HighPrice > boxHigh {
+			boxHigh = k.HighPrice
+		}
+		if k.LowPrice < boxLow {
+			boxLow = k.LowPrice
+		}
+	}
+
+	widthPrice := boxHigh - boxLow
+	if widthPrice <= 0 {
+		return nil
+	}
+
+	// 调试日志
+	// fmt.Printf("[buildBox] boxKlines[0].OpenTime=%v, boxKlines[last].OpenTime=%v, len=%d\n",
+	// 	boxKlines[0].OpenTime, boxKlines[len(boxKlines)-1].OpenTime, len(boxKlines))
+
+	endTime := boxKlines[len(boxKlines)-1].OpenTime
+	return &models.Box{
+		SymbolID:     symbolID,
+		Period:       period,
+		Status:       models.BoxStatusActive,
+		HighPrice:    boxHigh,
+		LowPrice:     boxLow,
+		WidthPrice:   widthPrice,
+		WidthPercent: widthPrice / boxLow * 100,
+		KlinesCount:  len(boxKlines),
+		StartTime:    boxKlines[0].OpenTime,
+		EndTime:      &endTime,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+}
+
+// isValidBox 验证箱体是否满足震荡条件
+// 箱体的边界 = 窗口内所有K线的最高价和最低价
+// 验证：窗口内任何一根K线超出边界，该"箱体"即无效
+func (a *boxStrategyAnalyzer) isValidBox(box *models.Box, swings []SwingPoint, klines []models.Kline, startIdx, endIdx int) bool {
+	if box == nil {
+		return false
+	}
+
+	// 数据已从旧到新排列，直接使用正常索引范围
+	boxKlines := klines[startIdx : endIdx+1]
+
+	for _, k := range boxKlines {
+		if k.HighPrice > box.HighPrice || k.LowPrice < box.LowPrice {
+			return false // 任何一根K线超出边界，箱体即失效
+		}
+	}
+
+	// 新增：检查价格波动性 - 计算窗口内收盘价的来回波动程度
+	// volatilityRatio < 1.0 说明价格来回震荡，是真正的震荡箱体
+	// volatilityRatio >= 0.8 说明价格单边移动超过箱体宽度的 80%，视为趋势行情
+	volatilityRatio := calculateVolatilityRatio(boxKlines)
+	if volatilityRatio >= 0.8 {
+		return false
+	}
+
+	touchTolerance := box.WidthPrice * 0.05 // 5% 容差
+
+	highTouchCount := 0
+	lowTouchCount := 0
+
+	for _, sw := range swings {
+		if sw.Type == 0 && sw.Price >= box.HighPrice-touchTolerance {
+			highTouchCount++
+		}
+		if sw.Type == 1 && sw.Price <= box.LowPrice+touchTolerance {
+			lowTouchCount++
+		}
+	}
+
+	// 至少需要1个高点和1个低点触及边界
+	if highTouchCount < 1 || lowTouchCount < 1 {
+		return false
+	}
+
+	// 检查单边趋势：高低点不能是单调递增或递减
+	var highPrices, lowPrices []float64
+	for _, sw := range swings {
+		if sw.Type == 0 {
+			highPrices = append(highPrices, sw.Price)
+		} else {
+			lowPrices = append(lowPrices, sw.Price)
+		}
+	}
+
+	if len(highPrices) >= 2 && isMonotone(highPrices) {
+		return false
+	}
+	if len(lowPrices) >= 2 && isMonotone(lowPrices) {
+		return false
+	}
+
+	return true
+}
+
+// calculateVolatilityRatio 计算价格波动性比率
+// 原理：计算窗口内收盘价的净位移（首尾差） / 箱体宽度
+// 震荡行情：价格来回波动，净位移远小于箱体宽度，比值小
+// 趋势行情：价格单边移动，净位移接近箱体宽度，比值大
+// 阈值：>= 0.8 说明净位移超过箱体宽度的80%，视为趋势
+func calculateVolatilityRatio(boxKlines []models.Kline) float64 {
+	if len(boxKlines) < 2 {
+		return 0
+	}
+
+	// 净位移：窗口内首根和末根收盘价的差（绝对值）
+	netDisplacement := math.Abs(boxKlines[len(boxKlines)-1].ClosePrice - boxKlines[0].ClosePrice)
+
+	// 计算箱体宽度（窗口内所有K线的极值范围）
+	boxHigh := boxKlines[0].HighPrice
+	boxLow := boxKlines[0].LowPrice
+	for _, k := range boxKlines {
+		if k.HighPrice > boxHigh {
+			boxHigh = k.HighPrice
+		}
+		if k.LowPrice < boxLow {
+			boxLow = k.LowPrice
+		}
+	}
+
+	boxWidth := boxHigh - boxLow
+	if boxWidth <= 0 {
+		return 0
+	}
+
+	return netDisplacement / boxWidth
+}
+
+// isMonotone 检查价格序列是否单调
+func isMonotone(prices []float64) bool {
+	if len(prices) < 2 {
+		return false
+	}
+	allUp := true
+	allDown := true
+	for i := 1; i < len(prices); i++ {
+		if prices[i] <= prices[i-1] {
+			allUp = false
+		}
+		if prices[i] >= prices[i-1] {
+			allDown = false
+		}
+	}
+	return allUp || allDown
+}
+
+// deduplicateBoxes 对箱体去重，保留最完整的那个
+func (a *boxStrategyAnalyzer) deduplicateBoxes(boxes []*models.Box) []*models.Box {
+	if len(boxes) <= 1 {
+		return boxes
+	}
+
+	kept := make([]bool, len(boxes))
+	for i := range kept {
+		kept[i] = true
+	}
+
+	for i := 0; i < len(boxes); i++ {
+		if !kept[i] {
+			continue
+		}
+		for j := i + 1; j < len(boxes); j++ {
+			if !kept[j] {
+				continue
+			}
+			// 使用包含重叠度判断
+			// 优先保留较窄的箱体（KlinesCount 较少）——窄箱体代表更紧凑的震荡区间，突破时机更有价值
+			overlap := calculateContainmentOverlap(boxes[i].LowPrice, boxes[i].HighPrice, boxes[j].LowPrice, boxes[j].HighPrice)
+			if overlap > 0.7 {
+				if boxes[i].KlinesCount <= boxes[j].KlinesCount {
+					kept[j] = false
+				} else {
+					kept[i] = false
+					break
+				}
+			}
+		}
+	}
+
+	var result []*models.Box
+	for i, box := range boxes {
+		if kept[i] {
+			result = append(result, box)
+		}
+	}
+	return result
+}
+
+// calculateContainmentOverlap 计算包含重叠度
+func calculateContainmentOverlap(aLow, aHigh, bLow, bHigh float64) float64 {
+	overlapLow := math.Max(aLow, bLow)
+	overlapHigh := math.Min(aHigh, bHigh)
+	if overlapLow >= overlapHigh {
+		return 0
+	}
+	overlapWidth := overlapHigh - overlapLow
+	aWidth := aHigh - aLow
+	bWidth := bHigh - bLow
+	minWidth := math.Min(aWidth, bWidth)
+	if minWidth == 0 {
+		return 0
+	}
+	return overlapWidth / minWidth
 }
 
 // SwingPoint 波峰波谷
@@ -413,19 +800,36 @@ type SwingPoint struct {
 // detectSwingPoints 检测波峰波谷
 func (a *boxStrategyAnalyzer) detectSwingPoints(klines []models.Kline) []SwingPoint {
 	var swings []SwingPoint
-	minSwingPercent := a.widthThreshold / 100
 
-	for i := a.swingLookback; i < len(klines)-a.swingLookback; i++ {
+	// 使用动态阈值
+	minSwingPercent := a.calculateDynamicThreshold(klines) / 100
+	lookback := a.swingLookback
+	if lookback < 1 {
+		lookback = 2
+	}
+
+	for i := lookback; i < len(klines)-lookback; i++ {
 		prevHigh := klines[i-1].HighPrice
-		currHigh := klines[i].HighPrice
-		nextHigh := klines[i+1].HighPrice
-
 		prevLow := klines[i-1].LowPrice
+		currHigh := klines[i].HighPrice
 		currLow := klines[i].LowPrice
+		nextHigh := klines[i+1].HighPrice
 		nextLow := klines[i+1].LowPrice
 
 		// 波峰检测
-		if currHigh > prevHigh && currHigh > nextHigh {
+		isHigh := true
+		for j := 1; j <= lookback; j++ {
+			if i-j >= 0 && klines[i-j].HighPrice > currHigh {
+				isHigh = false
+				break
+			}
+			if i+j < len(klines) && klines[i+j].HighPrice > currHigh {
+				isHigh = false
+				break
+			}
+		}
+
+		if isHigh && currHigh > prevHigh && currHigh > nextHigh {
 			swingPercent := (currHigh - math.Min(prevLow, nextLow)) / currHigh
 			if swingPercent >= minSwingPercent {
 				swings = append(swings, SwingPoint{
@@ -438,7 +842,19 @@ func (a *boxStrategyAnalyzer) detectSwingPoints(klines []models.Kline) []SwingPo
 		}
 
 		// 波谷检测
-		if currLow < prevLow && currLow < nextLow {
+		isLow := true
+		for j := 1; j <= lookback; j++ {
+			if i-j >= 0 && klines[i-j].LowPrice < currLow {
+				isLow = false
+				break
+			}
+			if i+j < len(klines) && klines[i+j].LowPrice < currLow {
+				isLow = false
+				break
+			}
+		}
+
+		if isLow && currLow < prevLow && currLow < nextLow {
 			swingPercent := (math.Max(prevHigh, nextHigh) - currLow) / currLow
 			if swingPercent >= minSwingPercent {
 				swings = append(swings, SwingPoint{
@@ -458,9 +874,25 @@ func (a *boxStrategyAnalyzer) detectSwingPoints(klines []models.Kline) []SwingPo
 func (a *boxStrategyAnalyzer) checkBreakout(box *models.Box, latestKline models.Kline, latestPrice float64, period string) *models.Signal {
 	buffer := box.WidthPrice * 0.001 // 0.1% 缓冲
 
+	// 使用箱体的 EndTime 来判断突破
+	// EndTime 是箱体形成的时间点，我们需要找到这个时间对应的K线价格
+	breakoutPrice := latestPrice
+	if box.EndTime != nil {
+		// 找到 EndTime 对应的K线（应该是在 klines 中）
+		// 由于 latestKline 是窗口末尾的K线，我们需要往前找
+		// 这里简化处理：如果 EndTime 早于 latestKline.OpenTime，说明突破已经发生
+		if box.EndTime.Before(latestKline.OpenTime) {
+			// 突破发生在窗口内，使用 latestPrice
+			breakoutPrice = latestPrice
+		} else {
+			// 突破尚未发生（不应该走到这里）
+			return nil
+		}
+	}
+
 	if latestPrice > box.HighPrice+buffer {
 		// 向上突破
-		box.BreakoutPrice = &latestPrice
+		box.BreakoutPrice = &breakoutPrice
 		dir := models.BreakoutDirectionUp
 		box.BreakoutDirection = &dir
 
@@ -549,9 +981,11 @@ func (a *boxStrategyAnalyzer) cleanupOldBoxes(currentTime time.Time) {
 	}
 }
 
-// boxKey 生成箱体唯一键
+// boxKey 生成箱体唯一键 - 使用价格区间标识唯一箱体
+// 使用 %.0f 来避免浮点精度问题导致同一价格区间被识别为不同箱体
 func boxKey(box *models.Box) string {
-	return fmt.Sprintf("%.2f_%.2f_%d", box.HighPrice, box.LowPrice, box.KlinesCount)
+	// 使用4位小数精度来标识箱体
+	return fmt.Sprintf("%.4f_%.4f", box.HighPrice, box.LowPrice)
 }
 
 // maxFloat 返回最大值
@@ -850,12 +1284,24 @@ func (s *BacktestService) runBacktestLoop(
 		windowSize = len(klines) / 2
 	}
 
-	for i := windowSize; i < len(klines); i++ {
-		currentKline := klines[i]
+	// 反转K线数组：从旧到新排列
+	// 注意：原始数据是从新到旧排列的 (klines[0]=最新)
+	// 反转后 klines[0]=最旧, klines[len-1]=最新
+	reversedKlines := make([]models.Kline, len(klines))
+	for i := 0; i < len(klines); i++ {
+		reversedKlines[i] = klines[len(klines)-1-i]
+	}
+
+	// 遍历K线 - 从0到len-windowSize
+	// 这样会从较早的K线开始遍历到较晚的K线
+	// analysisWindow 包含从 i 到 i+windowSize-1 的K线（从旧到新）
+	// latestKline = klines[i+windowSize-1] 是窗口中最新的K线
+	for i := 0; i <= len(reversedKlines)-windowSize; i++ {
+		currentKline := reversedKlines[i+windowSize-1] // 窗口中最新的K线
 		currentPrice := currentKline.ClosePrice
 
-		// 更新当前分析窗口
-		analysisWindow := klines[i-windowSize+1 : i+1]
+		// 当前分析窗口 - 包含从 i 到 i+windowSize-1 的K线（从旧到新）
+		analysisWindow := reversedKlines[i : i+windowSize]
 
 		// 运行策略分析
 		newSignals, _ := analyzer.Analyze(symbol.ID, symbol.SymbolCode, req.Period, analysisWindow)
@@ -1171,6 +1617,40 @@ func (s *BacktestService) generateEquityCurve(req *models.BacktestRequest, trade
 	}
 
 	return equityCurve
+}
+
+// sortBacktestResult 对回测结果进行排序（按时间正序）
+func (s *BacktestService) sortBacktestResult(
+	boxes []*models.Box,
+	signals []*models.Signal,
+	trades []*models.BacktestTrade,
+	trends []*models.Trend,
+	equityCurve []*models.EquityPoint,
+) {
+	// 箱体按 StartTime 排序
+	sort.Slice(boxes, func(i, j int) bool {
+		return boxes[i].StartTime.Before(boxes[j].StartTime)
+	})
+
+	// 信号按 CreatedAt 排序
+	sort.Slice(signals, func(i, j int) bool {
+		return signals[i].CreatedAt.Before(signals[j].CreatedAt)
+	})
+
+	// 交易按 EntryTime 排序
+	sort.Slice(trades, func(i, j int) bool {
+		return trades[i].EntryTime.Before(trades[j].EntryTime)
+	})
+
+	// 趋势按 StartTime 排序
+	sort.Slice(trends, func(i, j int) bool {
+		return trends[i].StartTime.Before(trends[j].StartTime)
+	})
+
+	// 权益曲线按 Time 排序
+	sort.Slice(equityCurve, func(i, j int) bool {
+		return equityCurve[i].Time.Before(equityCurve[j].Time)
+	})
 }
 
 // GetSupportedStrategies 获取支持的策略列表

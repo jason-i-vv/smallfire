@@ -69,12 +69,29 @@ func (h *BoxHandler) GetBoxes(c *gin.Context) {
 		return
 	}
 
-	// 获取 symbol_code
+	// 收集所有 symbolID
+	symbolIDMap := make(map[int]bool)
+	for _, box := range boxes {
+		symbolIDMap[box.SymbolID] = true
+	}
+
+	// 批量查询 symbol_code
+	symbolCodeMap := make(map[int]string)
+	for symbolID := range symbolIDMap {
+		if symbol, err := h.symbolRepo.GetByID(symbolID); err == nil {
+			symbolCodeMap[symbolID] = symbol.SymbolCode
+		} else {
+			h.logger.Warn("查询标的失败", zap.Int("symbol_id", symbolID), zap.Error(err))
+			symbolCodeMap[symbolID] = ""
+		}
+	}
+
+	// 构建返回数据
 	boxItems := make([]*BoxListItem, 0, len(boxes))
 	for _, box := range boxes {
 		boxItems = append(boxItems, &BoxListItem{
 			Box:        *box,
-			SymbolCode: "", // 后续通过 symbolID 获取
+			SymbolCode: symbolCodeMap[box.SymbolID],
 		})
 	}
 

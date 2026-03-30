@@ -5,6 +5,7 @@ import "time"
 type Box struct {
 	ID                int        `json:"id" db:"id"`
 	SymbolID          int        `json:"symbol_id" db:"symbol_id"`
+	Period            string     `json:"period" db:"period"` // 添加周期字段
 	BoxType           string     `json:"box_type" db:"box_type"`
 	Status            string     `json:"status" db:"status"`
 	HighPrice         float64    `json:"high_price" db:"high_price"`

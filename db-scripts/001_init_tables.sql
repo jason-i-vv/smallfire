@@ -7,7 +7,15 @@ CREATE INDEX IF NOT EXISTS idx_symbols_is_tracking ON symbols(is_tracking);
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
+    -- 检查 NEW 是否包含 updated_at 字段
+    -- 使用异常处理来避免错误
+    BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+    EXCEPTION
+        WHEN others THEN
+            -- 字段不存在时，直接返回 NEW 不做修改
+            RETURN NEW;
+    END;
     RETURN NEW;
 END;
 $$ language 'plpgsql';

@@ -750,14 +750,11 @@ const viewChart = (type, item) => {
     period: form.value.period
   }
 
-  // 优先从箱体/信号数据中获取 symbol_id，否则从 symbols 列表中查找
-  let targetSymbolId = item.symbol_id
-  if (!targetSymbolId) {
-    const foundSymbol = symbols.value.find(s => s.symbol_code === form.value.symbol_code)
-    targetSymbolId = foundSymbol?.id
-  }
-  if (targetSymbolId) {
-    query.symbolId = targetSymbolId
+  // 始终使用当前表单选择的品种来查找 symbol_id，避免用箱体/信号数据中
+  // 残留的旧 symbol_id（如用户切换品种后，旧的回测结果还显示在页面上）
+  const foundSymbol = symbols.value.find(s => s.symbol_code === form.value.symbol_code)
+  if (foundSymbol?.id) {
+    query.symbolId = foundSymbol.id
   }
 
   // 辅助函数：转换任意时间格式为时间戳
@@ -802,12 +799,13 @@ const viewChart = (type, item) => {
     query.boxHigh = item.high_price
     query.boxLow = item.low_price
     query.sourceType = 'box'
-    // 计算箱体结束时间
+    // 计算箱体时间范围
     const periodSeconds = { '1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '4h': 14400, '1d': 86400 }
     const periodSec = periodSeconds[form.value.period] || 900
-    // 确保传递的时间戳是标准格式
+    // start_time 和 end_time 直接使用后端返回的时间（都是 K 线的 open_time）
+    // 不需要用 klines_count 推算，因为 klines_count 包含了扩展阶段的K线，时间不对应
     const startTime = toTimestamp(item.start_time)
-    const endTime = startTime + (item.klines_count || 20) * periodSec
+    const endTime = item.end_time ? toTimestamp(item.end_time) : startTime
     query.boxStart = startTime
     query.boxEnd = endTime
     // 同时设置 signalTime 为箱体中间时间用于定位

@@ -9,6 +9,35 @@ import (
 	"github.com/smallfire/starfire/internal/models"
 )
 
+// HasExpirationSuffix 判断标的是否带有到期日期后缀
+func HasExpirationSuffix(symbol string) bool {
+	// 到期合约通常包含格式如 "-25DEC26" 的后缀
+	// 其中包含 "-" 字符，并且后面跟着数字和字母组合
+	for i, c := range symbol {
+		if c == '-' && i > 0 && i < len(symbol)-1 {
+			// 检查 "-" 后面是否包含有效的日期格式
+			suffix := symbol[i+1:]
+			// 简单的检查：长度应该在 6-8 字符之间，并且包含字母和数字
+			if len(suffix) >= 6 && len(suffix) <= 8 {
+				hasDigit := false
+				hasLetter := false
+				for _, s := range suffix {
+					if s >= '0' && s <= '9' {
+						hasDigit = true
+					} else if (s >= 'A' && s <= 'Z') || (s >= 'a' && s <= 'z') {
+						hasLetter = true
+					}
+				}
+				// 如果同时包含数字和字母，很可能是到期日期后缀
+				if hasDigit && hasLetter {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // KlineRepoPG K线数据访问实现
 type KlineRepoPG struct {
 	db *database.DB
@@ -40,11 +69,18 @@ func (r *KlineRepoPG) GetBySymbolPeriod(symbolID int64, period string, startTime
 	}
 
 	if endTime != nil {
-		query += " AND close_time <= $" + fmt.Sprintf("%d", len(args)+1)
+		// 使用 open_time 作为上界：包含 endTime 时间点开始的K线（以open_time为基准）
+		// 避免因 close_time = open_time + period 导致最后一根K线被错误排除
+		query += " AND open_time <= $" + fmt.Sprintf("%d", len(args)+1)
 		args = append(args, *endTime)
 	}
 
-	query += " ORDER BY open_time DESC"
+	// 如果指定了时间范围，升序排列；否则降序排列获取最新数据
+	if startTime != nil || endTime != nil {
+		query += " ORDER BY open_time ASC"
+	} else {
+		query += " ORDER BY open_time DESC"
+	}
 
 	if limit > 0 {
 		query += " LIMIT $" + fmt.Sprintf("%d", len(args)+1)
@@ -367,7 +403,10 @@ func (r *KlineRepoPG) GetAllTrackedSymbols() ([]*TrackedSymbol, error) {
 		if err := rows.Scan(&symbol.ID, &symbol.Code, &symbol.MarketCode); err != nil {
 			return nil, fmt.Errorf("扫描标的数据失败: %w", err)
 		}
-		symbols = append(symbols, &symbol)
+		// 过滤掉带到期日期后缀的合约
+		if !HasExpirationSuffix(symbol.Code) {
+			symbols = append(symbols, &symbol)
+		}
 	}
 
 	if err := rows.Err(); err != nil {

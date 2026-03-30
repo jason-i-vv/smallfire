@@ -167,7 +167,15 @@ const handleFilterChange = () => {
 }
 
 const handleViewBox = (box) => {
-  const boxStart = box.start_time || box.created_at
+  // 确保 start_time 是正确的时间戳格式
+  let boxStart = box.start_time || box.created_at
+  if (typeof boxStart === 'string') {
+    boxStart = new Date(boxStart).getTime() / 1000
+  } else if (typeof boxStart === 'number' && boxStart > 1e12) {
+    // 如果是毫秒级时间戳，转换为秒级
+    boxStart = Math.floor(boxStart / 1000)
+  }
+
   // 箱体结束时间 = 开始时间 + k线数量 * 周期秒数
   const periodSeconds = { '1m': 60, '5m': 300, '15m': 900, '30m': 1800, '1h': 3600, '4h': 14400, '1d': 86400 }
   const periodStr = box.period || '15m'
@@ -182,8 +190,8 @@ const handleViewBox = (box) => {
       sourceType: 'box',
       boxHigh: box.high_price,
       boxLow: box.low_price,
-      boxStart: boxStart,
-      boxEnd: boxEnd,
+      boxStart: boxStart,  // 直接传递数字时间戳（秒级）
+      boxEnd: boxEnd,      // 直接传递数字时间戳（秒级）
       period: periodStr
     }
   })

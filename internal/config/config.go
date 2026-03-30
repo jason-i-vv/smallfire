@@ -79,9 +79,19 @@ type BoxStrategyConfig struct {
 	Enabled        bool    `mapstructure:"enabled"`
 	MinKlines      int     `mapstructure:"min_klines"`      // 最少K线数
 	MaxKlines      int     `mapstructure:"max_klines"`      // 最大K线数
-	WidthThreshold float64 `mapstructure:"width_threshold"` // 宽度阈值(%)
+	WidthThreshold float64 `mapstructure:"width_threshold"` // 宽度阈值(%)，动态阈值失效时的回退值
 	BreakoutBuffer float64 `mapstructure:"breakout_buffer"` // 突破缓冲(%)
-	CheckInterval  int     `mapstructure:"check_interval"`  // 检查间隔(秒)
+
+	// 动态阈值参数
+	UseDynamicThreshold bool    `mapstructure:"use_dynamic_threshold"` // 启用动态阈值
+	ATRPeriod          int     `mapstructure:"atr_period"`            // ATR 计算周期
+	ATRMultiplier      float64 `mapstructure:"atr_multiplier"`        // ATR 倍数（阈值 = ATR * 倍数）
+	MinWidthThreshold  float64 `mapstructure:"min_width_threshold"`  // 最小宽度下限(%)
+	MaxWidthThreshold  float64 `mapstructure:"max_width_threshold"`  // 最大宽度上限(%)
+
+	// Swing 点检测参数
+	SwingLookback int     `mapstructure:"swing_lookback"`     // 波峰波谷回溯数
+	CheckInterval int     `mapstructure:"check_interval"`    // 检查间隔(秒)
 }
 
 type TrendStrategyConfig struct {

@@ -227,13 +227,14 @@ const initChart = () => {
             : Math.floor(Date.now() / 1000);
         }
 
+        // timestamp 是 UTC 秒时间戳
+        // 用 getUTCHours()/getUTCDate() 直接取 UTC 时间显示，不做本地时区转换
+        // 这样 2026-03-18T18:30:00Z 显示为 03-18 18:30
         const date = new Date(timestamp * 1000);
-        // 注意：Date 对象会自动将 UTC 时间戳转换为本地时区时间
-        // 在显示时，直接使用本地时区的时间
-        const hours = date.getHours().toString().padStart(2, '0');
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        const day = date.getDate().toString().padStart(2, '0');
+        const hours = date.getUTCHours().toString().padStart(2, '0');
+        const minutes = date.getUTCMinutes().toString().padStart(2, '0');
+        const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+        const day = date.getUTCDate().toString().padStart(2, '0');
         return `${month}-${day} ${hours}:${minutes}`;
       }
     }
@@ -567,10 +568,7 @@ const handleBacktestData = (klines) => {
     }
   }
 
-    // 如果有信号时间，跳转到该时间点
-  if (signalTime.value) {
-    scrollToTime(signalTime.value)
-  }
+    // 滚动已在 updateKlineData 中根据 sourceType 处理，无需重复滚动
 }
 
 // 绘制箱体：顶部线 + 底部线，背景用半透明矩形系列模拟

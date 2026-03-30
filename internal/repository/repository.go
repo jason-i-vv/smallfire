@@ -26,6 +26,7 @@ type MarketRepo interface {
 type SymbolRepo interface {
 	GetTrackingByMarket(marketCode string) ([]*models.Symbol, error)
 	FindByCode(marketCode, symbolCode string) (*models.Symbol, error)
+	GetByID(id int) (*models.Symbol, error)
 	Create(symbol *models.Symbol) error
 	Update(symbol *models.Symbol) error
 	DisableExpiredHot(cutoff time.Time) error

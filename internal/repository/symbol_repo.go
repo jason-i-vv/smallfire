@@ -47,7 +47,10 @@ func (r *SymbolRepoPG) GetTrackingByMarket(marketCode string) ([]*models.Symbol,
 		); err != nil {
 			return nil, fmt.Errorf("扫描标的数据失败: %w", err)
 		}
-		symbols = append(symbols, &symbol)
+		// 过滤掉带到期日期后缀的合约
+		if !HasExpirationSuffix(symbol.SymbolCode) {
+			symbols = append(symbols, &symbol)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -130,6 +133,28 @@ func (r *SymbolRepoPG) DisableExpiredHot(cutoff time.Time) error {
 	}
 
 	return nil
+}
+
+func (r *SymbolRepoPG) GetByID(id int) (*models.Symbol, error) {
+	var symbol models.Symbol
+	query := `
+		SELECT id, market_id, symbol_code, symbol_name, symbol_type,
+		       last_hot_at, hot_score, is_tracking, max_klines_count,
+		       created_at, updated_at
+		FROM symbols
+		WHERE id = $1
+	`
+
+	err := r.db.QueryRow(context.Background(), query, id).Scan(
+		&symbol.ID, &symbol.MarketID, &symbol.SymbolCode, &symbol.SymbolName, &symbol.SymbolType,
+		&symbol.LastHotAt, &symbol.HotScore, &symbol.IsTracking, &symbol.MaxKlinesCount,
+		&symbol.CreatedAt, &symbol.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("查询标的失败: %w", err)
+	}
+
+	return &symbol, nil
 }
 
 func (r *SymbolRepoPG) GetAllByMarket(marketCode string) ([]*models.Symbol, error) {

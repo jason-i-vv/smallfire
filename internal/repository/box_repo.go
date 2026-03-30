@@ -23,16 +23,24 @@ func NewBoxRepoPG(db *database.DB) BoxRepo {
 func (r *BoxRepoPG) GetActiveBySymbol(symbolID int, period string) ([]*models.Box, error) {
 	var boxes []*models.Box
 	query := `
-		SELECT id, symbol_id, box_type, status, high_price, low_price, width_price,
+		SELECT id, symbol_id, period, box_type, status, high_price, low_price, width_price,
 		       width_percent, klines_count, start_time, end_time, breakout_price,
 		       breakout_direction, breakout_time, breakout_kline_id, subscriber_count,
 		       created_at, updated_at
 		FROM price_boxes
 		WHERE symbol_id = $1 AND status = $2
-		ORDER BY start_time DESC
 	`
+	args := []interface{}{symbolID, models.BoxStatusActive}
 
-	rows, err := r.db.Query(context.Background(), query, symbolID, models.BoxStatusActive)
+	// 如果指定了周期，添加周期过滤条件
+	if period != "" {
+		query += " AND period = $" + fmt.Sprintf("%d", len(args)+1)
+		args = append(args, period)
+	}
+
+	query += " ORDER BY start_time DESC"
+
+	rows, err := r.db.Query(context.Background(), query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查询活跃箱体失败: %w", err)
 	}
@@ -41,7 +49,7 @@ func (r *BoxRepoPG) GetActiveBySymbol(symbolID int, period string) ([]*models.Bo
 	for rows.Next() {
 		var box models.Box
 		if err := rows.Scan(
-			&box.ID, &box.SymbolID, &box.BoxType, &box.Status, &box.HighPrice,
+			&box.ID, &box.SymbolID, &box.Period, &box.BoxType, &box.Status, &box.HighPrice,
 			&box.LowPrice, &box.WidthPrice, &box.WidthPercent, &box.KlinesCount,
 			&box.StartTime, &box.EndTime, &box.BreakoutPrice, &box.BreakoutDirection,
 			&box.BreakoutTime, &box.BreakoutKlineID, &box.SubscriberCount,
@@ -62,7 +70,7 @@ func (r *BoxRepoPG) GetActiveBySymbol(symbolID int, period string) ([]*models.Bo
 func (r *BoxRepoPG) GetBySignalID(signalID int) (*models.Box, error) {
 	var box models.Box
 	query := `
-		SELECT id, symbol_id, box_type, status, high_price, low_price, width_price,
+		SELECT id, symbol_id, period, box_type, status, high_price, low_price, width_price,
 		       width_percent, klines_count, start_time, end_time, breakout_price,
 		       breakout_direction, breakout_time, breakout_kline_id, subscriber_count,
 		       created_at, updated_at
@@ -72,7 +80,7 @@ func (r *BoxRepoPG) GetBySignalID(signalID int) (*models.Box, error) {
 	`
 
 	err := r.db.QueryRow(context.Background(), query, signalID).Scan(
-		&box.ID, &box.SymbolID, &box.BoxType, &box.Status, &box.HighPrice,
+		&box.ID, &box.SymbolID, &box.Period, &box.BoxType, &box.Status, &box.HighPrice,
 		&box.LowPrice, &box.WidthPrice, &box.WidthPercent, &box.KlinesCount,
 		&box.StartTime, &box.EndTime, &box.BreakoutPrice, &box.BreakoutDirection,
 		&box.BreakoutTime, &box.BreakoutKlineID, &box.SubscriberCount,
@@ -93,7 +101,7 @@ func (r *BoxRepoPG) GetByBatchID(batchID string) ([]*models.Box, error) {
 func (r *BoxRepoPG) GetByMarket(marketCode string) ([]*models.Box, error) {
 	var boxes []*models.Box
 	query := `
-		SELECT b.id, b.symbol_id, b.box_type, b.status, b.high_price, b.low_price, b.width_price,
+		SELECT b.id, b.symbol_id, b.period, b.box_type, b.status, b.high_price, b.low_price, b.width_price,
 		       b.width_percent, b.klines_count, b.start_time, b.end_time, b.breakout_price,
 		       b.breakout_direction, b.breakout_time, b.breakout_kline_id, b.subscriber_count,
 		       b.created_at, b.updated_at
@@ -112,7 +120,7 @@ func (r *BoxRepoPG) GetByMarket(marketCode string) ([]*models.Box, error) {
 	for rows.Next() {
 		var box models.Box
 		if err := rows.Scan(
-			&box.ID, &box.SymbolID, &box.BoxType, &box.Status, &box.HighPrice,
+			&box.ID, &box.SymbolID, &box.Period, &box.BoxType, &box.Status, &box.HighPrice,
 			&box.LowPrice, &box.WidthPrice, &box.WidthPercent, &box.KlinesCount,
 			&box.StartTime, &box.EndTime, &box.BreakoutPrice, &box.BreakoutDirection,
 			&box.BreakoutTime, &box.BreakoutKlineID, &box.SubscriberCount,
@@ -133,7 +141,7 @@ func (r *BoxRepoPG) GetByMarket(marketCode string) ([]*models.Box, error) {
 func (r *BoxRepoPG) GetBySymbol(marketCode, symbolCode string) ([]*models.Box, error) {
 	var boxes []*models.Box
 	query := `
-		SELECT b.id, b.symbol_id, b.box_type, b.status, b.high_price, b.low_price, b.width_price,
+		SELECT b.id, b.symbol_id, b.period, b.box_type, b.status, b.high_price, b.low_price, b.width_price,
 		       b.width_percent, b.klines_count, b.start_time, b.end_time, b.breakout_price,
 		       b.breakout_direction, b.breakout_time, b.breakout_kline_id, b.subscriber_count,
 		       b.created_at, b.updated_at
@@ -152,7 +160,7 @@ func (r *BoxRepoPG) GetBySymbol(marketCode, symbolCode string) ([]*models.Box, e
 	for rows.Next() {
 		var box models.Box
 		if err := rows.Scan(
-			&box.ID, &box.SymbolID, &box.BoxType, &box.Status, &box.HighPrice,
+			&box.ID, &box.SymbolID, &box.Period, &box.BoxType, &box.Status, &box.HighPrice,
 			&box.LowPrice, &box.WidthPrice, &box.WidthPercent, &box.KlinesCount,
 			&box.StartTime, &box.EndTime, &box.BreakoutPrice, &box.BreakoutDirection,
 			&box.BreakoutTime, &box.BreakoutKlineID, &box.SubscriberCount,
@@ -172,14 +180,14 @@ func (r *BoxRepoPG) GetBySymbol(marketCode, symbolCode string) ([]*models.Box, e
 
 func (r *BoxRepoPG) Create(box *models.Box) error {
 	query := `
-		INSERT INTO price_boxes (symbol_id, box_type, status, high_price, low_price, width_price,
+		INSERT INTO price_boxes (symbol_id, period, box_type, status, high_price, low_price, width_price,
 		                        width_percent, klines_count, start_time, subscriber_count, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
 		RETURNING id
 	`
 
 	err := r.db.QueryRow(context.Background(), query,
-		box.SymbolID, box.BoxType, box.Status, box.HighPrice, box.LowPrice,
+		box.SymbolID, box.Period, box.BoxType, box.Status, box.HighPrice, box.LowPrice,
 		box.WidthPrice, box.WidthPercent, box.KlinesCount, box.StartTime,
 		box.SubscriberCount,
 	).Scan(&box.ID)
@@ -216,7 +224,7 @@ func (r *BoxRepoPG) Update(box *models.Box) error {
 func (r *BoxRepoPG) GetByID(id int) (*models.Box, error) {
 	var box models.Box
 	query := `
-		SELECT id, symbol_id, box_type, status, high_price, low_price, width_price,
+		SELECT id, symbol_id, period, box_type, status, high_price, low_price, width_price,
 		       width_percent, klines_count, start_time, end_time, breakout_price,
 		       breakout_direction, breakout_time, breakout_kline_id, subscriber_count,
 		       created_at, updated_at
@@ -225,7 +233,7 @@ func (r *BoxRepoPG) GetByID(id int) (*models.Box, error) {
 	`
 
 	err := r.db.QueryRow(context.Background(), query, id).Scan(
-		&box.ID, &box.SymbolID, &box.BoxType, &box.Status, &box.HighPrice,
+		&box.ID, &box.SymbolID, &box.Period, &box.BoxType, &box.Status, &box.HighPrice,
 		&box.LowPrice, &box.WidthPrice, &box.WidthPercent, &box.KlinesCount,
 		&box.StartTime, &box.EndTime, &box.BreakoutPrice, &box.BreakoutDirection,
 		&box.BreakoutTime, &box.BreakoutKlineID, &box.SubscriberCount,
@@ -268,7 +276,7 @@ func (r *BoxRepoPG) ListAll(page, size int, status, boxType string) ([]*models.B
 	// 分页查询
 	offset := (page - 1) * size
 	query := fmt.Sprintf(`
-		SELECT id, symbol_id, box_type, status, high_price, low_price, width_price,
+		SELECT id, symbol_id, period, box_type, status, high_price, low_price, width_price,
 		       width_percent, klines_count, start_time, end_time, breakout_price,
 		       breakout_direction, breakout_time, breakout_kline_id, subscriber_count,
 		       created_at, updated_at
@@ -289,7 +297,7 @@ func (r *BoxRepoPG) ListAll(page, size int, status, boxType string) ([]*models.B
 	for rows.Next() {
 		var box models.Box
 		if err := rows.Scan(
-			&box.ID, &box.SymbolID, &box.BoxType, &box.Status, &box.HighPrice,
+			&box.ID, &box.SymbolID, &box.Period, &box.BoxType, &box.Status, &box.HighPrice,
 			&box.LowPrice, &box.WidthPrice, &box.WidthPercent, &box.KlinesCount,
 			&box.StartTime, &box.EndTime, &box.BreakoutPrice, &box.BreakoutDirection,
 			&box.BreakoutTime, &box.BreakoutKlineID, &box.SubscriberCount,
@@ -310,16 +318,23 @@ func (r *BoxRepoPG) ListAll(page, size int, status, boxType string) ([]*models.B
 func (r *BoxRepoPG) GetValidBoxes(endDate string, strategy string, period string) ([]*models.Box, error) {
 	var boxes []*models.Box
 	query := `
-		SELECT id, symbol_id, box_type, status, high_price, low_price, width_price,
+		SELECT id, symbol_id, period, box_type, status, high_price, low_price, width_price,
 		       width_percent, klines_count, start_time, end_time, breakout_price,
 		       breakout_direction, breakout_time, breakout_kline_id, subscriber_count,
 		       created_at, updated_at
 		FROM price_boxes
 		WHERE status = $1
-		ORDER BY start_time DESC
 	`
+	args := []interface{}{models.BoxStatusActive}
 
-	rows, err := r.db.Query(context.Background(), query, models.BoxStatusActive)
+	if period != "" {
+		query += " AND period = $" + fmt.Sprintf("%d", len(args)+1)
+		args = append(args, period)
+	}
+
+	query += " ORDER BY start_time DESC"
+
+	rows, err := r.db.Query(context.Background(), query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查询有效箱体失败: %w", err)
 	}
@@ -328,7 +343,7 @@ func (r *BoxRepoPG) GetValidBoxes(endDate string, strategy string, period string
 	for rows.Next() {
 		var box models.Box
 		if err := rows.Scan(
-			&box.ID, &box.SymbolID, &box.BoxType, &box.Status, &box.HighPrice,
+			&box.ID, &box.SymbolID, &box.Period, &box.BoxType, &box.Status, &box.HighPrice,
 			&box.LowPrice, &box.WidthPrice, &box.WidthPercent, &box.KlinesCount,
 			&box.StartTime, &box.EndTime, &box.BreakoutPrice, &box.BreakoutDirection,
 			&box.BreakoutTime, &box.BreakoutKlineID, &box.SubscriberCount,
