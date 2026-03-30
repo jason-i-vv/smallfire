@@ -439,7 +439,7 @@ func (a *boxStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string, k
 			if klines[i].OpenTime.Equal(box.StartTime) {
 				// 找到箱体起始位置，往后找
 				for j := i; j < len(klines); j++ {
-					if klines[j].OpenTime.Equal(*box.EndTime) {
+					if klines[j].OpenTime.Equal(box.EndTime) {
 						boxEndIdx = j
 						break
 					}
@@ -514,7 +514,7 @@ func (a *boxStrategyAnalyzer) tryExtendBox(box *models.Box, latestKline models.K
 	lowInRange := latestKline.LowPrice >= box.LowPrice-buffer
 	if highInRange && lowInRange {
 		box.KlinesCount++
-		box.EndTime = &latestKline.CloseTime
+		box.EndTime = latestKline.CloseTime
 		box.UpdatedAt = time.Now()
 	}
 }
@@ -548,7 +548,7 @@ func (a *boxStrategyAnalyzer) detectBoxes(symbolID int, period string, klines []
 			// fmt.Printf("[detectBoxes] window: startIdx=%d, endIdx=%d, len(window)=%d\n",
 			// 	window[0].Index, window[len(window)-1].Index, len(window))
 			// fmt.Printf("[detectBoxes] built box: High=%.4f, Low=%.4f, KlinesCount=%d, StartTime=%v, EndTime=%v\n",
-			// 	box.HighPrice, box.LowPrice, box.KlinesCount, box.StartTime, *box.EndTime)
+			// 	box.HighPrice, box.LowPrice, box.KlinesCount, box.StartTime, box.EndTime)
 			// 验证箱体有效性（震荡次数、价格非单调、K线在边界内）
 			valid := a.isValidBox(box, window, klines, window[0].Index, window[len(window)-1].Index)
 			if valid {
@@ -633,7 +633,7 @@ func (a *boxStrategyAnalyzer) buildBoxFromSwingRange(symbolID int, period string
 		WidthPercent: widthPrice / boxLow * 100,
 		KlinesCount:  len(boxKlines),
 		StartTime:    boxKlines[0].OpenTime,
-		EndTime:      &endTime,
+		EndTime:      endTime,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
@@ -901,17 +901,13 @@ func (a *boxStrategyAnalyzer) checkBreakout(box *models.Box, latestKline models.
 	// 使用箱体的 EndTime 来判断突破
 	// EndTime 是箱体形成的时间点，我们需要找到这个时间对应的K线价格
 	breakoutPrice := latestPrice
-	if box.EndTime != nil {
-		// 找到 EndTime 对应的K线（应该是在 klines 中）
-		// 由于 latestKline 是窗口末尾的K线，我们需要往前找
-		// 这里简化处理：如果 EndTime 早于 latestKline.OpenTime，说明突破已经发生
-		if box.EndTime.Before(latestKline.OpenTime) {
-			// 突破发生在窗口内，使用 latestPrice
-			breakoutPrice = latestPrice
-		} else {
-			// 突破尚未发生（不应该走到这里）
-			return nil
-		}
+	// 使用 EndTime 判断突破：如果 EndTime 早于 latestKline.OpenTime，说明突破已经发生
+	if box.EndTime.Before(latestKline.OpenTime) {
+		// 突破发生在窗口内，使用 latestPrice
+		breakoutPrice = latestPrice
+	} else {
+		// 突破尚未发生（不应该走到这里）
+		return nil
 	}
 
 	if latestPrice > box.HighPrice+buffer {
@@ -999,7 +995,7 @@ func (a *boxStrategyAnalyzer) cleanupOldBoxes(currentTime time.Time) {
 	for key, box := range a.activeBoxes {
 		if box.KlinesCount > maxAge {
 			box.Status = models.BoxStatusClosed
-			box.EndTime = &currentTime
+			box.EndTime = currentTime
 			delete(a.activeBoxes, key)
 		}
 	}
@@ -1415,11 +1411,16 @@ func (s *BacktestService) runBacktestLoop(
 	}
 
 	// 回测结束时，关闭仍处于 active 状态的箱体
+	// 注意：只有当箱体从未被 tryExtendBox 延伸过（EndTime 为零值）时才设置 EndTime
+	// 已延伸的箱体的 EndTime 已在 tryExtendBox 中正确设置
 	if boxAnalyzer, ok := analyzer.(*boxStrategyAnalyzer); ok {
-		lastTime := klines[len(klines)-1].CloseTime
 		for key, box := range boxAnalyzer.activeBoxes {
 			box.Status = models.BoxStatusClosed
-			box.EndTime = &lastTime
+			// 只在 EndTime 未被设置时（箱体从未延伸）才设置为最后K线的 CloseTime
+			if box.EndTime.IsZero() {
+				lastTime := klines[len(klines)-1].CloseTime
+				box.EndTime = lastTime
+			}
 			delete(boxAnalyzer.activeBoxes, key)
 		}
 	}

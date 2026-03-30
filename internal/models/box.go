@@ -14,7 +14,7 @@ type Box struct {
 	WidthPercent      float64    `json:"width_percent" db:"width_percent"`
 	KlinesCount       int        `json:"klines_count" db:"klines_count"`
 	StartTime         time.Time  `json:"start_time" db:"start_time"`
-	EndTime           *time.Time `json:"end_time,omitempty" db:"end_time"`
+	EndTime           time.Time  `json:"end_time,omitempty" db:"end_time"`
 	BreakoutPrice     *float64   `json:"breakout_price,omitempty" db:"breakout_price"`
 	BreakoutDirection *string    `json:"breakout_direction,omitempty" db:"breakout_direction"`
 	BreakoutTime      *time.Time `json:"breakout_time,omitempty" db:"breakout_time"`

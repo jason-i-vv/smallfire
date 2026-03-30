@@ -301,7 +301,7 @@ func (s *BoxStrategy) buildBoxFromSwingRange(symbolID int, period string, rangeS
 		WidthPercent: widthPrice / boxLow * 100,
 		KlinesCount:  len(boxKlines),
 		StartTime:    boxKlines[0].OpenTime,
-		EndTime:      nil,
+		EndTime:      time.Time{},
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
@@ -526,9 +526,9 @@ func (s *BoxStrategy) isOverlappingBox(a, b *models.Box) bool {
 
 	// 时间范围重叠判断
 	var timeOverlap bool
-	if a.EndTime == nil || b.EndTime == nil {
+	if a.EndTime.IsZero() || b.EndTime.IsZero() {
 		// 如果任一箱体是活跃状态（没有结束时间），判断时间是否有重叠
-		if a.EndTime == nil && b.EndTime == nil {
+		if a.EndTime.IsZero() && b.EndTime.IsZero() {
 			// 两个都是活跃箱体 - 判断它们的起始时间是否相近
 			// 计算两个箱体起始时间的差距
 			timeDiff := a.StartTime.Sub(b.StartTime).Abs()
@@ -544,15 +544,15 @@ func (s *BoxStrategy) isOverlappingBox(a, b *models.Box) bool {
 			allowedTimeDiff := periodDuration * time.Duration(maxKlines) / 2
 			// 如果时间差小于允许的时间差，则认为是重叠
 			timeOverlap = timeDiff <= allowedTimeDiff
-		} else if a.EndTime == nil {
+		} else if a.EndTime.IsZero() {
 			// a是活跃箱体，b有结束时间
 			// 判断a的起始时间是否在b的时间范围内，或者之后但时间相近
 			if a.StartTime.Before(b.StartTime) {
 				// a在b之前，不算重叠
 				timeOverlap = false
-			} else if a.StartTime.After(*b.EndTime) {
+			} else if a.StartTime.After(b.EndTime) {
 				// a在b结束之后，判断时间差
-				timeDiff := a.StartTime.Sub(*b.EndTime)
+				timeDiff := a.StartTime.Sub(b.EndTime)
 				periodDuration := getPeriodDurationForComparison(a.Period)
 				// 允许的时间差 = 箱体K线数量 * 周期时长
 				allowedTimeDiff := periodDuration * time.Duration(a.KlinesCount)
@@ -565,8 +565,8 @@ func (s *BoxStrategy) isOverlappingBox(a, b *models.Box) bool {
 			// b是活跃箱体，a有结束时间 - 与上面对称
 			if b.StartTime.Before(a.StartTime) {
 				timeOverlap = false
-			} else if b.StartTime.After(*a.EndTime) {
-				timeDiff := b.StartTime.Sub(*a.EndTime)
+			} else if b.StartTime.After(a.EndTime) {
+				timeDiff := b.StartTime.Sub(a.EndTime)
 				periodDuration := getPeriodDurationForComparison(a.Period)
 				allowedTimeDiff := periodDuration * time.Duration(b.KlinesCount)
 				timeOverlap = timeDiff <= allowedTimeDiff
@@ -576,7 +576,7 @@ func (s *BoxStrategy) isOverlappingBox(a, b *models.Box) bool {
 		}
 	} else {
 		// 两个都是已关闭的箱体，判断正常的时间重叠
-		timeOverlap = a.StartTime.Before(*b.EndTime) && b.StartTime.Before(*a.EndTime)
+		timeOverlap = a.StartTime.Before(b.EndTime) && b.StartTime.Before(a.EndTime)
 	}
 
 	// 价格重叠度 > 80% 且时间有重叠
@@ -653,7 +653,7 @@ func (s *BoxStrategy) tryExtendBox(box *models.Box, latestKline models.Kline) {
 	// K 线实体（开盘-收盘）在边界内，且高低点未大幅突破
 	if highInRange && lowInRange {
 		box.KlinesCount++
-		box.EndTime = &latestKline.CloseTime
+		box.EndTime = latestKline.CloseTime
 		box.UpdatedAt = time.Now()
 		s.deps.BoxRepo.Update(box)
 	}
@@ -672,7 +672,7 @@ func (s *BoxStrategy) checkBreakout(box *models.Box, latestKline models.Kline) *
 	if latestPrice > boxHigh+buffer {
 		// 更新箱体状态
 		box.Status = models.BoxStatusClosed
-		box.EndTime = &latestKline.CloseTime
+		box.EndTime = latestKline.CloseTime
 		box.BreakoutPrice = &latestPrice
 		dir := models.BreakoutDirectionUp
 		box.BreakoutDirection = &dir
@@ -685,7 +685,7 @@ func (s *BoxStrategy) checkBreakout(box *models.Box, latestKline models.Kline) *
 	// 向下突破
 	if latestPrice < boxLow-buffer {
 		box.Status = models.BoxStatusClosed
-		box.EndTime = &latestKline.CloseTime
+		box.EndTime = latestKline.CloseTime
 		box.BreakoutPrice = &latestPrice
 		dir := models.BreakoutDirectionDown
 		box.BreakoutDirection = &dir
