@@ -35,7 +35,7 @@ func (s *TrendStrategy) Analyze(symbolID int, symbolCode, period string, klines 
 	var signals []models.Signal
 
 	// 1. 确定趋势
-	trend := s.determineTrend(klines)
+	trend := s.determineTrend(symbolID, symbolCode, period, klines)
 
 	// 2. 检查趋势变化
 	activeTrend, _ := s.deps.TrendRepo.GetActive(symbolID, period)
@@ -73,7 +73,7 @@ func (s *TrendStrategy) Analyze(symbolID int, symbolCode, period string, klines 
 }
 
 // determineTrend 确定趋势状态
-func (s *TrendStrategy) determineTrend(klines []models.Kline) *models.Trend {
+func (s *TrendStrategy) determineTrend(symbolID int, symbolCode, period string, klines []models.Kline) *models.Trend {
 	// 获取最新的EMA值
 	lastKline := klines[len(klines)-1]
 
@@ -112,6 +112,8 @@ func (s *TrendStrategy) determineTrend(klines []models.Kline) *models.Trend {
 	}
 
 	return &models.Trend{
+		SymbolID:  symbolID,
+		Period:    period,
 		TrendType: trendType,
 		Strength:  strength,
 		EMAShort:  emaShort,
