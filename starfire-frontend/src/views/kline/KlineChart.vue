@@ -26,16 +26,15 @@
         <el-icon><Lightning /></el-icon>
         信号: {{ getSignalTypeName(currentSignal.signal_type) }} {{ currentSignal.direction === 'long' ? '多' : '空' }}
       </span>
-      <!-- 突破阻力位信息 -->
-      <span class="info-item breakout-info" v-if="getBreakoutLevelPrice(currentSignal)">
+      <!-- 信号描述信息 -->
+      <span class="info-item signal-desc" v-if="getSignalDescription(currentSignal)">
         <el-icon><TrendCharts /></el-icon>
-        突破{{ getBreakoutLevelPrice(currentSignal)?.type }}: {{ formatPrice(getBreakoutLevelPrice(currentSignal)?.price) }}
-        <span class="distance">({{ getBreakoutLevelPrice(currentSignal)?.distance?.toFixed(2) }}%)</span>
+        {{ getSignalDescription(currentSignal) }}
       </span>
     </div>
 
     <!-- 关键价位图例：仅在关键价位模式下显示 -->
-    <div class="level-legend" v-if="keyLevels.length && !['box','box_breakout','box_breakdown'].includes(sourceType)">
+    <div class="level-legend" v-if="keyLevels.length && ['resistance_break', 'support_break'].includes(sourceType)">
       <span class="legend-item">
         <span class="legend-color resistance"></span>
         阻力位 ({{ keyLevels.filter(l => l.level_type === 'resistance').length }})
@@ -74,7 +73,7 @@ import { klineApi } from '@/api/klines'
 import { signalApi } from '@/api/signals'
 import { keyLevelApi } from '@/api/key_levels'
 import { symbolApi } from '@/api/symbols'
-import { formatPrice } from '@/utils/formatters'
+import { formatPrice, formatNumber } from '@/utils/formatters'
 import { ArrowLeft, Clock, DataLine, Lightning, TrendCharts } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -88,13 +87,12 @@ const signalId = ref(route.query.signalId ? parseInt(route.query.signalId) : nul
 const fetchSymbolIdByCode = async () => {
   if (symbolId.value) return
   try {
-    // 这里简化处理，实际应该有一个通过 symbol_code 获取标的详情的 API
-    // 暂时我们抛出警告
-    console.error('No symbolId provided! Please pass symbolId from the caller.')
-    // 不设置默认值，让错误暴露出来
-    throw new Error('symbolId is required')
+    const res = await symbolApi.resolve(symbolCode.value)
+    if (res.data?.id) {
+      symbolId.value = res.data.id
+    }
   } catch (error) {
-    console.error('Failed to fetch symbolId:', error)
+    console.error('Failed to fetch symbolId by code:', error)
     throw error
   }
 }
@@ -103,7 +101,17 @@ const fetchSymbolIdByCode = async () => {
 const period = ref(route.query.period || '15m')
 
 // 回测页面传递的参数
-const signalTime = ref(route.query.signalTime ? new Date(route.query.signalTime).getTime() / 1000 : null)
+// 信号时间可能是秒级或毫秒级 Unix 时间戳，需要正确解析
+const parseSignalTime = (value) => {
+  if (!value) return null
+  const num = parseFloat(value)
+  if (isNaN(num)) return null
+  // 如果大于 1e12，说明是毫秒级时间戳
+  if (num > 1e12) return num / 1000
+  // 否则是秒级时间戳（可能是小数形式）
+  return num
+}
+const signalTime = ref(parseSignalTime(route.query.signalTime))
 const signalType = ref(route.query.signalType || null)
 const direction = ref(route.query.direction || null)
 const signalPrice = ref(route.query.price ? parseFloat(route.query.price) : null)
@@ -120,6 +128,8 @@ const trendData = ref(route.query.trendType || null)
 const sourceType = ref(route.query.sourceType || null)
 const breakoutPrice = ref(route.query.breakoutPrice ? parseFloat(route.query.breakoutPrice) : null)
 const levelPrice = ref(route.query.levelPrice ? parseFloat(route.query.levelPrice) : null)
+const signalDescription = ref(route.query.description || null)
+const signalDataStr = ref(route.query.signalData || null)
 
 const chartContainer = ref(null)
 const overlayCanvas = ref(null)
@@ -127,6 +137,21 @@ const currentPrice = ref(0)
 const priceChange = ref(0)
 const klineCount = ref(0)
 const currentSignal = ref(null)
+
+// 从回测跳转时构建 currentSignal
+if (signalType.value) {
+  let parsedSignalData = null
+  if (signalDataStr.value) {
+    try { parsedSignalData = JSON.parse(signalDataStr.value) } catch (e) { /* ignore */ }
+  }
+  currentSignal.value = {
+    signal_type: signalType.value,
+    direction: direction.value,
+    price: signalPrice.value,
+    description: signalDescription.value,
+    signal_data: parsedSignalData
+  }
+}
 const keyLevels = ref([]) // 关键价位数据
 
 let chart = null
@@ -318,6 +343,7 @@ const fetchKlines = async () => {
     }
 
     const hasTimeRange = !!(boxStart.value && boxEnd.value)
+    const hasSignalTime = !!(signalTime.value)
 
     // 如果有箱体时间参数，获取包含箱体时间范围的K线
     if (hasTimeRange) {
@@ -327,7 +353,14 @@ const fetchKlines = async () => {
       // 在箱体时间范围前后各增加50个周期的数据作为上下文
       params.start_time = boxStart.value - 50 * periodSeconds
       params.end_time = boxEnd.value + 50 * periodSeconds
-      console.log('调整后的K线请求时间范围:', new Date(params.start_time * 1000), '到', new Date(params.end_time * 1000))
+      console.log('箱体模式 - K线请求时间范围:', new Date(params.start_time * 1000).toISOString(), '到', new Date(params.end_time * 1000).toISOString())
+    } else if (hasSignalTime) {
+      // 如果有信号时间但没有箱体，以信号时间为中心获取K线
+      const periodSeconds = getPeriodSeconds(period.value)
+      // 以信号时间为中心，前后各获取约100根K线作为上下文
+      params.start_time = signalTime.value - 100 * periodSeconds
+      params.end_time = signalTime.value + 100 * periodSeconds
+      console.log('信号模式 - K线请求时间范围:', new Date(params.start_time * 1000).toISOString(), '到', new Date(params.end_time * 1000).toISOString(), '信号时间:', new Date(signalTime.value * 1000).toISOString())
     }
 
     const res = await klineApi.list(params)
@@ -495,8 +528,11 @@ const updateKlineData = (klines) => {
     // 关键价位信号：绘制价位线
     fetchKeyLevels()
   } else {
-    // 默认/回测模式：获取关键价位
-    fetchKeyLevels()
+    // 其他回测模式（signal/trade/trend）：只显示信号/交易标记，不显示阻力位/支撑位
+    // 滚动到信号时间点
+    if (signalTime.value) {
+      scrollToTime(signalTime.value)
+    }
   }
 
   // 处理回测传递的数据
@@ -825,28 +861,46 @@ const clearLevelLines = () => {
   levelLines = []
 }
 
-// 获取信号中被突破的阻力位价格
-const getBreakoutLevelPrice = (signal) => {
-  if (!signal || !signal.signal_data) return null
+// 获取信号描述信息（根据信号类型展示关键数据）
+const getSignalDescription = (signal) => {
+  if (!signal) return null
 
-  const signalData = signal.signal_data
-  if (signal.signal_type === 'resistance_break' && signalData.level_price) {
-    return {
-      type: '阻力位',
-      price: signalData.level_price,
-      distance: signalData.level_distance || 0,
-      klinesCount: signalData.klines_count || 0
-    }
+  // 优先使用后端返回的 description 字段
+  if (signal.description) return signal.description
+
+  if (!signal.signal_data) return null
+
+  const d = signal.signal_data
+
+  switch (signal.signal_type) {
+    case 'resistance_break':
+      if (d.level_description) return d.level_description
+      return d.level_price ? `突破阻力位: ${formatPrice(d.level_price)} (距离 ${((d.level_distance || 0)).toFixed(2)}%)` : null
+    case 'support_break':
+      if (d.level_description) return d.level_description
+      return d.level_price ? `跌破支撑位: ${formatPrice(d.level_price)} (距离 ${((d.level_distance || 0)).toFixed(2)}%)` : null
+    case 'box_breakout':
+      return d.breakout_price ? `箱顶 ${formatPrice(d.box_high)} / 箱底 ${formatPrice(d.box_low)} → 突破价 ${formatPrice(d.breakout_price)}` : null
+    case 'box_breakdown':
+      return d.breakout_price ? `箱顶 ${formatPrice(d.box_high)} / 箱底 ${formatPrice(d.box_low)} → 跌破价 ${formatPrice(d.breakout_price)}` : null
+    case 'upper_wick_reversal':
+      return d.body_percent != null ? `实体占比 ${d.body_percent.toFixed(1)}%，前 ${d.prev_wick_count || 0} 根相似引线` : null
+    case 'lower_wick_reversal':
+      return d.body_percent != null ? `实体占比 ${d.body_percent.toFixed(1)}%，前 ${d.prev_wick_count || 0} 根相似引线` : null
+    case 'fake_breakout_upper':
+      return d.breakout_point ? `假突破上引，突破点 ${formatPrice(d.breakout_point)}` : null
+    case 'fake_breakout_lower':
+      return d.breakout_point ? `假突破下引，突破点 ${formatPrice(d.breakout_point)}` : null
+    case 'volume_surge':
+      return d.volume_amplification ? `放量 ${d.volume_amplification.toFixed(1)}x，均价 ${formatNumber(d.avg_volume)}` : null
+    case 'price_surge':
+      return d.price_amplification ? `波动放大 ${d.price_amplification.toFixed(1)}x` : null
+    case 'trend_reversal':
+    case 'trend_retracement':
+      return null
+    default:
+      return null
   }
-  if (signal.signal_type === 'support_break' && signalData.level_price) {
-    return {
-      type: '支撑位',
-      price: signalData.level_price,
-      distance: signalData.level_distance || 0,
-      klinesCount: signalData.klines_count || 0
-    }
-  }
-  return null
 }
 
 // 添加模拟信号（用于演示）
@@ -932,7 +986,7 @@ const buildOverlaySignals = (signals, klines) => {
   overlayData.signals = signals
     .filter(s => ovTypes.includes(s.signal_type || s.type))
     .map(s => ({
-      time: alignTimeToPeriod(normalizeTimestamp(s.time || s.created_at), period.value),
+      time: alignTimeToPeriod(normalizeTimestamp(s.kline_time || s.time || s.created_at), period.value),
       type: s.signal_type || s.type,
       direction: s.direction,
       price: s.price
@@ -1001,21 +1055,9 @@ const drawOverlay = () => {
   for (const sig of overlayData.signals) {
     const bx = tx(sig.time)
     if (bx == null) continue
-    const isUpperWick = sig.type === 'upper_wick_reversal' || sig.type === 'fake_breakout_upper'
-    const isLowerWick = sig.type === 'lower_wick_reversal' || sig.type === 'fake_breakout_lower'
     const isVolume = sig.type === 'volume_surge' || sig.type === 'volume_price_rise' || sig.type === 'volume_price_fall'
 
-    if (isUpperWick && sig.price) {
-      const wy = py(sig.price)
-      if (wy == null) continue
-      _dd(overlayCtx, bx, wy - 8, 5, '#b388ff')
-      _dt(overlayCtx, bx - 18, wy - 15, 'UpWick', '#b388ff')
-    } else if (isLowerWick && sig.price) {
-      const wy = py(sig.price)
-      if (wy == null) continue
-      _dd(overlayCtx, bx, wy + 8, 5, '#ff80ab')
-      _dt(overlayCtx, bx - 20, wy + 22, 'LowWick', '#ff80ab')
-    } else if (isVolume) {
+    if (isVolume) {
       // 竖线标注放量
       _dl(overlayCtx, bx, 0, bx, H * 0.8, 'rgba(255,215,64,0.25)', 2)
       _dd(overlayCtx, bx, 12, 4, '#ffd740')
@@ -1050,7 +1092,7 @@ const addSignalMarkers = (signals) => {
 
   const markers = signals.map(signal => {
     // 处理时间字段 - 兼容不同格式
-    const time = normalizeTimestamp(signal.time || signal.created_at)
+    const time = normalizeTimestamp(signal.kline_time || signal.time || signal.created_at)
     // 对齐时间到K线周期起点
     const alignedTime = alignTimeToPeriod(time, period.value)
 
@@ -1159,6 +1201,27 @@ watch(
     }
     if (newQuery.levelPrice) {
       levelPrice.value = parseFloat(newQuery.levelPrice)
+    }
+    // 更新信号描述
+    if (newQuery.description !== undefined) {
+      signalDescription.value = newQuery.description
+    }
+    if (newQuery.signalData !== undefined) {
+      signalDataStr.value = newQuery.signalData
+    }
+    // 从回测跳转时重建 currentSignal
+    if (newQuery.signalType && newQuery.signalTime) {
+      let parsedSignalData = null
+      if (signalDataStr.value) {
+        try { parsedSignalData = JSON.parse(signalDataStr.value) } catch (e) { /* ignore */ }
+      }
+      currentSignal.value = {
+        signal_type: signalType.value,
+        direction: direction.value,
+        price: signalPrice.value,
+        description: signalDescription.value,
+        signal_data: parsedSignalData
+      }
     }
     if (newQuery.symbol || newQuery.symbolId || newQuery.signalId || newQuery.signalTime || newQuery.sourceType || newQuery.boxHigh || newQuery.boxLow || newQuery.boxStart || newQuery.boxEnd) {
       fetchKlines()
@@ -1365,15 +1428,12 @@ const clearBoxLineSeries = () => {
   }
 
   // 突破信息样式
-  .breakout-info {
-    color: $success;
+  .signal-desc {
+    color: $primary;
     font-weight: 500;
-
-    .distance {
-      color: $text-secondary;
-      font-weight: normal;
-      margin-left: 4px;
-    }
+    background: rgba($primary, 0.08);
+    padding: 2px 8px;
+    border-radius: 4px;
   }
 
   // 关键价位图例

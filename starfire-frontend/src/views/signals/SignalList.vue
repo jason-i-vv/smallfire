@@ -16,6 +16,22 @@
       </div>
     </div>
 
+    <!-- 策略类型筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">策略类型</h3>
+      <div class="filter-cards">
+        <div
+          v-for="strategy in sourceTypeOptions"
+          :key="strategy.value"
+          :class="['filter-card', { active: filters.sourceType === strategy.value }]"
+          @click="selectSourceType(strategy.value)"
+        >
+          <span class="card-label">{{ strategy.label }}</span>
+          <span class="card-count">{{ strategy.count }}</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 信号类型筛选卡片 -->
     <div class="filter-section">
       <h3 class="filter-title">信号类型</h3>
@@ -166,24 +182,64 @@ const marketOptions = reactive([
   { label: '美股', value: 'us_stock', count: 0 }
 ])
 
-// 信号类型选项
-const signalTypeOptions = reactive([
+// 策略类型选项
+const sourceTypeOptions = reactive([
+  { label: '全部', value: '', count: 0 },
+  { label: '箱体', value: 'box', count: 0 },
+  { label: '趋势', value: 'trend', count: 0 },
+  { label: '关键位', value: 'key_level', count: 0 },
+  { label: '量价', value: 'volume', count: 0 },
+  { label: '引线', value: 'wick', count: 0 }
+])
+
+// 策略类型与信号类型的映射关系
+const sourceSignalTypeMap = {
+  '': [], // 全部，显示所有信号类型
+  'box': ['box_breakout', 'box_breakdown'],
+  'trend': ['trend_retracement', 'trend_reversal'],
+  'key_level': ['resistance_break', 'support_break'],
+  'volume': ['volume_price_rise', 'volume_price_fall', 'price_surge', 'volume_surge'],
+  'wick': ['upper_wick_reversal', 'lower_wick_reversal', 'fake_breakout_upper', 'fake_breakout_lower']
+}
+
+// 所有信号类型选项（完整列表）
+const allSignalTypeOptions = [
   { label: '全部', value: '', count: 0 },
   { label: '箱体突破', value: 'box_breakout', count: 0 },
   { label: '箱体跌破', value: 'box_breakdown', count: 0 },
   { label: '趋势回撤', value: 'trend_retracement', count: 0 },
+  { label: '趋势反转', value: 'trend_reversal', count: 0 },
   { label: '阻力突破', value: 'resistance_break', count: 0 },
   { label: '量价齐升', value: 'volume_price_rise', count: 0 },
   { label: '量价齐跌', value: 'volume_price_fall', count: 0 },
+  { label: '量能放大', value: 'volume_surge', count: 0 },
   { label: '价格飙升', value: 'price_surge', count: 0 },
   { label: '上引线反转', value: 'upper_wick_reversal', count: 0 },
   { label: '下引线反转', value: 'lower_wick_reversal', count: 0 },
   { label: '假突破上引', value: 'fake_breakout_upper', count: 0 },
   { label: '假突破下引', value: 'fake_breakout_lower', count: 0 }
-])
+]
+
+// 信号类型选项（动态，根据策略筛选）
+const signalTypeOptions = computed(() => {
+  const allowedTypes = sourceSignalTypeMap[filters.sourceType || '']
+  if (!allowedTypes || allowedTypes.length === 0) {
+    // 全部策略，显示所有信号类型
+    return allSignalTypeOptions.map(opt => ({ ...opt }))
+  }
+  // 只显示该策略下的信号类型
+  return [
+    { label: '全部', value: '', count: 0 },
+    ...allowedTypes.map(type => {
+      const found = allSignalTypeOptions.find(opt => opt.value === type)
+      return found ? { ...found } : { label: type, value: type, count: 0 }
+    })
+  ]
+})
 
 const filters = reactive({
   market: 'bybit', // 默认选中Bybit
+  sourceType: '', // 策略类型
   signalType: 'box_breakout', // 默认选中箱体突破
   direction: '',
   strength: null,
@@ -201,6 +257,13 @@ const selectMarket = (value) => {
   filters.market = value
 }
 
+// 选择策略类型
+const selectSourceType = (value) => {
+  filters.sourceType = value
+  // 切换策略类型时，重置信号类型选择
+  filters.signalType = ''
+}
+
 // 选择信号类型
 const selectSignalType = (value) => {
   filters.signalType = value
@@ -214,14 +277,20 @@ const fetchSignalCounts = async () => {
 
     const marketCounts = data.market || {}
     const signalTypeCounts = data.signal_type || {}
+    const sourceTypeCounts = data.source_type || {}
 
     // 更新市场数量
     marketOptions.forEach(opt => {
       opt.count = marketCounts[opt.value] || 0
     })
 
+    // 更新策略来源数量
+    sourceTypeOptions.forEach(opt => {
+      opt.count = sourceTypeCounts[opt.value] || 0
+    })
+
     // 更新信号类型数量
-    signalTypeOptions.forEach(opt => {
+    allSignalTypeOptions.forEach(opt => {
       opt.count = signalTypeCounts[opt.value] || 0
     })
   } catch (error) {

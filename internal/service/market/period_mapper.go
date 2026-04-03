@@ -15,9 +15,13 @@ var PeriodMap = map[string]map[string]string{
 	},
 	"a_stock": {
 		"1d": "101",
+		"1w": "102",
+		"1mo": "103",
 	},
 	"us_stock": {
-		"1d": "1d",
+		"1d":  "1d",
+		"1w":  "1wk",
+		"1mo": "1mo",
 	},
 }
 

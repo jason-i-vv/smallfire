@@ -37,17 +37,20 @@ type Signal struct {
 	StopLossPrice    *float64   `json:"stop_loss_price,omitempty" db:"stop_loss_price"`
 	Period           string     `json:"period" db:"period"`
 	SignalData       *JSONB     `json:"signal_data,omitempty" db:"signal_data"`
+	Description      string     `json:"description" db:"description"` // 信号描述
 	Status           string     `json:"status" db:"status"`
 	ConfirmedAt      *time.Time `json:"confirmed_at,omitempty" db:"confirmed_at"`
 	ExpiredAt        *time.Time `json:"expired_at,omitempty" db:"expired_at"`
 	TriggeredAt      *time.Time `json:"triggered_at,omitempty" db:"triggered_at"`
 	NotificationSent bool       `json:"notification_sent" db:"notification_sent"`
 	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	KlineTime        *time.Time `json:"kline_time,omitempty" db:"kline_time"` // K线时间（信号产生的K线时间）
 }
 
 // SignalQuery 信号查询参数
 type SignalQuery struct {
 	Market     string // 市场代码: bybit, a_stock, us_stock
+	SourceType string // 策略来源: box, trend, key_level, volume, wick
 	SignalType string // 信号类型
 	Direction  string // 方向: long, short
 	Strength   *int   // 强度: 1, 2, 3

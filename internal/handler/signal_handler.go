@@ -46,6 +46,12 @@ func (h *SignalHandler) GetSignals(c *gin.Context) {
 		PageSize: size,
 	}
 
+	// 解析策略来源 (sourceType)
+	sourceType := c.Query("sourceType")
+	if sourceType != "" {
+		query.SourceType = sourceType
+	}
+
 	// 解析信号类型 (注意前端传的是signalType，后端字段是signal_type)
 	signalType := c.Query("signalType")
 	if signalType != "" {
@@ -176,8 +182,25 @@ func (h *SignalHandler) GetSignalCounts(c *gin.Context) {
 		signalTypeCounts[key] = count
 	}
 
+	// 获取各策略来源的数量
+	sourceTypeCounts := make(map[string]int)
+	sourceTypes := []string{"", "box", "trend", "key_level", "volume", "wick"}
+	for _, sourceType := range sourceTypes {
+		count, err := h.signalRepo.CountBySourceType(sourceType)
+		if err != nil {
+			h.logger.Warn("统计策略来源信号数量失败", zap.String("source_type", sourceType), zap.Error(err))
+			count = 0
+		}
+		key := sourceType
+		if sourceType == "" {
+			key = "total"
+		}
+		sourceTypeCounts[key] = count
+	}
+
 	HandleSuccess(c, gin.H{
-		"market":      marketCounts,
-		"signal_type": signalTypeCounts,
+		"market":       marketCounts,
+		"signal_type":  signalTypeCounts,
+		"source_type":  sourceTypeCounts,
 	})
 }

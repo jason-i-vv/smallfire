@@ -26,13 +26,12 @@ func NewFactory(cfg *config.MarketsConfig, symbolRepo repository.SymbolRepo, kli
 	if cfg.Bybit.Enabled {
 		f.fetchers["bybit"] = NewBybitFetcher(cfg.Bybit)
 	}
-	// 这里可以继续添加其他市场的抓取器
-	// if cfg.AStock.Enabled {
-	//     f.fetchers["a_stock"] = NewAStockFetcher(cfg.AStock)
-	// }
-	// if cfg.USStock.Enabled {
-	//     f.fetchers["us_stock"] = NewUSStockFetcher(cfg.USStock)
-	// }
+	if cfg.AStock.Enabled {
+		f.fetchers["a_stock"] = NewEastmoneyFetcher(cfg.AStock)
+	}
+	if cfg.USStock.Enabled {
+		f.fetchers["us_stock"] = NewYahooFetcher(cfg.USStock)
+	}
 
 	return f
 }

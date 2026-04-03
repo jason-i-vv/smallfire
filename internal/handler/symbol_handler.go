@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -37,6 +38,26 @@ func (h *SymbolHandler) GetSymbols(c *gin.Context) {
 
 	// 暂时返回空数据，后续需要根据实际需求实现
 	HandleSuccess(c, []interface{}{})
+}
+
+// ResolveSymbol 通过 symbol_code 查找 symbol（不区分市场）
+func (h *SymbolHandler) ResolveSymbol(c *gin.Context) {
+	symbolCode := c.Query("symbol_code")
+	if symbolCode == "" {
+		HandleError(c, http.StatusBadRequest, errors.New("symbol_code is required"))
+		return
+	}
+
+	markets := []string{"bybit", "a_stock", "us_stock"}
+	for _, market := range markets {
+		symbol, err := h.symbolRepo.FindByCode(market, symbolCode)
+		if err == nil && symbol != nil {
+			HandleSuccess(c, symbol)
+			return
+		}
+	}
+
+	HandleError(c, http.StatusNotFound, fmt.Errorf("未找到标的: %s", symbolCode))
 }
 
 // GetMarketSymbols 获取指定市场的交易标的

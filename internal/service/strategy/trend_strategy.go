@@ -164,6 +164,7 @@ func (s *TrendStrategy) createReversalSignal(trend *models.Trend, kline models.K
 		ExpiredAt:        &expireTime,
 		NotificationSent: false,
 		CreatedAt:        time.Now(),
+		KlineTime:        ptrTime(kline.CloseTime),
 	}
 }
 
@@ -213,6 +214,7 @@ func (s *TrendStrategy) checkRetracement(trend *models.Trend, klines []models.Kl
 			ExpiredAt:        &expireTime,
 			NotificationSent: false,
 			CreatedAt:        time.Now(),
+			KlineTime:        ptrTime(lastKline.CloseTime),
 		}
 	}
 

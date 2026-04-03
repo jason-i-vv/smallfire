@@ -26,7 +26,7 @@ func (r *SignalRepoPG) GetByID(id int) (*models.Signal, error) {
 	query := `
 		SELECT s.id, s.symbol_id, s.signal_type, s.source_type, s.direction, s.strength, s.price,
 		       s.target_price, s.stop_loss_price, s.period, s.status, s.confirmed_at, s.expired_at,
-		       s.triggered_at, s.notification_sent, s.created_at,
+		       s.triggered_at, s.notification_sent, s.kline_time, s.created_at,
 		       COALESCE(sy.symbol_code, '') as symbol_code
 		FROM signals s
 		LEFT JOIN symbols sy ON s.symbol_id = sy.id
@@ -37,8 +37,8 @@ func (r *SignalRepoPG) GetByID(id int) (*models.Signal, error) {
 		&signal.ID, &signal.SymbolID, &signal.SignalType, &signal.SourceType,
 		&signal.Direction, &signal.Strength, &signal.Price, &signal.TargetPrice,
 		&signal.StopLossPrice, &signal.Period, &signal.Status, &signal.ConfirmedAt,
-		&signal.ExpiredAt, &signal.TriggeredAt, &signal.NotificationSent, &signal.CreatedAt,
-		&signal.SymbolCode,
+		&signal.ExpiredAt, &signal.TriggeredAt, &signal.NotificationSent, &signal.KlineTime,
+		&signal.CreatedAt, &signal.SymbolCode,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("查询信号详情失败: %w", err)
@@ -233,7 +233,7 @@ func (r *SignalRepoPG) Create(signal *models.Signal) error {
 	query := `
 		INSERT INTO signals (symbol_id, signal_type, source_type, direction, strength, price,
 		                    target_price, stop_loss_price, period, status, confirmed_at, expired_at,
-		                    triggered_at, notification_sent, created_at)
+		                    triggered_at, notification_sent, kline_time, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
 		RETURNING id
 	`
@@ -242,7 +242,7 @@ func (r *SignalRepoPG) Create(signal *models.Signal) error {
 		signal.SymbolID, signal.SignalType, signal.SourceType, signal.Direction,
 		signal.Strength, signal.Price, signal.TargetPrice, signal.StopLossPrice,
 		signal.Period, signal.Status, signal.ConfirmedAt, signal.ExpiredAt,
-		signal.TriggeredAt, signal.NotificationSent,
+		signal.TriggeredAt, signal.NotificationSent, signal.KlineTime,
 	).Scan(&signal.ID)
 	if err != nil {
 		return fmt.Errorf("创建信号失败: %w", err)
@@ -382,6 +382,13 @@ func (r *SignalRepoPG) Query(query *models.SignalQuery) ([]*models.Signal, int, 
 		argIndex++
 	}
 
+	// 策略来源条件
+	if query.SourceType != "" {
+		conditions = append(conditions, fmt.Sprintf("s.source_type = $%d", argIndex))
+		args = append(args, query.SourceType)
+		argIndex++
+	}
+
 	// 信号类型条件
 	if query.SignalType != "" {
 		conditions = append(conditions, fmt.Sprintf("s.signal_type = $%d", argIndex))
@@ -456,7 +463,7 @@ func (r *SignalRepoPG) Query(query *models.SignalQuery) ([]*models.Signal, int, 
 	dataQuery := fmt.Sprintf(`
 		SELECT s.id, s.symbol_id, s.signal_type, s.source_type, s.direction, s.strength, s.price,
 		       s.target_price, s.stop_loss_price, s.period, s.status, s.confirmed_at, s.expired_at,
-		       s.triggered_at, s.notification_sent, s.created_at,
+		       s.triggered_at, s.notification_sent, s.kline_time, s.created_at,
 		       COALESCE(sy.symbol_code, '') as symbol_code
 		FROM signals s
 		LEFT JOIN symbols sy ON s.symbol_id = sy.id
@@ -485,8 +492,8 @@ func (r *SignalRepoPG) Query(query *models.SignalQuery) ([]*models.Signal, int, 
 			&signal.ID, &signal.SymbolID, &signal.SignalType, &signal.SourceType,
 			&signal.Direction, &signal.Strength, &signal.Price, &signal.TargetPrice,
 			&signal.StopLossPrice, &signal.Period, &signal.Status, &signal.ConfirmedAt,
-			&signal.ExpiredAt, &signal.TriggeredAt, &signal.NotificationSent, &signal.CreatedAt,
-			&signal.SymbolCode,
+			&signal.ExpiredAt, &signal.TriggeredAt, &signal.NotificationSent, &signal.KlineTime,
+			&signal.CreatedAt, &signal.SymbolCode,
 		); err != nil {
 			return nil, 0, fmt.Errorf("扫描信号数据失败: %w", err)
 		}
@@ -545,6 +552,26 @@ func (r *SignalRepoPG) CountBySignalType(signalType string) (int, error) {
 	err := r.db.QueryRow(context.Background(), query, args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("按信号类型统计信号失败: %w", err)
+	}
+	return count, nil
+}
+
+// CountBySourceType 按策略来源统计信号数量
+func (r *SignalRepoPG) CountBySourceType(sourceType string) (int, error) {
+	var count int
+	var query string
+	var args []interface{}
+
+	if sourceType == "" {
+		query = `SELECT COUNT(*) FROM signals WHERE status = 'pending'`
+	} else {
+		query = `SELECT COUNT(*) FROM signals WHERE source_type = $1 AND status = 'pending'`
+		args = append(args, sourceType)
+	}
+
+	err := r.db.QueryRow(context.Background(), query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("按策略来源统计信号失败: %w", err)
 	}
 	return count, nil
 }

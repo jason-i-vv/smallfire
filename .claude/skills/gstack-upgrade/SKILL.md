@@ -1,0 +1,1 @@
+/Users/huangjicheng/go/src/github.com/smallfire/.claude/skills/gstack/gstack-upgrade/SKILL.md

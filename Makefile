@@ -1,4 +1,4 @@
-.PHONY: dev backend frontend docker-dev docker-build docker-build-amd64 docker-up docker-down test lint fmt deps
+.PHONY: dev backend frontend restart docker-dev docker-build docker-build-amd64 docker-up docker-down test lint fmt deps
 
 # ============================================
 # 开发模式
@@ -13,6 +13,17 @@ backend:
 frontend:
 	@echo "Starting frontend server..."
 	@cd starfire-frontend && npm run dev
+
+# 重启后端服务（先杀掉旧进程，再启动新的）
+restart:
+	@echo "Stopping old backend server..."
+	@pkill -f 'go run ./cmd/server/main.go' 2>/dev/null || true
+	@pkill -f 'go-build.*cmd/server/main.go' 2>/dev/null || true
+	@pkill -f '/tmp/go-build.*/main' 2>/dev/null || true
+	@lsof -ti :8080 | xargs kill -9 2>/dev/null || true
+	@sleep 1
+	@echo "Starting backend server..."
+	@go run ./cmd/server/main.go
 
 # 同时启动前端和后端（需要分别打开两个终端）
 # 终端1: make backend
@@ -132,6 +143,7 @@ help:
 	@echo "  make db-stop        - 停止PostgreSQL数据库"
 	@echo "  make db-reset      - 重置数据库"
 	@echo "  make backend        - 启动后端服务"
+	@echo "  make restart        - 重启后端服务（杀旧进程+启动新进程）"
 	@echo "  make frontend       - 启动前端服务"
 	@echo ""
 	@echo "Docker开发模式（推荐）:"

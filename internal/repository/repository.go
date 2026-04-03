@@ -77,6 +77,7 @@ type SignalRepo interface {
 	Query(query *models.SignalQuery) ([]*models.Signal, int, error)
 	CountByMarket(market string) (int, error)
 	CountBySignalType(signalType string) (int, error)
+	CountBySourceType(sourceType string) (int, error)
 	UpdateStatus(id int, status string) error
 	SetTriggeredAt(id int, triggeredAt *time.Time) error
 }

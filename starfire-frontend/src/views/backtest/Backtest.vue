@@ -38,10 +38,7 @@
                   :key="symbol.symbol_code"
                   :label="symbol.symbol_code"
                   :value="symbol.symbol_code"
-                >
-                  <span>{{ symbol.symbol_code }}</span>
-                  <span class="symbol-name">{{ symbol.symbol_name }}</span>
-                </el-option>
+                />
               </el-select>
             </el-form-item>
 
@@ -228,7 +225,7 @@
             <el-table-column prop="id" label="#" width="60" />
             <el-table-column label="时间" width="160">
               <template #default="{ row }">
-                {{ formatTime(row.created_at) }}
+                {{ formatTime(row.kline_time || row.created_at) }}
               </template>
             </el-table-column>
             <el-table-column prop="signal_type" label="信号类型" width="140">
@@ -492,7 +489,8 @@ const strategyLabels = {
   'box': '箱体突破',
   'trend': '趋势跟踪',
   'key_level': '关键价位',
-  'volume_price': '量价分析'
+  'volume_price': '量价分析',
+  'wick': 'wick影线'
 }
 
 const getStrategyLabel = (type) => strategyLabels[type] || type
@@ -507,7 +505,11 @@ const getSignalTypeLabel = (type) => {
     'resistance_break': '阻力突破',
     'support_break': '支撑跌破',
     'volume_surge': '量能放大',
-    'price_surge': '价格异动'
+    'price_surge': '价格异动',
+    'upper_wick_reversal': '上引线反转',
+    'lower_wick_reversal': '下引线反转',
+    'fake_breakout_upper': '假突破上引线',
+    'fake_breakout_lower': '假突破下引线'
   }
   return map[type] || type
 }
@@ -594,10 +596,23 @@ const loadSymbols = async () => {
 }
 
 // 加载策略列表
+// 策略显示顺序
+const strategyOrder = ['box', 'trend', 'key_level', 'volume_price', 'wick']
+
 const loadStrategies = async () => {
   try {
     const res = await backtestApi.getStrategies()
-    strategies.value = res.data || []
+    const data = res.data || {}
+    // 按固定顺序将 object 转为数组，保证下拉框选项顺序一致
+    strategies.value = strategyOrder
+      .filter(key => data[key])
+      .map(key => ({ type: key, ...data[key] }))
+    // 补充不在预定义顺序中的策略
+    Object.keys(data).forEach(key => {
+      if (!strategyOrder.includes(key)) {
+        strategies.value.push({ type: key, ...data[key] })
+      }
+    })
   } catch (error) {
     console.error('Failed to load strategies:', error)
     strategies.value = [
@@ -783,10 +798,12 @@ const viewChart = (type, item) => {
 
   if (type === 'signal') {
     // 信号时间用于定位
-    query.signalTime = toTimestamp(item.created_at)
+    query.signalTime = toTimestamp(item.kline_time || item.created_at)
     query.signalType = item.signal_type
     query.direction = item.direction
     query.price = item.price
+    query.description = item.description || ''
+    query.signalData = item.signal_data ? JSON.stringify(item.signal_data) : ''
   } else if (type === 'trade') {
     // 交易入场时间用于定位
     query.signalTime = toTimestamp(item.entry_time)

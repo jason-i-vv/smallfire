@@ -17,7 +17,6 @@ type SyncService struct {
 	klineRepo  repository.KlineRepo
 	symbolRepo repository.SymbolRepo
 	emaCalc    *ema.EMACalculator
-	interval   time.Duration
 	stopCh     chan struct{}
 	wg         sync.WaitGroup
 	logger     *zap.Logger
@@ -33,7 +32,6 @@ func NewSyncService(factory *Factory, klineRepo repository.KlineRepo,
 		klineRepo:  klineRepo,
 		symbolRepo: symbolRepo,
 		emaCalc:    emaCalc,
-		interval:   60 * time.Second,
 		logger:     logger,
 		config:     cfg,
 	}
@@ -88,7 +86,8 @@ func (s *SyncService) runSyncLoop(fetcher Fetcher) {
 		periods = configuredPeriods
 	}
 
-	ticker := time.NewTicker(s.interval)
+	interval := s.getInterval(marketCode)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	// 记录开始时间，用于统计
@@ -174,37 +173,94 @@ func (s *SyncService) syncSymbolKlines(symbol *models.Symbol, fetcher Fetcher, p
 		return err
 	}
 
-	// 存储到数据库
-	for _, k := range klines {
-		// 检查是否已存在
-		exists, err := s.klineRepo.Exists(int64(symbol.ID), period, k.OpenTime)
-		if err != nil {
-			return err
-		}
-		if exists {
-			continue
-		}
+	if len(klines) == 0 {
+		return nil
+	}
 
-		// 转换为模型
+	// 当前时间，用于判断K线是否已收盘
+	now := time.Now()
+
+	// 批量过滤：只有最后一条可能未收盘，其他都是已收盘的
+	closedKlines := make([]KlineData, 0, len(klines))
+	for i, k := range klines {
+		if k.CloseTime.After(now) {
+			// 只有最后一条可能未收盘
+			if i == len(klines)-1 {
+				continue
+			}
+		}
+		closedKlines = append(closedKlines, k)
+	}
+
+	if len(closedKlines) == 0 {
+		return nil
+	}
+
+	// 获取数据库中该标的该周期的最新一条记录
+	latestKline, err := s.klineRepo.GetLatest(int64(symbol.ID), period)
+	if err != nil {
+		return err
+	}
+
+	// 过滤出比数据库最新记录更新的K线
+	var toInsert []KlineData
+	if latestKline == nil {
+		// 数据库为空，全部插入
+		toInsert = closedKlines
+	} else {
+		toInsert = make([]KlineData, 0, len(closedKlines))
+		for _, k := range closedKlines {
+			if k.OpenTime.After(latestKline.OpenTime) {
+				toInsert = append(toInsert, k)
+			}
+		}
+	}
+
+	if len(toInsert) == 0 {
+		return nil
+	}
+
+	// 批量获取EMA计算所需的200条历史K线（只查一次）
+	history, err := s.klineRepo.GetBySymbolPeriod(int64(symbol.ID), period, nil, nil, 200)
+	if err != nil {
+		return err
+	}
+
+	// 转换为模型并计算EMA
+	klineModels := make([]*models.Kline, 0, len(toInsert))
+	for _, k := range toInsert {
 		kline := convertToModel(symbol.ID, period, k)
-		// 计算EMA
-		// 需要获取该标的该周期的历史K线来计算EMA
-		history, err := s.klineRepo.GetBySymbolPeriod(int64(symbol.ID), period, nil, nil, 200)
-		if err != nil {
-			return err
-		}
-		history = append(history, *kline)
-		calculated := s.emaCalc.Calculate(history)
-		if len(calculated) > 0 {
-			last := calculated[len(calculated)-1]
-			kline.EMAShort = last.EMAShort
-			kline.EMAMedium = last.EMAMedium
-			kline.EMALong = last.EMALong
-		}
+		klineModels = append(klineModels, kline)
+	}
 
-		if err := s.klineRepo.Create(kline); err != nil {
-			s.logger.Error("创建K线记录失败", zap.Error(err))
+	// 批量计算EMA
+	// 合并历史数据和新K线一起计算
+	allKlines := make([]models.Kline, 0, len(history)+len(klineModels))
+	for _, h := range history {
+		allKlines = append(allKlines, h)
+	}
+	for _, km := range klineModels {
+		allKlines = append(allKlines, *km)
+	}
+
+	if len(allKlines) > 0 {
+		calculated := s.emaCalc.Calculate(allKlines)
+		// 计算结果只取最后 len(klineModels) 条（新插入的K线）
+		if len(calculated) >= len(klineModels) {
+			startIdx := len(calculated) - len(klineModels)
+			for i, km := range klineModels {
+				c := calculated[startIdx+i]
+				km.EMAShort = c.EMAShort
+				km.EMAMedium = c.EMAMedium
+				km.EMALong = c.EMALong
+			}
 		}
+	}
+
+	// 批量插入
+	if err := s.klineRepo.BatchCreate(klineModels); err != nil {
+		s.logger.Error("批量创建K线记录失败", zap.Error(err))
+		return err
 	}
 
 	return nil
@@ -220,4 +276,17 @@ func (s *SyncService) getConfiguredPeriods(marketCode string) []string {
 		return s.config.USStock.Periods
 	}
 	return []string{}
+}
+
+func (s *SyncService) getInterval(marketCode string) time.Duration {
+	switch marketCode {
+	case "bybit":
+		return time.Duration(s.config.Bybit.FetchInterval) * time.Second
+	case "a_stock":
+		return time.Duration(s.config.AStock.FetchInterval) * time.Second
+	case "us_stock":
+		return time.Duration(s.config.USStock.FetchInterval) * time.Second
+	default:
+		return 60 * time.Second
+	}
 }

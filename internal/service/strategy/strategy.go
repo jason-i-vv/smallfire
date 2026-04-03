@@ -1,8 +1,15 @@
 package strategy
 
 import (
+	"time"
+
 	"github.com/smallfire/starfire/internal/models"
 )
+
+// ptrTime 将 time.Time 转为 *time.Time
+func ptrTime(t time.Time) *time.Time {
+	return &t
+}
 
 // Strategy 策略接口
 type Strategy interface {

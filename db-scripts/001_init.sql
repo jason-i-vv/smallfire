@@ -175,6 +175,7 @@ CREATE TABLE IF NOT EXISTS signals (
     expired_at          TIMESTAMP,
     triggered_at        TIMESTAMP,
     notification_sent   BOOLEAN DEFAULT false,
+    kline_time          TIMESTAMP,
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -183,6 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
 CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(status);
 CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_signals_pending ON signals(status) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_signals_kline_time ON signals(kline_time);
 
 -- ============================================
 -- 8. 交易跟踪表

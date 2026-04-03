@@ -36,32 +36,44 @@ func (s *BoxStrategy) Analyze(symbolID int, symbolCode, period string, klines []
 	var signals []models.Signal
 	latestKline := klines[len(klines)-1]
 
-	// 1. 获取已有活跃箱体
+	// 1. 获取已有活跃箱体（同一时间同一周期只允许一个）
 	activeBoxes, _ := s.deps.BoxRepo.GetActiveBySymbol(symbolID, period)
+	var activeBox *models.Box
+	if len(activeBoxes) > 0 {
+		activeBox = activeBoxes[0]
+	}
 
-	// 2. 对所有活跃箱体：先尝试延续，再检查是否突破
-	for _, abox := range activeBoxes {
-		if sig := s.checkBreakout(abox, latestKline); sig != nil {
+	// 2. 如果有活跃箱体：先尝试延续，再检查是否突破
+	if activeBox != nil {
+		if sig := s.checkBreakout(activeBox, latestKline); sig != nil {
 			signals = append(signals, *sig)
 		} else {
 			// 未突破则尝试延续箱体
-			s.tryExtendBox(abox, latestKline)
+			s.tryExtendBox(activeBox, latestKline)
+		}
+		// 只要有活跃箱体，就不检测新箱体
+		return signals, nil
+	}
+
+	// 3. 无活跃箱体时，从 K 线中检测新箱体
+	boxes := s.detectBoxes(symbolID, period, klines)
+	if len(boxes) == 0 {
+		return signals, nil
+	}
+
+	// 4. 选最新的一个箱体激活
+	latestBox := boxes[0]
+	for i := 1; i < len(boxes); i++ {
+		if boxes[i].EndTime.After(latestBox.EndTime) {
+			latestBox = boxes[i]
 		}
 	}
 
-	// 3. 从 K 线中重新检测箱体（滑动窗口多Swing点聚合）
-	boxes := s.detectBoxes(symbolID, period, klines)
-
-	// 4. 新检测到的箱体去重后入库
-	for _, box := range boxes {
-		if s.isKnownBox(box, activeBoxes) {
-			continue
-		}
-		// 新箱体入库，再检查突破
-		if err := s.deps.BoxRepo.Create(&box); err == nil {
-			if sig := s.checkBreakout(&box, latestKline); sig != nil {
-				signals = append(signals, *sig)
-			}
+	// 新箱体入库
+	if err := s.deps.BoxRepo.Create(&latestBox); err == nil {
+		// 刚创建的箱体也要检查一下是否当前K线就突破了
+		if sig := s.checkBreakout(&latestBox, latestKline); sig != nil {
+			signals = append(signals, *sig)
 		}
 	}
 
@@ -653,7 +665,7 @@ func (s *BoxStrategy) tryExtendBox(box *models.Box, latestKline models.Kline) {
 	// K 线实体（开盘-收盘）在边界内，且高低点未大幅突破
 	if highInRange && lowInRange {
 		box.KlinesCount++
-		box.EndTime = latestKline.CloseTime
+		box.EndTime = latestKline.OpenTime
 		box.UpdatedAt = time.Now()
 		s.deps.BoxRepo.Update(box)
 	}
@@ -672,7 +684,7 @@ func (s *BoxStrategy) checkBreakout(box *models.Box, latestKline models.Kline) *
 	if latestPrice > boxHigh+buffer {
 		// 更新箱体状态
 		box.Status = models.BoxStatusClosed
-		box.EndTime = latestKline.CloseTime
+		box.EndTime = latestKline.OpenTime
 		box.BreakoutPrice = &latestPrice
 		dir := models.BreakoutDirectionUp
 		box.BreakoutDirection = &dir
@@ -685,7 +697,7 @@ func (s *BoxStrategy) checkBreakout(box *models.Box, latestKline models.Kline) *
 	// 向下突破
 	if latestPrice < boxLow-buffer {
 		box.Status = models.BoxStatusClosed
-		box.EndTime = latestKline.CloseTime
+		box.EndTime = latestKline.OpenTime
 		box.BreakoutPrice = &latestPrice
 		dir := models.BreakoutDirectionDown
 		box.BreakoutDirection = &dir
@@ -728,6 +740,7 @@ func (s *BoxStrategy) createBreakoutSignal(box models.Box, kline models.Kline, d
 		ExpiredAt:        &expireTime,
 		NotificationSent: false,
 		CreatedAt:        time.Now(),
+		KlineTime:        ptrTime(kline.CloseTime),
 	}
 }
 

@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -53,10 +54,14 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 	latestKline := klines[len(klines)-1]
 	activeLevels, _ := s.deps.LevelRepo.GetActive(symbolID, period)
 
+	// 同一根 K 线只取被突破的距当前价格最近的价位，避免重复信号
+	var closestBrokenResistance *models.KeyLevel
+	var closestBrokenSupport *models.KeyLevel
+
 	for _, level := range activeLevels {
-		if sig := s.checkLevelBreak(symbolID, *level, latestKline); sig != nil {
-			signals = append(signals, *sig)
-			// 更新价位状态
+		sig := s.checkLevelBreak(symbolID, *level, latestKline)
+		if sig != nil {
+			// 标记所有被突破的价位
 			level.Broken = true
 			level.BrokenAt = &latestKline.OpenTime
 			price := latestKline.ClosePrice
@@ -67,6 +72,29 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 			}
 			level.BrokenDirection = &dir
 			s.deps.LevelRepo.Update(level)
+
+			// 只保留距当前价格最近的
+			if level.LevelType == "resistance" {
+				if closestBrokenResistance == nil || level.Price > closestBrokenResistance.Price {
+					closestBrokenResistance = level
+				}
+			} else {
+				if closestBrokenSupport == nil || level.Price < closestBrokenSupport.Price {
+					closestBrokenSupport = level
+				}
+			}
+		}
+	}
+
+	// 生成信号：只产生最近的一个阻力突破和一个支撑跌破信号
+	if closestBrokenResistance != nil {
+		if sig := s.checkLevelBreak(symbolID, *closestBrokenResistance, latestKline); sig != nil {
+			signals = append(signals, *sig)
+		}
+	}
+	if closestBrokenSupport != nil {
+		if sig := s.checkLevelBreak(symbolID, *closestBrokenSupport, latestKline); sig != nil {
+			signals = append(signals, *sig)
 		}
 	}
 
@@ -154,17 +182,30 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 	levelPrice := level.Price
 	threshold := s.config.LevelDistance / 100 * levelPrice
 
+	// 价位子类型的中文名映射
+	subtypeNames := map[string]string{
+		"current_high": "近期高点",
+		"prev_high":    "前期高点",
+		"current_low":  "近期低点",
+		"prev_low":     "前期低点",
+	}
+	subtypeName := subtypeNames[level.LevelSubtype]
+	if subtypeName == "" {
+		subtypeName = level.LevelSubtype
+	}
+
 	if level.LevelType == "resistance" {
 		if price > levelPrice+threshold {
-			// 构建突破信号数据，记录被突破的阻力位信息
+			distance := (price - level.Price) / level.Price * 100
 			signalData := &models.JSONB{
 				"level_id":         level.ID,
 				"level_type":       level.LevelType,
 				"level_subtype":    level.LevelSubtype,
-				"level_price":      level.Price,         // 突破的阻力位价格
-				"level_distance":   (price - level.Price) / level.Price * 100, // 突破幅度%
-				"klines_count":     level.KlinesCount,   // 阻力位被触及次数
-				"breakout_price":   price,               // 突破价格
+				"level_price":      level.Price,
+				"level_distance":   distance,
+				"klines_count":     level.KlinesCount,
+				"breakout_price":   price,
+				"level_description": fmt.Sprintf("%s阻力位，触及%d次，距突破%.2f%%", subtypeName, level.KlinesCount, distance),
 			}
 
 			return &models.Signal{
@@ -172,7 +213,7 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 				SignalType:       models.SignalTypeResistanceBreak,
 				SourceType:       models.SourceTypeKeyLevel,
 				Direction:        "long",
-				Strength:         level.KlinesCount, // 触及次数越多信号越强
+				Strength:         level.KlinesCount,
 				Price:            price,
 				StopLossPrice:    &level.Price,
 				Period:           kline.Period,
@@ -180,19 +221,21 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 				Status:           models.SignalStatusPending,
 				NotificationSent: false,
 				CreatedAt:        time.Now(),
+				KlineTime:        ptrTime(kline.CloseTime),
 			}
 		}
 	} else if level.LevelType == "support" {
 		if price < levelPrice-threshold {
-			// 构建跌破信号数据，记录被跌破的支撑位信息
+			distance := (level.Price - price) / level.Price * 100
 			signalData := &models.JSONB{
 				"level_id":         level.ID,
 				"level_type":       level.LevelType,
 				"level_subtype":    level.LevelSubtype,
-				"level_price":      level.Price,         // 跌破的支撑位价格
-				"level_distance":   (level.Price - price) / level.Price * 100, // 跌破幅度%
-				"klines_count":     level.KlinesCount,   // 支撑位被触及次数
-				"breakout_price":   price,               // 跌破价格
+				"level_price":      level.Price,
+				"level_distance":   distance,
+				"klines_count":     level.KlinesCount,
+				"breakout_price":   price,
+				"level_description": fmt.Sprintf("%s支撑位，触及%d次，距跌破%.2f%%", subtypeName, level.KlinesCount, distance),
 			}
 
 			return &models.Signal{
@@ -208,6 +251,7 @@ func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, 
 				Status:           models.SignalStatusPending,
 				NotificationSent: false,
 				CreatedAt:        time.Now(),
+				KlineTime:        ptrTime(kline.CloseTime),
 			}
 		}
 	}

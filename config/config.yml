@@ -51,13 +51,13 @@ markets:
     periods: ["15m", "1h"] # 抓取周期
     fetch_interval: 60    # 抓取间隔（秒）
   a_stock:
-    enabled: false
+    enabled: true
     symbols_limit: 200
     hot_days: 30
     periods: ["1d"]
     fetch_interval: 300
   us_stock:
-    enabled: false
+    enabled: true
     symbols_limit: 200
     hot_days: 30
     periods: ["1d"]
@@ -70,7 +70,7 @@ ema:
 # 策略配置
 strategies:
   box:
-    enabled: true
+    enabled: false
     min_klines: 5
     max_klines: 100
     width_threshold: 2.0      # 固定阈值回退值（动态阈值失效时使用）
@@ -87,16 +87,16 @@ strategies:
     swing_lookback: 2            # 波峰波谷检测回溯K线数
     check_interval: 60
   trend:
-    enabled: true
+    enabled: false
     ema_periods: [30, 60, 90]
     check_interval: 60
   key_level:
-    enabled: true
+    enabled: false
     lookback_klines: 20
     level_distance: 0.5
     check_interval: 60
   volume_price:
-    enabled: true
+    enabled: false
     volatility_multiplier: 2.0
     volume_multiplier: 2.0
     lookback_klines: 20
@@ -115,7 +115,7 @@ strategies:
 
 # 交易配置
 trading:
-  enabled: true
+  enabled: false
   initial_capital: 100000              # 初始资金: 100000
   position_size: 0.1                   # 单笔仓位比例: 0.1
   stop_loss_percent: 0.02              # 止损比例: 0.02

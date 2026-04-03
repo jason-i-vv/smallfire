@@ -78,22 +78,41 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 		return nil, fmt.Errorf("获取K线数据失败: %w", err)
 	}
 
-	// 如果数据不足，自动从交易所拉取
-	if len(klines) < 10 {
+	// 检查数据库数据的最早时间是否覆盖了回测开始时间
+	needFetch := len(klines) < 10
+	var earliestDBTime time.Time
+	if !needFetch && len(klines) > 0 {
+		// klines 是从新到旧排列的，最后一根是最早的
+		earliestDBTime = klines[len(klines)-1].OpenTime
+		if earliestDBTime.After(startTimeParse) {
+			needFetch = true
+		}
+	}
+
+	// 如果数据不足或未覆盖完整时间范围，从交易所拉取缺失的数据
+	if needFetch {
+		// 确定需要拉取的时间范围：从回测开始时间到数据库最早时间（或结束时间）
+		fetchEnd := endTimeParse
+		if !earliestDBTime.IsZero() && earliestDBTime.After(startTimeParse) {
+			fetchEnd = earliestDBTime
+		}
+
 		s.logger.Info("数据库K线数据不足，开始从交易所拉取",
 			zap.String("symbol", req.SymbolCode),
 			zap.String("period", req.Period),
-			zap.String("start_time", req.StartTime),
-			zap.String("end_time", req.EndTime))
+			zap.String("fetch_start", startTimeParse.Format("2006-01-02 15:04:05")),
+			zap.String("fetch_end", fetchEnd.Format("2006-01-02 15:04:05")))
 
-		fetchedKlines, err := s.fetchKlinesFromExchange(symbol.ID, req.MarketCode, req.SymbolCode, req.Period, startTimeParse, endTimeParse)
+		fetchedKlines, err := s.fetchKlinesFromExchange(symbol.ID, req.MarketCode, req.SymbolCode, req.Period, startTimeParse, fetchEnd)
 		if err != nil {
 			s.logger.Warn("从交易所拉取K线失败", zap.Error(err))
 			return nil, fmt.Errorf("K线数据不足且从交易所拉取失败: %w", err)
 		}
 
-		klines = fetchedKlines
-		s.logger.Info("从交易所拉取K线成功", zap.Int("count", len(klines)))
+		s.logger.Info("从交易所拉取K线成功", zap.Int("fetch_count", len(fetchedKlines)))
+
+		// 合并拉取的数据和数据库数据
+		klines = append(fetchedKlines, klines...)
 	}
 
 	if len(klines) < 10 {
@@ -282,13 +301,14 @@ type strategyAnalyzer interface {
 }
 
 // boxStrategyAnalyzer 箱体策略分析器
+// 同一时间只允许存在一个活跃箱体，新箱体需等当前活跃箱体突破后才能激活
 type boxStrategyAnalyzer struct {
-	delegate     strategy.Strategy
-	boxes        []*models.Box
-	activeBoxes  map[string]*models.Box // key: box key
-	minKlines    int                    // 最小K线数
-	maxKlines    int                    // 最大K线数
-	swingLookback int                   // 波峰波谷回溯数
+	delegate    strategy.Strategy
+	boxes       []*models.Box
+	activeBox   *models.Box // 当前唯一活跃箱体
+	minKlines   int         // 最小K线数
+	maxKlines   int         // 最大K线数
+	swingLookback int       // 波峰波谷回溯数
 
 	// 动态阈值参数
 	atrPeriod          int     // ATR 计算周期
@@ -316,7 +336,7 @@ func newBoxStrategyAnalyzer(delegate strategy.Strategy) *boxStrategyAnalyzer {
 	return &boxStrategyAnalyzer{
 		delegate:           delegate,
 		boxes:             make([]*models.Box, 0),
-		activeBoxes:       make(map[string]*models.Box),
+		activeBox:         nil,
 		minKlines:         cfg.MinKlines,
 		maxKlines:         cfg.MaxKlines,
 		swingLookback:     cfg.SwingLookback,
@@ -382,140 +402,116 @@ func (a *boxStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string, k
 	latestKline := klines[len(klines)-1]
 	latestPrice := latestKline.ClosePrice
 
-	// 1. 检测箱体
-	newBoxes := a.detectBoxes(symbolID, period, klines)
-
-	// 2. 检查每个新检测到的箱体
-	for _, box := range newBoxes {
-		key := boxKey(box)
-		// 如果箱体已经在 activeBoxes 中，说明之前已检测并正在延续
-		if _, exists := a.activeBoxes[key]; exists {
-			continue
-		}
-		// 检查是否在 a.boxes 中已存在相同价格区间的箱体
-		alreadyExists := false
-		for _, existingBox := range a.boxes {
-			if boxKey(existingBox) == key {
-				alreadyExists = true
-				break
-			}
-		}
-		if alreadyExists {
-			continue
-		}
-		// 跨窗口去重：检查新箱体是否与已有活跃箱体高度重叠
-		overlapsActive := false
-		for _, activeBox := range a.activeBoxes {
-			overlap := calculateContainmentOverlap(box.LowPrice, box.HighPrice, activeBox.LowPrice, activeBox.HighPrice)
-			if overlap > 0.7 {
-				overlapsActive = true
-				break
-			}
-		}
-		if overlapsActive {
-			continue
-		}
-		// 跨窗口去重：检查新箱体是否与已有已结束箱体高度重叠（防止重复添加）
-		overlapsExisting := false
-		for _, existingBox := range a.boxes {
-			overlap := calculateContainmentOverlap(box.LowPrice, box.HighPrice, existingBox.LowPrice, existingBox.HighPrice)
-			if overlap > 0.7 {
-				overlapsExisting = true
-				break
-			}
-		}
-		if overlapsExisting {
-			continue
-		}
-
-		// 关键逻辑：检查箱体是否已经被突破
-		// 突破发生在 EndTime 之后的第一根K线
-		// 我们需要找到 EndTime 之后的K线，检查价格是否已突破
-		buffer := box.WidthPrice * 0.001
-
-		// 找到 EndTime 在 klines 中的索引
-		boxEndIdx := -1
-		for i := len(klines) - 1; i >= 0; i-- {
-			if klines[i].OpenTime.Equal(box.StartTime) {
-				// 找到箱体起始位置，往后找
-				for j := i; j < len(klines); j++ {
-					if klines[j].OpenTime.Equal(box.EndTime) {
-						boxEndIdx = j
-						break
-					}
-				}
-				break
-			}
-		}
-
-		// 检查 EndTime 之后是否有突破
-		broken := false
-		breakoutPrice := latestPrice
-		if boxEndIdx >= 0 && boxEndIdx < len(klines)-1 {
-			// 检查 EndTime 之后的K线
-			for i := boxEndIdx + 1; i < len(klines); i++ {
-				if klines[i].ClosePrice < box.LowPrice-buffer {
-					broken = true
-					breakoutPrice = klines[i].ClosePrice
-					break
-				}
-				if klines[i].ClosePrice > box.HighPrice+buffer {
-					broken = true
-					breakoutPrice = klines[i].ClosePrice
-					break
-				}
-			}
-		}
-
-		if broken {
-			// 箱体已被突破，添加到 boxes 列表（已结束）
-			box.Status = models.BoxStatusClosed
-			box.BreakoutPrice = &breakoutPrice
-			if breakoutPrice < box.LowPrice-buffer {
-				dir := models.BreakoutDirectionDown
-				box.BreakoutDirection = &dir
-			} else {
-				dir := models.BreakoutDirectionUp
-				box.BreakoutDirection = &dir
-			}
-			a.boxes = append(a.boxes, box)
-		} else {
-			// 箱体未被突破，添加到活跃列表
-			a.activeBoxes[key] = box
-			a.boxes = append(a.boxes, box)
-		}
-	}
-
-	// 3. 检查活跃箱体是否被突破，未突破则尝试延续
-	for key, box := range a.activeBoxes {
-		if sig := a.checkBreakout(box, latestKline, latestPrice, period); sig != nil {
+	// 1. 如果当前有活跃箱体，先检查是否突破或延续
+	if a.activeBox != nil {
+		if sig := a.checkBreakout(a.activeBox, latestKline, latestPrice, period); sig != nil {
 			signals = append(signals, *sig)
-			// 箱体被突破后关闭
-			box.Status = models.BoxStatusClosed
-			box.BreakoutPrice = &latestPrice
-			delete(a.activeBoxes, key)
+			a.activeBox.Status = models.BoxStatusClosed
+			a.activeBox.BreakoutPrice = &latestPrice
+			a.activeBox = nil
 		} else {
-			// 未突破，尝试延续箱体
-			a.tryExtendBox(box, latestKline)
+			a.tryExtendBox(a.activeBox, klines)
+			return signals, nil
 		}
 	}
 
-	// 4. 清理过时的箱体（超过最大K线数）
-	a.cleanupOldBoxes(latestKline.OpenTime)
+	// 3. 无活跃箱体时，检测新箱体，选最新的一个激活
+	newBoxes := a.detectBoxes(symbolID, period, klines)
+	if len(newBoxes) == 0 {
+		return signals, nil
+	}
+
+	// 选最新的箱体（EndTime 最大）
+	var candidate *models.Box
+	for _, box := range newBoxes {
+		if candidate == nil || box.EndTime.After(candidate.EndTime) {
+			candidate = box
+		}
+	}
+
+	// 去重：检查该箱体是否已经存在于 a.boxes 中
+	// 在回测的滑动窗口中，同一个箱体会被多次检测到
+	alreadyExists := false
+	for _, b := range a.boxes {
+		if b.StartTime.Equal(candidate.StartTime) &&
+			math.Abs(b.HighPrice-candidate.HighPrice) < 0.0001 &&
+			math.Abs(b.LowPrice-candidate.LowPrice) < 0.0001 {
+			alreadyExists = true
+			break
+		}
+	}
+
+	if alreadyExists {
+		return signals, nil
+	}
+
+	// 检查候选箱体在当前窗口内是否已被突破
+	buffer := candidate.WidthPrice * 0.001
+	boxEndIdx := -1
+	for i, k := range klines {
+		if k.OpenTime.Equal(candidate.EndTime) {
+			boxEndIdx = i
+			break
+		}
+	}
+
+	broken := false
+	breakoutPrice := latestPrice
+	if boxEndIdx >= 0 && boxEndIdx < len(klines)-1 {
+		for i := boxEndIdx + 1; i < len(klines); i++ {
+			if klines[i].ClosePrice < candidate.LowPrice-buffer {
+				broken = true
+				breakoutPrice = klines[i].ClosePrice
+				break
+			}
+			if klines[i].ClosePrice > candidate.HighPrice+buffer {
+				broken = true
+				breakoutPrice = klines[i].ClosePrice
+				break
+			}
+		}
+	}
+
+	if broken {
+		// 箱体已在窗口内被突破，直接关闭
+		candidate.Status = models.BoxStatusClosed
+		candidate.BreakoutPrice = &breakoutPrice
+		if breakoutPrice < candidate.LowPrice-buffer {
+			dir := models.BreakoutDirectionDown
+			candidate.BreakoutDirection = &dir
+		} else {
+			dir := models.BreakoutDirectionUp
+			candidate.BreakoutDirection = &dir
+		}
+		a.boxes = append(a.boxes, candidate)
+	} else {
+		// 未突破，设为唯一活跃箱体，并尝试从 EndTime 之后延续
+		a.activeBox = candidate
+		a.boxes = append(a.boxes, candidate)
+		a.tryExtendBox(a.activeBox, klines)
+	}
 
 	return signals, nil
 }
 
-// tryExtendBox 尝试延续活跃箱体
-func (a *boxStrategyAnalyzer) tryExtendBox(box *models.Box, latestKline models.Kline) {
+// tryExtendBox 尝试延续活跃箱体，从箱体 EndTime 之后逐根遍历 klines 直到最新K线
+func (a *boxStrategyAnalyzer) tryExtendBox(box *models.Box, klines []models.Kline) {
 	buffer := box.WidthPrice * 0.001 // 0.1% 缓冲
-	// 使用 K 线高低价判断，确保实体在边界内
-	highInRange := latestKline.HighPrice <= box.HighPrice+buffer
-	lowInRange := latestKline.LowPrice >= box.LowPrice-buffer
-	if highInRange && lowInRange {
-		box.KlinesCount++
-		box.EndTime = latestKline.CloseTime
-		box.UpdatedAt = time.Now()
+	for _, k := range klines {
+		// 只处理 EndTime 之后的K线
+		if !k.OpenTime.After(box.EndTime) {
+			continue
+		}
+		highInRange := k.HighPrice <= box.HighPrice+buffer
+		lowInRange := k.LowPrice >= box.LowPrice-buffer
+		if highInRange && lowInRange {
+			box.KlinesCount++
+			box.EndTime = k.OpenTime
+			box.UpdatedAt = time.Now()
+		} else {
+			// 遇到不在范围内的K线，停止扩展
+			break
+		}
 	}
 }
 
@@ -538,28 +534,13 @@ func (a *boxStrategyAnalyzer) detectBoxes(symbolID int, period string, klines []
 			if box == nil {
 				continue
 			}
-			// 关键修复：跳过已经在 activeBoxes 中的价格区间，避免重复创建箱体
-			key := boxKey(box)
-			if _, exists := a.activeBoxes[key]; exists {
-				continue
-			}
-			// 调试日志：打印 window 的索引范围
-			// 调试日志
-			// fmt.Printf("[detectBoxes] window: startIdx=%d, endIdx=%d, len(window)=%d\n",
-			// 	window[0].Index, window[len(window)-1].Index, len(window))
-			// fmt.Printf("[detectBoxes] built box: High=%.4f, Low=%.4f, KlinesCount=%d, StartTime=%v, EndTime=%v\n",
-			// 	box.HighPrice, box.LowPrice, box.KlinesCount, box.StartTime, box.EndTime)
-			// 验证箱体有效性（震荡次数、价格非单调、K线在边界内）
+			// 验证箱体有效性
 			valid := a.isValidBox(box, window, klines, window[0].Index, window[len(window)-1].Index)
 			if valid {
 				allBoxes = append(allBoxes, box)
-			} else {
-				// fmt.Printf("[detectBoxes] INVALID box: High=%.4f, KlinesCount=%d, StartTime=%v\n",
-				// 	box.HighPrice, box.KlinesCount, box.StartTime)
 			}
 		}
 	}
-
 	// 去重
 	allBoxes = a.deduplicateBoxes(allBoxes)
 
@@ -941,6 +922,7 @@ func (a *boxStrategyAnalyzer) checkBreakout(box *models.Box, latestKline models.
 			TargetPrice:      &targetPrice,
 			StopLossPrice:    &stopLoss,
 			Period:           period,
+			KlineTime:        func() *time.Time { t := latestKline.OpenTime; return &t }(),
 			SignalData:       &models.JSONB{},
 			Status:           models.SignalStatusPending,
 			ExpiredAt:        &expireTime,
@@ -950,7 +932,6 @@ func (a *boxStrategyAnalyzer) checkBreakout(box *models.Box, latestKline models.
 	}
 
 	if latestPrice < box.LowPrice-buffer {
-		// 向下突破
 		box.BreakoutPrice = &latestPrice
 		dir := models.BreakoutDirectionDown
 		box.BreakoutDirection = &dir
@@ -978,6 +959,7 @@ func (a *boxStrategyAnalyzer) checkBreakout(box *models.Box, latestKline models.
 			TargetPrice:      &targetPrice,
 			StopLossPrice:    &stopLoss,
 			Period:           period,
+			KlineTime:        func() *time.Time { t := latestKline.OpenTime; return &t }(),
 			SignalData:       &models.JSONB{},
 			Status:           models.SignalStatusPending,
 			ExpiredAt:        &expireTime,
@@ -992,12 +974,10 @@ func (a *boxStrategyAnalyzer) checkBreakout(box *models.Box, latestKline models.
 // cleanupOldBoxes 清理过时的箱体
 func (a *boxStrategyAnalyzer) cleanupOldBoxes(currentTime time.Time) {
 	maxAge := 200 // 最多保留200根K线对应的箱体
-	for key, box := range a.activeBoxes {
-		if box.KlinesCount > maxAge {
-			box.Status = models.BoxStatusClosed
-			box.EndTime = currentTime
-			delete(a.activeBoxes, key)
-		}
+	if a.activeBox != nil && a.activeBox.KlinesCount > maxAge {
+		a.activeBox.Status = models.BoxStatusClosed
+		a.activeBox.EndTime = currentTime
+		a.activeBox = nil
 	}
 }
 
@@ -1117,112 +1097,295 @@ func (a *trendStrategyAnalyzer) GetTrends() []*models.Trend {
 }
 
 // keyLevelStrategyAnalyzer 关键价位策略分析器（用于回测）
-// 基于价格突破近期高低点的策略 - 使用更短的回望期产生更多信号
+// 识别多个局部高点和低点作为阻力/支撑位，每个突破都产生独立信号
 type keyLevelStrategyAnalyzer struct {
-	delegate          strategy.Strategy
-	levels            []*KeyLevel // 关键价位列表
-	lookbackKlines    int          // 回望K线数
-	levelDistance     float64      // 突破阈值(%)
+	delegate       strategy.Strategy
+	resistances    []*LevelInfo // 阻力位列表
+	supports       []*LevelInfo // 支撑位列表
+	lookbackKlines int          // 回望K线数
+	breakDistance  float64      // 突破阈值(%)
+}
+
+type LevelInfo struct {
+	Price      float64   // 价位
+	Time       time.Time // 形成时间
+	Index      int       // 在K线数组中的索引
+	Broken     bool      // 是否已突破
+	BrokenBy   int       // 被哪根K线突破
+	TouchCount int       // 被触及次数（价格在价位附近波动但未突破的K线数）
+}
+
+// keyLevelSwingPoint 波峰波谷（关键位策略专用）
+type keyLevelSwingPoint struct {
+	Index int
+	Type  int // 0: high, 1: low
+	Price float64
+	Time  time.Time
 }
 
 func newKeyLevelStrategyAnalyzer(delegate strategy.Strategy) *keyLevelStrategyAnalyzer {
 	return &keyLevelStrategyAnalyzer{
 		delegate:       delegate,
-		levels:         make([]*KeyLevel, 0),
-		lookbackKlines: 20,      // 回望K线数（使用更短的周期）
-		levelDistance:  0.0,     // 突破阈值(%) - 0表示严格突破
+		resistances:    make([]*LevelInfo, 0),
+		supports:       make([]*LevelInfo, 0),
+		lookbackKlines: 50,   // 回望K线数
+		breakDistance:  0.0,  // 突破阈值(%) - 0表示严格突破
 	}
 }
 
 func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string, klines []models.Kline) ([]models.Signal, error) {
-	if len(klines) < a.lookbackKlines+1 {
+	if len(klines) < 20 {
 		return nil, nil
 	}
 
 	var signals []models.Signal
 
-	// 只使用最后一根K线进行突破检测
+	// 最后一根K线
 	latestKline := klines[len(klines)-1]
 	latestPrice := latestKline.ClosePrice
+	latestIdx := len(klines) - 1
 
-	// 使用最近 N 根K线（不包括当前）计算历史高低点
-	historyKlines := klines[len(klines)-a.lookbackKlines-1 : len(klines)-1]
+	// 检测当前窗口内的波峰波谷，识别新的阻力位和支撑位
+	levels := a.detectKeyLevelSwingPoints(klines)
 
-	// 找历史最高价和最低价
-	maxHigh := historyKlines[0].HighPrice
-	minLow := historyKlines[0].LowPrice
-	for _, k := range historyKlines {
-		if k.HighPrice > maxHigh {
-			maxHigh = k.HighPrice
-		}
-		if k.LowPrice < minLow {
-			minLow = k.LowPrice
+	// 添加新的阻力位（去重）
+	for _, sw := range levels {
+		if sw.Type == 0 { // 波峰 = 阻力位
+			if !a.hasLevel(a.resistances, sw.Price) {
+				a.resistances = append(a.resistances, &LevelInfo{
+					Price:      sw.Price,
+					Time:       sw.Time,
+					Index:      sw.Index,
+					Broken:     false,
+					TouchCount: 1, // 初始触及次数为1（检测到波峰本身就是一次触及）
+				})
+			}
+		} else { // 波谷 = 支撑位
+			if !a.hasLevel(a.supports, sw.Price) {
+				a.supports = append(a.supports, &LevelInfo{
+					Price:      sw.Price,
+					Time:       sw.Time,
+					Index:      sw.Index,
+					Broken:     false,
+					TouchCount: 1,
+				})
+			}
 		}
 	}
 
-	// 突破阈值
-	highThreshold := maxHigh * (1 + a.levelDistance/100)
-	lowThreshold := minLow * (1 - a.levelDistance/100)
+	// 统计每个价位被后续K线触及的次数（价格接近但未突破）
+	a.countTouches(a.resistances, klines, latestIdx, "resistance")
+	a.countTouches(a.supports, klines, latestIdx, "support")
 
-	// 检查向上突破（收盘价超过历史最高价）
-	if latestPrice > highThreshold {
+	// 检查阻力位突破（向上）
+	// 同一根 K 线只取被突破的距当前价格最近的阻力位，避免重复信号
+	var closestResistance *LevelInfo
+	for _, level := range a.resistances {
+		if level.Broken {
+			continue
+		}
+		if latestPrice > level.Price {
+			level.Broken = true
+			level.BrokenBy = latestIdx
+			if closestResistance == nil || level.Price > closestResistance.Price {
+				closestResistance = level
+			}
+		}
+	}
+	if closestResistance != nil {
+		level := closestResistance
+		klinesAway := latestIdx - level.Index
+		distance := (latestPrice - level.Price) / level.Price * 100
 		sig := &models.Signal{
 			SymbolID:         symbolID,
 			SignalType:       "resistance_break",
 			SourceType:       "key_level",
 			Direction:        "long",
-			Strength:         2,
+			Strength:         a.calculateStrength(level, a.resistances),
 			Price:            latestPrice,
-			StopLossPrice:    &maxHigh,
+			StopLossPrice:    &level.Price,
 			Period:           latestKline.Period,
-			SignalData:       &models.JSONB{},
+			KlineTime:        func() *time.Time { t := latestKline.OpenTime; return &t }(),
+			SignalData: &models.JSONB{
+				"level_price":        level.Price,
+				"level_time":         level.Time,
+				"level_distance":     distance,
+				"touch_count":        level.TouchCount,
+				"klines_away":        klinesAway,
+				"level_description":  fmt.Sprintf("波峰阻力位，触及%d次，形成于%d根K线前", level.TouchCount, klinesAway),
+			},
 			Status:           models.SignalStatusPending,
 			NotificationSent: false,
-			CreatedAt:        time.Now(),
+			CreatedAt:       time.Now(),
 		}
 		signals = append(signals, *sig)
-
-		// 记录关键价位
-		a.levels = append(a.levels, &KeyLevel{
-			SymbolID:    symbolID,
-			Period:      period,
-			LevelType:   "resistance",
-			Price:       maxHigh,
-			Broken:      false,
-			KlinesCount: a.lookbackKlines,
-		})
 	}
 
-	// 检查向下突破（收盘价跌破历史最低价）
-	if latestPrice < lowThreshold {
+	// 检查支撑位突破（向下）
+	// 同一根 K 线只取被突破的距当前价格最近的支撑位
+	var closestSupport *LevelInfo
+	for _, level := range a.supports {
+		if level.Broken {
+			continue
+		}
+		if latestPrice < level.Price {
+			level.Broken = true
+			level.BrokenBy = latestIdx
+			if closestSupport == nil || level.Price < closestSupport.Price {
+				closestSupport = level
+			}
+		}
+	}
+	if closestSupport != nil {
+		level := closestSupport
+		klinesAway := latestIdx - level.Index
+		distance := (level.Price - latestPrice) / level.Price * 100
 		sig := &models.Signal{
 			SymbolID:         symbolID,
 			SignalType:       "support_break",
 			SourceType:       "key_level",
 			Direction:        "short",
-			Strength:         2,
+			Strength:         a.calculateStrength(level, a.supports),
 			Price:            latestPrice,
-			StopLossPrice:    &minLow,
+			StopLossPrice:    &level.Price,
 			Period:           latestKline.Period,
-			SignalData:       &models.JSONB{},
+			KlineTime:        func() *time.Time { t := latestKline.OpenTime; return &t }(),
+			SignalData: &models.JSONB{
+				"level_price":        level.Price,
+				"level_time":         level.Time,
+				"level_distance":     distance,
+				"touch_count":        level.TouchCount,
+				"klines_away":        klinesAway,
+				"level_description":  fmt.Sprintf("波谷支撑位，触及%d次，形成于%d根K线前", level.TouchCount, klinesAway),
+			},
 			Status:           models.SignalStatusPending,
 			NotificationSent: false,
-			CreatedAt:        time.Now(),
+			CreatedAt:       time.Now(),
 		}
 		signals = append(signals, *sig)
-
-		// 记录关键价位
-		a.levels = append(a.levels, &KeyLevel{
-			SymbolID:    symbolID,
-			Period:      period,
-			LevelType:   "support",
-			Price:       minLow,
-			Broken:      false,
-			KlinesCount: a.lookbackKlines,
-		})
 	}
 
 	return signals, nil
+}
+
+// hasLevel 检查价位是否已存在
+func (a *keyLevelStrategyAnalyzer) hasLevel(levels []*LevelInfo, price float64) bool {
+	for _, l := range levels {
+		if math.Abs(l.Price-price) < 0.01 {
+			return true
+		}
+	}
+	return false
+}
+
+// countTouches 统计价位被K线触及的次数（价格接近但未突破）
+func (a *keyLevelStrategyAnalyzer) countTouches(levels []*LevelInfo, klines []models.Kline, latestIdx int, levelType string) {
+	for _, level := range levels {
+		if level.Broken {
+			continue
+		}
+		// 只统计价位形成之后的K线
+		for i := level.Index + 1; i <= latestIdx; i++ {
+			k := klines[i]
+			tolerance := level.Price * 0.003 // 0.3% 容差视为触及
+			switch levelType {
+			case "resistance":
+				if k.HighPrice >= level.Price-tolerance && k.ClosePrice < level.Price+tolerance {
+					level.TouchCount++
+				}
+			case "support":
+				if k.LowPrice <= level.Price+tolerance && k.ClosePrice > level.Price-tolerance {
+					level.TouchCount++
+				}
+			}
+		}
+	}
+}
+
+// calculateStrength 计算信号强度
+func (a *keyLevelStrategyAnalyzer) calculateStrength(level *LevelInfo, allLevels []*LevelInfo) int {
+	// 基于附近价位数量计算强度
+	nearbyCount := 0
+	tolerance := level.Price * 0.005 // 0.5% 容差
+	for _, l := range allLevels {
+		if l == level {
+			continue
+		}
+		if math.Abs(l.Price-level.Price) < tolerance {
+			nearbyCount++
+		}
+	}
+	if nearbyCount >= 2 {
+		return 3
+	} else if nearbyCount >= 1 {
+		return 2
+	}
+	return 1
+}
+
+// detectKeyLevelSwingPoints 检测波峰波谷（关键位策略专用）
+func (a *keyLevelStrategyAnalyzer) detectKeyLevelSwingPoints(klines []models.Kline) []keyLevelSwingPoint {
+	var swings []keyLevelSwingPoint
+	lookback := 3 // 波峰波谷检测的回溯数
+
+	// 只检测最近一段K线，避免重复检测
+	startIdx := 0
+	if len(klines) > a.lookbackKlines {
+		startIdx = len(klines) - a.lookbackKlines
+	}
+
+	for i := startIdx + lookback; i < len(klines)-lookback; i++ {
+		prevHigh := klines[i-1].HighPrice
+		prevLow := klines[i-1].LowPrice
+		currHigh := klines[i].HighPrice
+		currLow := klines[i].LowPrice
+		nextHigh := klines[i+1].HighPrice
+		nextLow := klines[i+1].LowPrice
+
+		// 波峰检测
+		isHigh := true
+		for j := 1; j <= lookback; j++ {
+			if i-j >= 0 && klines[i-j].HighPrice > currHigh {
+				isHigh = false
+				break
+			}
+			if i+j < len(klines) && klines[i+j].HighPrice > currHigh {
+				isHigh = false
+				break
+			}
+		}
+		if isHigh && currHigh > prevHigh && currHigh > nextHigh {
+			swings = append(swings, keyLevelSwingPoint{
+				Index: i,
+				Type:  0, // 波峰
+				Price: currHigh,
+				Time:  klines[i].OpenTime,
+			})
+		}
+
+		// 波谷检测
+		isLow := true
+		for j := 1; j <= lookback; j++ {
+			if i-j >= 0 && klines[i-j].LowPrice < currLow {
+				isLow = false
+				break
+			}
+			if i+j < len(klines) && klines[i+j].LowPrice < currLow {
+				isLow = false
+				break
+			}
+		}
+		if isLow && currLow < prevLow && currLow < nextLow {
+			swings = append(swings, keyLevelSwingPoint{
+				Index: i,
+				Type:  1, // 波谷
+				Price: currLow,
+				Time:  klines[i].OpenTime,
+			})
+		}
+	}
+
+	return swings
 }
 
 func (a *keyLevelStrategyAnalyzer) GetBoxes() []*models.Box {
@@ -1231,21 +1394,6 @@ func (a *keyLevelStrategyAnalyzer) GetBoxes() []*models.Box {
 
 func (a *keyLevelStrategyAnalyzer) GetTrends() []*models.Trend {
 	return nil
-}
-
-// GetLevels 获取关键价位列表
-func (a *keyLevelStrategyAnalyzer) GetLevels() []*KeyLevel {
-	return a.levels
-}
-
-// KeyLevel 关键价位
-type KeyLevel struct {
-	SymbolID    int
-	Period      string
-	LevelType   string    // "resistance" 或 "support"
-	Price       float64
-	Broken      bool
-	KlinesCount int
 }
 
 // genericStrategyAnalyzer 通用策略分析器
@@ -1411,17 +1559,13 @@ func (s *BacktestService) runBacktestLoop(
 	}
 
 	// 回测结束时，关闭仍处于 active 状态的箱体
-	// 注意：只有当箱体从未被 tryExtendBox 延伸过（EndTime 为零值）时才设置 EndTime
-	// 已延伸的箱体的 EndTime 已在 tryExtendBox 中正确设置
 	if boxAnalyzer, ok := analyzer.(*boxStrategyAnalyzer); ok {
-		for key, box := range boxAnalyzer.activeBoxes {
-			box.Status = models.BoxStatusClosed
-			// 只在 EndTime 未被设置时（箱体从未延伸）才设置为最后K线的 CloseTime
-			if box.EndTime.IsZero() {
-				lastTime := klines[len(klines)-1].CloseTime
-				box.EndTime = lastTime
+		if boxAnalyzer.activeBox != nil {
+			boxAnalyzer.activeBox.Status = models.BoxStatusClosed
+			if boxAnalyzer.activeBox.EndTime.IsZero() {
+				boxAnalyzer.activeBox.EndTime = klines[len(klines)-1].OpenTime
 			}
-			delete(boxAnalyzer.activeBoxes, key)
+			boxAnalyzer.activeBox = nil
 		}
 	}
 
@@ -1657,9 +1801,9 @@ func (s *BacktestService) sortBacktestResult(
 		return boxes[i].StartTime.Before(boxes[j].StartTime)
 	})
 
-	// 信号按 CreatedAt 排序
+	// 信号按 KlineTime 排序（回测时 CreatedAt 都是同一时刻，无法区分先后）
 	sort.Slice(signals, func(i, j int) bool {
-		return signals[i].CreatedAt.Before(signals[j].CreatedAt)
+		return signals[i].KlineTime.Before(*signals[j].KlineTime)
 	})
 
 	// 交易按 EntryTime 排序

@@ -98,6 +98,7 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 			ExpiredAt:        &expireTime,
 			NotificationSent: false,
 			CreatedAt:        time.Now(),
+			KlineTime:        ptrTime(latest.OpenTime),
 		}
 	}
 
@@ -156,6 +157,7 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 			ExpiredAt:        &expireTime,
 			NotificationSent: false,
 			CreatedAt:        time.Now(),
+			KlineTime:        ptrTime(latest.OpenTime),
 		}
 	}
 

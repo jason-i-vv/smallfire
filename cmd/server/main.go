@@ -252,6 +252,7 @@ func main() {
 		symbolsGroup := apiV1.Group("/symbols")
 		{
 			symbolsGroup.GET("", symbolHandler.GetSymbols)
+			symbolsGroup.GET("/resolve", symbolHandler.ResolveSymbol)
 			symbolsGroup.GET("/:id/klines", symbolHandler.GetSymbolKlines)
 		}
 
