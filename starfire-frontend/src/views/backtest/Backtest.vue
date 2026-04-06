@@ -218,10 +218,35 @@
           <template #header>
             <div class="card-header">
               <span>信号列表</span>
-              <span class="trade-count">共 {{ result.signals?.length || 0 }} 个信号</span>
+              <div class="card-header-actions">
+                <span class="trade-count">共 {{ result.signals?.length || 0 }} 个信号</span>
+                <el-button-group v-if="isWickStrategy" size="small">
+                  <el-button :type="signalViewMode === 'chart' ? 'primary' : ''" @click="signalViewMode = 'chart'">
+                    <el-icon><Histogram /></el-icon> 图表
+                  </el-button>
+                  <el-button :type="signalViewMode === 'list' ? 'primary' : ''" @click="signalViewMode = 'list'">
+                    <el-icon><List /></el-icon> 列表
+                  </el-button>
+                </el-button-group>
+              </div>
             </div>
           </template>
-          <el-table :data="result.signals || []" stripe style="width: 100%" max-height="300" @row-click="(row) => viewChart('signal', row)">
+
+          <!-- 图表模式：内嵌K线图表，标记所有引线信号 -->
+          <BacktestChart
+            v-if="signalViewMode === 'chart' && isWickStrategy && currentSymbolId && result.signals?.length > 0"
+            :symbol-id="currentSymbolId"
+            :period="form.period"
+            :start-time="result.request.start_time"
+            :end-time="result.request.end_time"
+            :signals="result.signals"
+          />
+          <div v-else-if="signalViewMode === 'chart' && isWickStrategy && (!result.signals || result.signals.length === 0)" class="chart-empty">
+            暂无信号数据
+          </div>
+
+          <!-- 列表模式：表格 -->
+          <el-table v-else :data="result.signals || []" stripe style="width: 100%" max-height="300" @row-click="(row) => viewChart('signal', row)">
             <el-table-column prop="id" label="#" width="60" />
             <el-table-column label="时间" width="160">
               <template #default="{ row }">
@@ -439,13 +464,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { VideoPlay, View } from '@element-plus/icons-vue'
+import { VideoPlay, View, List, Histogram } from '@element-plus/icons-vue'
 import { backtestApi } from '@/api/backtest'
 import { symbolApi } from '@/api/symbols'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
+import BacktestChart from '@/components/charts/BacktestChart.vue'
 
 const router = useRouter()
 
@@ -453,6 +479,7 @@ const loading = ref(false)
 const result = ref(null)
 const symbols = ref([])
 const strategies = ref([])
+const signalViewMode = ref('chart')  // 'chart' | 'list'
 
 // 表单数据
 const form = ref({
@@ -484,13 +511,25 @@ const equityData = computed(() => {
   }))
 })
 
+const isWickStrategy = computed(() => form.value.strategy_type === 'wick')
+
+const currentSymbolId = computed(() => {
+  const found = symbols.value.find(s => s.symbol_code === form.value.symbol_code)
+  return found?.id || null
+})
+
+// 切换策略时自动重置视图模式
+watch(() => form.value.strategy_type, (newType) => {
+  signalViewMode.value = newType === 'wick' ? 'chart' : 'list'
+})
+
 // 策略标签映射
 const strategyLabels = {
   'box': '箱体突破',
   'trend': '趋势跟踪',
   'key_level': '关键价位',
   'volume_price': '量价分析',
-  'wick': 'wick影线'
+  'wick': '引线策略'
 }
 
 const getStrategyLabel = (type) => strategyLabels[type] || type
@@ -655,6 +694,9 @@ const runBacktest = async () => {
     const res = await backtestApi.runBacktest(requestData)
     result.value = res.data
 
+    // 根据策略类型设置视图模式
+    signalViewMode.value = form.value.strategy_type === 'wick' ? 'chart' : 'list'
+
     // 保存结果到 sessionStorage
     saveToSession()
 
@@ -685,6 +727,8 @@ const restoreFromSession = () => {
       const data = JSON.parse(saved)
       result.value = data.result
       form.value = { ...form.value, ...data.form }
+      // 恢复后根据策略类型设置视图模式
+      signalViewMode.value = form.value.strategy_type === 'wick' ? 'chart' : 'list'
       return true
     } catch (e) {
       console.error('Failed to restore backtest data:', e)
@@ -932,6 +976,12 @@ onMounted(() => {
         justify-content: space-between;
         align-items: center;
 
+        .card-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
         .trade-count {
           color: $text-secondary;
           font-size: 13px;
@@ -990,6 +1040,17 @@ onMounted(() => {
   .text-danger {
     color: $danger;
     font-weight: 500;
+  }
+
+  .chart-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    background: #0D1117;
+    border-radius: 6px;
+    color: #8B949E;
+    font-size: 14px;
   }
 
   // 表格行悬停效果
