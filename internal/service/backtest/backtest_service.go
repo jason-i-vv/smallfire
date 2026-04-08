@@ -1551,17 +1551,22 @@ func (s *BacktestService) runBacktestLoop(
 					// 计算盈亏
 					s.calculateTradePnL(currentPosition, req)
 
+						reversed := false
 					// 检查是否有新信号可以反向开仓
 					for _, sig := range newSignals {
 						if sig.Direction != currentPosition.Direction && currentPosition.ExitTime != nil {
 							// 反向开仓
 							sigPtr := &sig
 							currentPosition = s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
+							reversed = true
+							break
 							break
 						}
 					}
 
-					currentPosition = nil
+					if !reversed {
+						currentPosition = nil
+					}
 				}
 			}
 
