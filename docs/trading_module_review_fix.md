@@ -82,11 +82,29 @@
 
 ---
 
-## 三、验证方式
+---
 
-1. `go build ./cmd/server/` — 编译通过
-2. `go test ./internal/service/trading/...` — 31/31 测试通过
-3. 手动平仓后检查 `/trades/stats` 的 `current_capital` 发生变化
-4. `/trades/signal-analysis` 返回按策略类型分组的数据
-5. `/trades/stats` 的 `sharpe_ratio` 和 `calmar_ratio` 在有交易数据时非零
-6. 前端统计页、交易历史页、持仓页均从 API 获取真实数据
+## 三、QA 验证
+
+### QA 发现的额外问题
+
+**BUG: 无交易数据时 `current_capital` 返回 0**
+- `statistics.go:75-77`：空数据分支只设了 `InitialCapital`，遗漏 `CurrentCapital`
+- 导致 `/trades/stats` 在无交易时返回 `current_capital: 0` 而非 `initial_capital: 100000`
+- 修复：空数据分支增加 `stats.CurrentCapital = s.config.InitialCapital`
+
+### 验证结果
+
+| 检查项 | 状态 |
+|--------|------|
+| `go build ./cmd/server/` — 编译通过 | PASS |
+| `go test ./internal/service/trading/...` — 31/31 测试通过 | PASS |
+| `/api/v1/trades/stats` — 返回正确结构（含 current_capital=initial_capital） | PASS |
+| `/api/v1/trades/signal-analysis` — 空数据返回 `{}` | PASS |
+| `/api/v1/trades/positions` — 空数据返回 `null` | PASS |
+| `/api/v1/trades/history` — 返回分页结构 `list/page/size/total` | PASS |
+| `/api/v1/trades/closed` — 空数据返回 `null` | PASS |
+| 前端 API baseURL `http://localhost:8080/api/v1` 与后端路由匹配 | PASS |
+| 前端 Statistics.vue 从 API 获取真实数据（无 mock 降级） | PASS |
+| 前端 History.vue 分页、日期筛选、字段映射 | PASS |
+| 前端 Positions.vue 指标从持仓数据计算 | PASS |

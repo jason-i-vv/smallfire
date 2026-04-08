@@ -73,6 +73,7 @@ func (s *StatisticsService) calculateStatistics(tracks []*models.TradeTrack) (*T
 	}
 
 	if len(tracks) == 0 {
+		stats.CurrentCapital = s.config.InitialCapital
 		return stats, nil
 	}
 
