@@ -14,7 +14,8 @@ type Factory struct {
 }
 
 // NewFactory 创建策略工厂
-func NewFactory(cfg *config.StrategiesConfig, deps Dependency, logger *zap.Logger) *Factory {
+// registerAll 为 true 时忽略配置中的 enabled，注册所有策略（用于回测场景）
+func NewFactory(cfg *config.StrategiesConfig, deps Dependency, logger *zap.Logger, registerAll bool) *Factory {
 	f := &Factory{
 		strategies: make(map[string]Strategy),
 		config:     cfg,
@@ -23,19 +24,19 @@ func NewFactory(cfg *config.StrategiesConfig, deps Dependency, logger *zap.Logge
 	}
 
 	// 注册策略
-	if cfg.Box.Enabled {
+	if registerAll || cfg.Box.Enabled {
 		f.strategies["box"] = NewBoxStrategy(cfg.Box, deps)
 	}
-	if cfg.Trend.Enabled {
+	if registerAll || cfg.Trend.Enabled {
 		f.strategies["trend"] = NewTrendStrategy(cfg.Trend, deps)
 	}
-	if cfg.KeyLevel.Enabled {
+	if registerAll || cfg.KeyLevel.Enabled {
 		f.strategies["key_level"] = NewKeyLevelStrategy(cfg.KeyLevel, deps)
 	}
-	if cfg.VolumePrice.Enabled {
+	if registerAll || cfg.VolumePrice.Enabled {
 		f.strategies["volume_price"] = NewVolumePriceStrategy(cfg.VolumePrice, deps)
 	}
-	if cfg.Wick.Enabled {
+	if registerAll || cfg.Wick.Enabled {
 		f.strategies["wick"] = NewWickStrategy(cfg.Wick, deps)
 	}
 

@@ -155,16 +155,23 @@ func main() {
 		Notifier:    notifyManager,
 	}
 
-	// 初始化策略工厂
-	strategyFactory := strategy.NewFactory(&cfg.Strategies, strategyDeps, utils.Logger)
+	// 初始化策略工厂（实盘：仅注册 enabled=true 的策略）
+	strategyFactory := strategy.NewFactory(&cfg.Strategies, strategyDeps, utils.Logger, false)
 	utils.Info("策略工厂初始化成功", zap.Int("strategy_count", len(strategyFactory.ListStrategies())))
 
 	// 初始化策略运行器
-	strategyRunner := strategy.NewRunner(strategyFactory, klineRepo, symbolRepo, signalRepo, 5*time.Minute, utils.Logger)
+	runnerInterval := 5 * time.Minute
+	if cfg.Strategies.RunnerInterval > 0 {
+		runnerInterval = time.Duration(cfg.Strategies.RunnerInterval) * time.Second
+	}
+	strategyRunner := strategy.NewRunner(strategyFactory, klineRepo, symbolRepo, signalRepo, notifyManager, runnerInterval, cfg.Strategies.MaxConcurrentAnalysis, utils.Logger)
 	utils.Info("策略运行器初始化成功")
 
+	// 初始化回测策略工厂（回测：注册所有策略，方便测试）
+	backtestStrategyFactory := strategy.NewFactory(&cfg.Strategies, strategyDeps, utils.Logger, true)
+
 	// 初始化回测服务
-	backtestService := backtest.NewBacktestService(klineRepo, symbolRepo, strategyFactory, factory, utils.Logger)
+	backtestService := backtest.NewBacktestService(klineRepo, symbolRepo, backtestStrategyFactory, factory, emaCalc, utils.Logger)
 	utils.Info("回测服务初始化成功")
 
 	// 初始化同步服务

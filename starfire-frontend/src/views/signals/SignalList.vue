@@ -50,6 +50,22 @@
 
     <!-- 其他筛选条件 -->
     <div class="filter-bar">
+      <el-select
+        v-model="filters.symbolCode"
+        placeholder="全部币对"
+        clearable
+        filterable
+        style="width: 180px"
+        :loading="symbolsLoading"
+      >
+        <el-option
+          v-for="item in symbolOptions"
+          :key="item.symbol_code"
+          :label="item.symbol_code"
+          :value="item.symbol_code"
+        />
+      </el-select>
+
       <el-select v-model="filters.direction" placeholder="方向" clearable style="width: 100px">
         <el-option label="做多" value="long" />
         <el-option label="做空" value="short" />
@@ -169,6 +185,7 @@ import { ref, reactive, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { signalApi } from '@/api/signals'
+import { symbolApi } from '@/api/symbols'
 import { formatTime, formatPrice } from '@/utils/formatters'
 
 const router = useRouter()
@@ -239,12 +256,33 @@ const signalTypeOptions = computed(() => {
 
 const filters = reactive({
   market: 'bybit', // 默认选中Bybit
+  symbolCode: '', // 币对
   sourceType: '', // 策略类型
-  signalType: 'box_breakout', // 默认选中箱体突破
+  signalType: '', // 默认全部
   direction: '',
   strength: null,
   status: 'pending'
 })
+
+const symbolOptions = ref([])
+const symbolsLoading = ref(false)
+
+const fetchSymbols = async (market) => {
+  if (!market) {
+    symbolOptions.value = []
+    return
+  }
+  symbolsLoading.value = true
+  try {
+    const res = await symbolApi.listByMarket(market)
+    symbolOptions.value = res.data || []
+  } catch (error) {
+    console.error('Failed to fetch symbols:', error)
+    symbolOptions.value = []
+  } finally {
+    symbolsLoading.value = false
+  }
+}
 
 const pagination = reactive({
   page: 1,
@@ -255,6 +293,8 @@ const pagination = reactive({
 // 选择市场
 const selectMarket = (value) => {
   filters.market = value
+  filters.symbolCode = ''
+  fetchSymbols(value)
 }
 
 // 选择策略类型
@@ -415,6 +455,7 @@ const getSignalTypeName = (type) => {
 onMounted(() => {
   fetchSignalCounts()
   fetchSignals()
+  fetchSymbols(filters.market)
 })
 
 // 监听筛选条件变化，重置页码并重新加载

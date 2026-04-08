@@ -50,6 +50,7 @@ type Signal struct {
 // SignalQuery 信号查询参数
 type SignalQuery struct {
 	Market     string // 市场代码: bybit, a_stock, us_stock
+	SymbolCode string // 标的代码: BTCUSDT 等
 	SourceType string // 策略来源: box, trend, key_level, volume, wick
 	SignalType string // 信号类型
 	Direction  string // 方向: long, short

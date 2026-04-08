@@ -76,6 +76,6 @@ func convertToModel(symbolID int, period string, k KlineData) *models.Kline {
 		QuoteVolume: k.QuoteVolume,
 		TradesCount: k.TradesCount,
 		IsClosed:    true,
-		CreatedAt:   time.Now(),
+		CreatedAt:   time.Now().UTC(),
 	}
 }

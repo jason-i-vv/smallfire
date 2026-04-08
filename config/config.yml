@@ -27,7 +27,7 @@ log:
 feishu:
   enabled: true
   webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/c585be48-9114-4f71-bf3d-0f82f98ba4d6"
-  send_summary: true
+  send_summary: false
   summary_interval: 6
   summary_times:
     - "09:00"
@@ -50,18 +50,21 @@ markets:
     hot_days: 30          # 热度有效期（天）
     periods: ["15m", "1h"] # 抓取周期
     fetch_interval: 60    # 抓取间隔（秒）
+    max_concurrent_sync: 10 # 最大并发同步数
   a_stock:
     enabled: true
     symbols_limit: 200
     hot_days: 30
     periods: ["1d"]
     fetch_interval: 300
+    max_concurrent_sync: 5
   us_stock:
     enabled: true
     symbols_limit: 200
     hot_days: 30
     periods: ["1d"]
     fetch_interval: 300
+    max_concurrent_sync: 5
 
 # EMA配置
 ema:
@@ -69,6 +72,8 @@ ema:
 
 # 策略配置
 strategies:
+  runner_interval: 300            # 策略执行间隔（秒），整点对齐执行
+  max_concurrent_analysis: 20     # 最大并发分析数
   box:
     enabled: false
     min_klines: 5
@@ -108,7 +113,11 @@ strategies:
     shadow_min_ratio: 2.0      # 引线最小倍数
     require_trend: true        # 是否要求趋势确认
     fake_breakout_enabled: true # 是否识别假突破
-    breakout_threshold: 0.5     # 突破阈值（%）
+    breakout_threshold: 0.5     # 固定突破阈值（%）回退值
+    atr_period: 14              # ATR 计算周期
+    atr_multiplier: 3.0         # 突破阈值 = ATR%/price * 3.0
+    min_breakout_threshold: 0.5 # 最小突破阈值（%）
+    max_breakout_threshold: 5.0 # 最大突破阈值（%）
     strength_lookback: 20      # 历史引线回溯数
     signal_cooldown: 30        # 信号冷却期（分钟）
     check_interval: 60

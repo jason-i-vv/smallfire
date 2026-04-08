@@ -2,7 +2,7 @@ package strategy
 
 import (
 	"fmt"
-	"sort"
+	"math"
 	"time"
 
 	"github.com/smallfire/starfire/internal/config"
@@ -10,6 +10,7 @@ import (
 )
 
 // KeyLevelStrategy 阻力支撑策略
+// 使用波峰波谷（swing point）识别关键价位，通过触及次数评估信号强度
 type KeyLevelStrategy struct {
 	config config.KeyLevelStrategyConfig
 	deps   Dependency
@@ -28,233 +29,273 @@ func (s *KeyLevelStrategy) Type() string        { return "key_level" }
 func (s *KeyLevelStrategy) Enabled() bool       { return s.config.Enabled }
 func (s *KeyLevelStrategy) Config() interface{} { return s.config }
 
+// keyLevelSwingPoint 关键位策略的波峰波谷
+type keyLevelSwingPoint struct {
+	Index int
+	Type  int // 0: 波峰(阻力), 1: 波谷(支撑)
+	Price float64
+	Time  time.Time
+}
+
 func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klines []models.Kline) ([]models.Signal, error) {
 	if len(klines) < s.config.LookbackKlines {
 		return nil, nil
 	}
 
-	var signals []models.Signal
+	latestKline := klines[len(klines)-1]
+	latestPrice := latestKline.ClosePrice
+	latestIdx := len(klines) - 1
 
-	// 1. 识别关键价位
-	levels := s.identifyKeyLevels(klines)
+	// 1. 检测波峰波谷，识别新关键位
+	swings := s.detectSwingPoints(klines)
 
-	// 2. 保存/更新价位
-	for _, level := range levels {
-		existing, _ := s.deps.LevelRepo.FindActive(symbolID, period, level.LevelSubtype)
-		if existing != nil {
-			// 更新触及次数
-			existing.KlinesCount++
-			s.deps.LevelRepo.Update(existing)
-		} else {
-			s.deps.LevelRepo.Create(level)
+	// 2. 将新检测到的波峰波谷入库（去重：价格在 0.1% 以内视为同一价位）
+	for _, sw := range swings {
+		levelType := models.LevelTypeResistance
+		subtype := "swing_high"
+		if sw.Type == 1 {
+			levelType = models.LevelTypeSupport
+			subtype = "swing_low"
+		}
+
+		// 检查是否已存在相近价位
+		existing, _ := s.deps.LevelRepo.GetActive(symbolID, period)
+		exists := false
+		for _, l := range existing {
+			if l.LevelType == levelType && math.Abs(l.Price-sw.Price)/sw.Price < 0.001 {
+				// 存在相近价位，增加触及次数
+				l.KlinesCount++
+				s.deps.LevelRepo.Update(l)
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			s.deps.LevelRepo.Create(&models.KeyLevel{
+				SymbolID:     symbolID,
+				Period:       period,
+				LevelType:    levelType,
+				LevelSubtype: subtype,
+				Price:        sw.Price,
+				Broken:       false,
+				KlinesCount:  1,
+				CreatedAt:    time.Now(),
+				UpdatedAt:    time.Now(),
+			})
 		}
 	}
 
-	// 3. 检查突破
-	latestKline := klines[len(klines)-1]
+	// 3. 更新已有价位的触及次数
+	s.updateTouchCounts(symbolID, period, klines, latestIdx)
+
+	// 4. 检查突破
 	activeLevels, _ := s.deps.LevelRepo.GetActive(symbolID, period)
+	threshold := s.config.LevelDistance / 100.0
 
-	// 同一根 K 线只取被突破的距当前价格最近的价位，避免重复信号
+	var signals []models.Signal
+
+	// 阻力位突破（向上）：只取最近一个被突破的阻力位
 	var closestBrokenResistance *models.KeyLevel
-	var closestBrokenSupport *models.KeyLevel
-
 	for _, level := range activeLevels {
-		sig := s.checkLevelBreak(symbolID, *level, latestKline)
-		if sig != nil {
-			// 标记所有被突破的价位
+		if level.Broken || level.LevelType != models.LevelTypeResistance {
+			continue
+		}
+		breakoutPrice := level.Price * (1 + threshold)
+		if latestPrice > breakoutPrice {
 			level.Broken = true
 			level.BrokenAt = &latestKline.OpenTime
-			price := latestKline.ClosePrice
-			level.BrokenPrice = &price
-			dir := "up"
-			if level.LevelType == "support" {
-				dir = "down"
-			}
+			level.BrokenPrice = &latestPrice
+			dir := models.LevelBreakDirectionUp
 			level.BrokenDirection = &dir
 			s.deps.LevelRepo.Update(level)
 
-			// 只保留距当前价格最近的
-			if level.LevelType == "resistance" {
-				if closestBrokenResistance == nil || level.Price > closestBrokenResistance.Price {
-					closestBrokenResistance = level
-				}
-			} else {
-				if closestBrokenSupport == nil || level.Price < closestBrokenSupport.Price {
-					closestBrokenSupport = level
-				}
+			if closestBrokenResistance == nil || level.Price > closestBrokenResistance.Price {
+				closestBrokenResistance = level
 			}
 		}
 	}
 
-	// 生成信号：只产生最近的一个阻力突破和一个支撑跌破信号
 	if closestBrokenResistance != nil {
-		if sig := s.checkLevelBreak(symbolID, *closestBrokenResistance, latestKline); sig != nil {
-			signals = append(signals, *sig)
+		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenResistance, latestKline, "long"))
+	}
+
+	// 支撑位突破（向下）：只取最近一个被突破的支撑位
+	var closestBrokenSupport *models.KeyLevel
+	for _, level := range activeLevels {
+		if level.Broken || level.LevelType != models.LevelTypeSupport {
+			continue
+		}
+		breakoutPrice := level.Price * (1 - threshold)
+		if latestPrice < breakoutPrice {
+			level.Broken = true
+			level.BrokenAt = &latestKline.OpenTime
+			level.BrokenPrice = &latestPrice
+			dir := models.LevelBreakDirectionDown
+			level.BrokenDirection = &dir
+			s.deps.LevelRepo.Update(level)
+
+			if closestBrokenSupport == nil || level.Price < closestBrokenSupport.Price {
+				closestBrokenSupport = level
+			}
 		}
 	}
+
 	if closestBrokenSupport != nil {
-		if sig := s.checkLevelBreak(symbolID, *closestBrokenSupport, latestKline); sig != nil {
-			signals = append(signals, *sig)
-		}
+		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenSupport, latestKline, "short"))
 	}
 
 	return signals, nil
 }
 
-// identifyKeyLevels 识别关键价位
-func (s *KeyLevelStrategy) identifyKeyLevels(klines []models.Kline) []*models.KeyLevel {
-	var levels []*models.KeyLevel
-	symbolID := klines[0].SymbolID
-	period := klines[0].Period
+// detectSwingPoints 检测波峰波谷
+// 波峰 = 阻力位候选，波谷 = 支撑位候选
+func (s *KeyLevelStrategy) detectSwingPoints(klines []models.Kline) []keyLevelSwingPoint {
+	var swings []keyLevelSwingPoint
+	lookback := 3 // 波峰波谷检测回溯数
 
-	// 找出最近的高点和低点
-	recentKlines := klines[len(klines)-s.config.LookbackKlines:]
-
-	var highs, lows []float64
-	for _, k := range recentKlines {
-		highs = append(highs, k.HighPrice)
-		lows = append(lows, k.LowPrice)
+	// 只检测最近 lookbackKlines 根 K 线中的 swing points
+	startIdx := 0
+	if len(klines) > s.config.LookbackKlines {
+		startIdx = len(klines) - s.config.LookbackKlines
 	}
 
-	sort.Float64s(highs)
-	sort.Float64s(lows)
+	for i := startIdx + lookback; i < len(klines)-lookback; i++ {
+		prevHigh := klines[i-1].HighPrice
+		prevLow := klines[i-1].LowPrice
+		currHigh := klines[i].HighPrice
+		currLow := klines[i].LowPrice
+		nextHigh := klines[i+1].HighPrice
+		nextLow := klines[i+1].LowPrice
 
-	// 取最近4个高点和低点
-	if len(highs) >= 4 {
-		// 找最高的几个价格作为阻力位
-		levels = append(levels, &models.KeyLevel{
-			SymbolID:     symbolID,
-			Period:       period,
-			LevelType:    "resistance",
-			LevelSubtype: "current_high",
-			Price:        highs[len(highs)-1],
-			Broken:       false,
-			KlinesCount:  1,
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		})
+		// 波峰检测：当前 K 线的高点高于前后 lookback 根 K 线的高点
+		isHigh := true
+		for j := 1; j <= lookback; j++ {
+			if i-j >= 0 && klines[i-j].HighPrice > currHigh {
+				isHigh = false
+				break
+			}
+			if i+j < len(klines) && klines[i+j].HighPrice > currHigh {
+				isHigh = false
+				break
+			}
+		}
+		if isHigh && currHigh > prevHigh && currHigh > nextHigh {
+			swings = append(swings, keyLevelSwingPoint{
+				Index: i,
+				Type:  0, // 波峰
+				Price: currHigh,
+				Time:  klines[i].OpenTime,
+			})
+		}
 
-		levels = append(levels, &models.KeyLevel{
-			SymbolID:     symbolID,
-			Period:       period,
-			LevelType:    "resistance",
-			LevelSubtype: "prev_high",
-			Price:        highs[len(highs)-2],
-			Broken:       false,
-			KlinesCount:  1,
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		})
+		// 波谷检测：当前 K 线的低点低于前后 lookback 根 K 线的低点
+		isLow := true
+		for j := 1; j <= lookback; j++ {
+			if i-j >= 0 && klines[i-j].LowPrice < currLow {
+				isLow = false
+				break
+			}
+			if i+j < len(klines) && klines[i+j].LowPrice < currLow {
+				isLow = false
+				break
+			}
+		}
+		if isLow && currLow < prevLow && currLow < nextLow {
+			swings = append(swings, keyLevelSwingPoint{
+				Index: i,
+				Type:  1, // 波谷
+				Price: currLow,
+				Time:  klines[i].OpenTime,
+			})
+		}
 	}
 
-	if len(lows) >= 4 {
-		levels = append(levels, &models.KeyLevel{
-			SymbolID:     symbolID,
-			Period:       period,
-			LevelType:    "support",
-			LevelSubtype: "current_low",
-			Price:        lows[0],
-			Broken:       false,
-			KlinesCount:  1,
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		})
-
-		levels = append(levels, &models.KeyLevel{
-			SymbolID:     symbolID,
-			Period:       period,
-			LevelType:    "support",
-			LevelSubtype: "prev_low",
-			Price:        lows[1],
-			Broken:       false,
-			KlinesCount:  1,
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		})
-	}
-
-	return levels
+	return swings
 }
 
-// checkLevelBreak 检查价位突破
-func (s *KeyLevelStrategy) checkLevelBreak(symbolID int, level models.KeyLevel, kline models.Kline) *models.Signal {
+// updateTouchCounts 更新已有价位的触及次数
+// "触及"定义为：K 线的高/低价接近该价位但收盘价未突破
+func (s *KeyLevelStrategy) updateTouchCounts(symbolID int, period string, klines []models.Kline, latestIdx int) {
+	activeLevels, _ := s.deps.LevelRepo.GetActive(symbolID, period)
+
+	for _, level := range activeLevels {
+		if level.Broken {
+			continue
+		}
+		tolerance := level.Price * 0.003 // 0.3% 容差视为触及
+
+		touchCount := 0
+		for i := latestIdx - 10; i <= latestIdx; i++ {
+			if i < 0 {
+				continue
+			}
+			k := klines[i]
+			switch level.LevelType {
+			case models.LevelTypeResistance:
+				// 高点接近阻力位但收盘价未突破
+				if k.HighPrice >= level.Price-tolerance && k.ClosePrice < level.Price+tolerance {
+					touchCount++
+				}
+			case models.LevelTypeSupport:
+				// 低点接近支撑位但收盘价未跌破
+				if k.LowPrice <= level.Price+tolerance && k.ClosePrice > level.Price-tolerance {
+					touchCount++
+				}
+			}
+		}
+
+		if touchCount > level.KlinesCount {
+			level.KlinesCount = touchCount
+			s.deps.LevelRepo.Update(level)
+		}
+	}
+}
+
+// createBreakSignal 创建突破信号
+func (s *KeyLevelStrategy) createBreakSignal(symbolID int, level models.KeyLevel, kline models.Kline, direction string) models.Signal {
 	price := kline.ClosePrice
-	levelPrice := level.Price
-	threshold := s.config.LevelDistance / 100 * levelPrice
+	distance := math.Abs(price-level.Price) / level.Price * 100
 
-	// 价位子类型的中文名映射
-	subtypeNames := map[string]string{
-		"current_high": "近期高点",
-		"prev_high":    "前期高点",
-		"current_low":  "近期低点",
-		"prev_low":     "前期低点",
-	}
-	subtypeName := subtypeNames[level.LevelSubtype]
-	if subtypeName == "" {
-		subtypeName = level.LevelSubtype
+	levelLabel := "阻力位"
+	if level.LevelType == models.LevelTypeSupport {
+		levelLabel = "支撑位"
 	}
 
-	if level.LevelType == "resistance" {
-		if price > levelPrice+threshold {
-			distance := (price - level.Price) / level.Price * 100
-			signalData := &models.JSONB{
-				"level_id":         level.ID,
-				"level_type":       level.LevelType,
-				"level_subtype":    level.LevelSubtype,
-				"level_price":      level.Price,
-				"level_distance":   distance,
-				"klines_count":     level.KlinesCount,
-				"breakout_price":   price,
-				"level_description": fmt.Sprintf("%s阻力位，触及%d次，距突破%.2f%%", subtypeName, level.KlinesCount, distance),
-			}
-
-			return &models.Signal{
-				SymbolID:         symbolID,
-				SignalType:       models.SignalTypeResistanceBreak,
-				SourceType:       models.SourceTypeKeyLevel,
-				Direction:        "long",
-				Strength:         level.KlinesCount,
-				Price:            price,
-				StopLossPrice:    &level.Price,
-				Period:           kline.Period,
-				SignalData:       signalData,
-				Status:           models.SignalStatusPending,
-				NotificationSent: false,
-				CreatedAt:        time.Now(),
-				KlineTime:        ptrTime(kline.CloseTime),
-			}
-		}
-	} else if level.LevelType == "support" {
-		if price < levelPrice-threshold {
-			distance := (level.Price - price) / level.Price * 100
-			signalData := &models.JSONB{
-				"level_id":         level.ID,
-				"level_type":       level.LevelType,
-				"level_subtype":    level.LevelSubtype,
-				"level_price":      level.Price,
-				"level_distance":   distance,
-				"klines_count":     level.KlinesCount,
-				"breakout_price":   price,
-				"level_description": fmt.Sprintf("%s支撑位，触及%d次，距跌破%.2f%%", subtypeName, level.KlinesCount, distance),
-			}
-
-			return &models.Signal{
-				SymbolID:         symbolID,
-				SignalType:       models.SignalTypeSupportBreak,
-				SourceType:       models.SourceTypeKeyLevel,
-				Direction:        "short",
-				Strength:         level.KlinesCount,
-				Price:            price,
-				StopLossPrice:    &level.Price,
-				Period:           kline.Period,
-				SignalData:       signalData,
-				Status:           models.SignalStatusPending,
-				NotificationSent: false,
-				CreatedAt:        time.Now(),
-				KlineTime:        ptrTime(kline.CloseTime),
-			}
-		}
+	signalType := models.SignalTypeResistanceBreak
+	if level.LevelType == models.LevelTypeSupport {
+		signalType = models.SignalTypeSupportBreak
 	}
 
-	return nil
+	// 强度基于触及次数：触及越多，信号越强
+	strength := level.KlinesCount
+	if strength > 5 {
+		strength = 5
+	}
+	if strength < 1 {
+		strength = 1
+	}
+
+	return models.Signal{
+		SymbolID:       symbolID,
+		SignalType:     signalType,
+		SourceType:     models.SourceTypeKeyLevel,
+		Direction:      direction,
+		Strength:       strength,
+		Price:          price,
+		StopLossPrice:  &level.Price,
+		Period:         kline.Period,
+		SignalData: &models.JSONB{
+			"level_id":         level.ID,
+			"level_type":       level.LevelType,
+			"level_price":      level.Price,
+			"level_distance":   distance,
+			"klines_count":     level.KlinesCount,
+			"breakout_price":   price,
+			"level_description": fmt.Sprintf("波峰%s，触及%d次，距突破%.2f%%", levelLabel, level.KlinesCount, distance),
+		},
+		Status:           models.SignalStatusPending,
+		NotificationSent: false,
+		CreatedAt:        time.Now(),
+		KlineTime:        ptrTime(kline.OpenTime),
+	}
 }

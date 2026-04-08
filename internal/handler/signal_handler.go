@@ -46,6 +46,12 @@ func (h *SignalHandler) GetSignals(c *gin.Context) {
 		PageSize: size,
 	}
 
+	// 解析标的代码 (symbolCode)
+	symbolCode := c.Query("symbolCode")
+	if symbolCode != "" {
+		query.SymbolCode = symbolCode
+	}
+
 	// 解析策略来源 (sourceType)
 	sourceType := c.Query("sourceType")
 	if sourceType != "" {

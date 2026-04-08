@@ -97,7 +97,7 @@ func (f *YahooFetcher) SupportedPeriods() []string {
 // 通过Yahoo Finance筛选接口获取成交量最大的热门美股
 func (f *YahooFetcher) FetchSymbols() ([]SymbolInfo, error) {
 	// 获取成交量最大的美股
-	url := "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=500&formType=RAW"
+	url := "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?scrIds=most_actives&count=250&formType=RAW"
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -110,6 +110,10 @@ func (f *YahooFetcher) FetchSymbols() ([]SymbolInfo, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Yahoo Finance screener 返回异常状态码: %d", resp.StatusCode)
+	}
 
 	var result YahooScreenerResp
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

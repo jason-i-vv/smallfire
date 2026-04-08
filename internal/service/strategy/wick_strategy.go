@@ -7,6 +7,7 @@ import (
 
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
+	trendpkg "github.com/smallfire/starfire/internal/service/trend"
 )
 
 // WickType 引线类型
@@ -82,51 +83,24 @@ func (s *WickStrategy) Analyze(symbolID int, symbolCode, period string, klines [
 func (s *WickStrategy) getCurrentTrend(symbolID int, period string, klines []models.Kline) TrendInfo {
 	// 优先尝试从数据库获取趋势
 	if s.deps.TrendRepo != nil {
-		trend, err := s.deps.TrendRepo.GetActive(symbolID, period)
-		if err == nil && trend != nil {
+		t, err := s.deps.TrendRepo.GetActive(symbolID, period)
+		if err == nil && t != nil {
 			// 检查趋势是否过期（超过1小时视为无效）
-			if !trend.UpdatedAt.Before(time.Now().Add(-1 * time.Hour)) {
+			if !t.UpdatedAt.Before(time.Now().Add(-1 * time.Hour)) {
 				return TrendInfo{
-					Type:     trend.TrendType,
-					Strength: trend.Strength,
+					Type:     t.TrendType,
+					Strength: t.Strength,
 				}
 			}
 		}
 	}
 
-	// 数据库无数据时，从K线自行计算趋势
-	return s.calculateTrendFromKlines(klines)
-}
-
-// calculateTrendFromKlines 使用简单均线从K线计算趋势（回测和实盘兜底共用）
-func (s *WickStrategy) calculateTrendFromKlines(klines []models.Kline) TrendInfo {
-	if len(klines) < 30 {
-		return TrendInfo{Type: models.TrendTypeSideways, Strength: 1}
+	// 数据库无数据时，使用统一的趋势计算工具
+	trendType, strength := trendpkg.CalculateFromKlines(klines)
+	return TrendInfo{
+		Type:     trendType,
+		Strength: strength,
 	}
-
-	recentKlines := klines[len(klines)-30:]
-	var sum float64
-	for _, k := range recentKlines {
-		sum += k.ClosePrice
-	}
-	avgClose := sum / float64(len(recentKlines))
-
-	latestClose := klines[len(klines)-1].ClosePrice
-	diff := (latestClose - avgClose) / avgClose * 100
-
-	strength := 1
-	if diff > 3 || diff < -3 {
-		strength = 3
-	} else if diff > 1 || diff < -1 {
-		strength = 2
-	}
-
-	if diff > 1 {
-		return TrendInfo{Type: models.TrendTypeBullish, Strength: strength}
-	} else if diff < -1 {
-		return TrendInfo{Type: models.TrendTypeBearish, Strength: strength}
-	}
-	return TrendInfo{Type: models.TrendTypeSideways, Strength: 1}
 }
 
 // getNearbyKeyLevels 获取附近的关键价位
@@ -196,15 +170,15 @@ func (s *WickStrategy) detectWickType(kline models.Kline) WickType {
 		return WickTypeNone
 	}
 
-	// 上引线判断：上引线很长，且下引线相对上引线较短
+	// 上引线判断：上引线很长，且下引线相对上引线较短（对侧引线不超过主引线的30%）
 	if upperShadow > bodySize*s.config.ShadowMinRatio &&
-		lowerShadow < upperShadow*0.5 {
+		lowerShadow < upperShadow*0.3 {
 		return WickTypeUpper
 	}
 
-	// 下引线判断：下引线很长，且上引线相对下引线较短
+	// 下引线判断：下引线很长，且上引线相对下引线较短（对侧引线不超过主引线的30%）
 	if lowerShadow > bodySize*s.config.ShadowMinRatio &&
-		upperShadow < lowerShadow*0.5 {
+		upperShadow < lowerShadow*0.3 {
 		return WickTypeLower
 	}
 
@@ -276,7 +250,7 @@ func (s *WickStrategy) checkReversalSignal(symbolID int, kline models.Kline, wic
 		ExpiredAt:      &expireTime,
 		NotificationSent: false,
 		CreatedAt:      time.Now(),
-		KlineTime:      ptrTime(kline.CloseTime),
+		KlineTime:      ptrTime(kline.OpenTime),
 	}
 }
 
@@ -286,7 +260,8 @@ func (s *WickStrategy) detectFakeBreakout(kline models.Kline, wickType WickType,
 		return nil
 	}
 
-	threshold := s.config.BreakoutThreshold / 100
+	// 使用 ATR 动态计算突破阈值
+	threshold := s.calculateBreakoutThreshold(lookbackKlines) / 100
 
 	// 获取近期高低价（最近20根K线）
 	var recentHigh, recentLow float64
@@ -326,6 +301,58 @@ func (s *WickStrategy) detectFakeBreakout(kline models.Kline, wickType WickType,
 	}
 
 	return nil
+}
+
+// calculateBreakoutThreshold 基于 ATR 动态计算突破阈值（%）
+// 当 K 线数据不足时回退到配置的固定值
+func (s *WickStrategy) calculateBreakoutThreshold(klines []models.Kline) float64 {
+	period := s.config.ATRPeriod
+	if period < 5 {
+		period = 14
+	}
+	if len(klines) < period+1 {
+		return s.config.BreakoutThreshold
+	}
+
+	// 使用最近 period+1 根 K 线计算 ATR
+	lookbackKlines := klines[len(klines)-period-1:]
+
+	var trSum float64
+	count := 0
+	for i := 1; i < len(lookbackKlines); i++ {
+		tr := math.Max(
+			lookbackKlines[i].HighPrice-lookbackKlines[i].LowPrice,
+			math.Max(
+				math.Abs(lookbackKlines[i].HighPrice-lookbackKlines[i-1].ClosePrice),
+				math.Abs(lookbackKlines[i].LowPrice-lookbackKlines[i-1].ClosePrice),
+			),
+		)
+		trSum += tr
+		count++
+	}
+
+	if count == 0 {
+		return s.config.BreakoutThreshold
+	}
+
+	atr := trSum / float64(count)
+	latestClose := klines[len(klines)-1].ClosePrice
+	if latestClose == 0 {
+		return s.config.BreakoutThreshold
+	}
+
+	atrPercent := (atr / latestClose) * 100
+	threshold := atrPercent * s.config.ATRMultiplier
+
+	// 限制在最小/最大范围内
+	if threshold < s.config.MinBreakoutThreshold {
+		threshold = s.config.MinBreakoutThreshold
+	}
+	if threshold > s.config.MaxBreakoutThreshold {
+		threshold = s.config.MaxBreakoutThreshold
+	}
+
+	return threshold
 }
 
 // calculateStrength 计算信号强度

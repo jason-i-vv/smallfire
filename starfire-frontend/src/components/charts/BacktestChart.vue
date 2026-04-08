@@ -14,13 +14,13 @@
     </div>
 
     <!-- 错误状态 -->
-    <div v-else-if="errorMsg" class="chart-error">
+    <div v-if="errorMsg" class="chart-error">
       <span>{{ errorMsg }}</span>
       <el-button type="primary" link @click="fetchKlines">重试</el-button>
     </div>
 
-    <!-- 图表容器 -->
-    <div v-else class="chart-container-wrap" style="position:relative">
+    <!-- 图表容器（始终渲染，确保 lightweight-charts 能获取容器尺寸） -->
+    <div v-show="!loading && !errorMsg" class="chart-container-wrap" style="position:relative">
       <div class="chart-container" ref="chartContainer"></div>
       <canvas ref="overlayCanvas" style="position:absolute;top:0;left:0;pointer-events:none;z-index:2"></canvas>
     </div>
@@ -58,14 +58,22 @@ const SIGNAL_MARKER_CONFIG = {
   'upper_wick_reversal':  { color: '#EF5350', shape: 'arrowDown', position: 'aboveBar' },
   'lower_wick_reversal':  { color: '#26A69A', shape: 'arrowUp',   position: 'belowBar' },
   'fake_breakout_upper':  { color: '#FF9800', shape: 'arrowDown', position: 'aboveBar' },
-  'fake_breakout_lower':  { color: '#FFD740', shape: 'arrowUp',   position: 'belowBar' }
+  'fake_breakout_lower':  { color: '#FFD740', shape: 'arrowUp',   position: 'belowBar' },
+  'price_surge':          { color: '#FF6B6B', shape: 'arrowDown', position: 'aboveBar' },
+  'volume_surge':         { color: '#4FC3F7', shape: 'arrowUp',   position: 'belowBar' },
+  'volume_price_rise':    { color: '#66BB6A', shape: 'arrowUp',   position: 'belowBar' },
+  'volume_price_fall':    { color: '#FF7043', shape: 'arrowDown', position: 'aboveBar' }
 }
 
-const WICK_OVERLAY_STYLES = {
+const SIGNAL_OVERLAY_STYLES = {
   'upper_wick_reversal':  { lineColor: 'rgba(239,83,80,0.5)',   dotColor: '#EF5350' },
   'lower_wick_reversal':  { lineColor: 'rgba(38,166,154,0.5)',  dotColor: '#26A69A' },
   'fake_breakout_upper':  { lineColor: 'rgba(255,152,0,0.5)',   dotColor: '#FF9800' },
-  'fake_breakout_lower':  { lineColor: 'rgba(255,215,64,0.5)',  dotColor: '#FFD740' }
+  'fake_breakout_lower':  { lineColor: 'rgba(255,215,64,0.5)',  dotColor: '#FFD740' },
+  'price_surge':          { lineColor: 'rgba(255,107,107,0.5)', dotColor: '#FF6B6B' },
+  'volume_surge':         { lineColor: 'rgba(79,195,247,0.5)',  dotColor: '#4FC3F7' },
+  'volume_price_rise':    { lineColor: 'rgba(102,187,106,0.5)', dotColor: '#66BB6A' },
+  'volume_price_fall':    { lineColor: 'rgba(255,112,67,0.5)',  dotColor: '#FF7043' }
 }
 
 // 信号图例
@@ -74,7 +82,11 @@ const signalTypeLegend = computed(() => {
     { type: 'upper_wick_reversal', label: '上引线反转', color: '#EF5350' },
     { type: 'lower_wick_reversal', label: '下引线反转', color: '#26A69A' },
     { type: 'fake_breakout_upper', label: '假突破上引', color: '#FF9800' },
-    { type: 'fake_breakout_lower', label: '假突破下引', color: '#FFD740' }
+    { type: 'fake_breakout_lower', label: '假突破下引', color: '#FFD740' },
+    { type: 'price_surge', label: '价格异动', color: '#FF6B6B' },
+    { type: 'volume_surge', label: '量能放大', color: '#4FC3F7' },
+    { type: 'volume_price_rise', label: '放量上涨', color: '#66BB6A' },
+    { type: 'volume_price_fall', label: '放量下跌', color: '#FF7043' }
   ]
   return typeConfig
     .map(cfg => ({
@@ -240,6 +252,9 @@ const fetchKlines = async () => {
       .sort((a, b) => a._normalizedTime - b._normalizedTime)
 
     updateKlineData(sorted)
+
+    // K 线数据加载完成后重新初始化 overlay，确保 canvas 尺寸与图表匹配
+    initOverlay()
   } catch (error) {
     console.error('Failed to fetch klines:', error)
     errorMsg.value = 'K线数据加载失败'
@@ -324,7 +339,11 @@ const getSignalTypeName = (type) => {
     upper_wick_reversal: '上引线',
     lower_wick_reversal: '下引线',
     fake_breakout_upper: '假突破',
-    fake_breakout_lower: '假突破'
+    fake_breakout_lower: '假突破',
+    price_surge: '价格异动',
+    volume_surge: '量能放大',
+    volume_price_rise: '放量上涨',
+    volume_price_fall: '放量下跌'
   }
   return names[type] || type || ''
 }
@@ -350,9 +369,12 @@ const buildOverlaySignals = () => {
   overlaySignals = []
   if (!props.signals || props.signals.length === 0) return
 
-  const wickTypes = ['upper_wick_reversal', 'fake_breakout_upper', 'lower_wick_reversal', 'fake_breakout_lower']
+  const supportedTypes = [
+    'upper_wick_reversal', 'fake_breakout_upper', 'lower_wick_reversal', 'fake_breakout_lower',
+    'price_surge', 'volume_surge', 'volume_price_rise', 'volume_price_fall'
+  ]
   overlaySignals = props.signals
-    .filter(s => wickTypes.includes(s.signal_type))
+    .filter(s => supportedTypes.includes(s.signal_type))
     .map(s => ({
       time: alignTimeToPeriod(
         normalizeTimestamp(s.kline_time || s.time || s.created_at),
@@ -385,7 +407,7 @@ const drawOverlay = () => {
   for (const sig of overlaySignals) {
     const bx = tx(sig.time)
     if (bx == null) continue
-    const style = WICK_OVERLAY_STYLES[sig.type]
+    const style = SIGNAL_OVERLAY_STYLES[sig.type]
     if (!style) continue
 
     // 绘制竖线（穿过 K 线区域的 80%）
@@ -429,6 +451,8 @@ onUnmounted(() => {
 <style lang="scss" scoped>
 .backtest-chart-wrapper {
   width: 100%;
+  margin: -20px;
+  margin-top: -12px;
 
   .signal-legend {
     display: flex;
@@ -472,6 +496,12 @@ onUnmounted(() => {
     background: #0D1117;
     border-radius: 6px;
     overflow: hidden;
+    height: 450px;
+  }
+
+  .chart-container-wrap {
+    overflow: hidden;
+    border-radius: 6px;
   }
 }
 </style>

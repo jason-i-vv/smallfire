@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"sync"
 	"time"
 
 	"github.com/smallfire/starfire/internal/config"
@@ -11,6 +12,14 @@ import (
 type VolumePriceStrategy struct {
 	config config.VolumePriceStrategyConfig
 	deps   Dependency
+
+	// 冷却机制：同一类型信号在冷却期内不重复触发（基于K线时间，兼容回测场景）
+	mu                 sync.Mutex
+	lastPriceKlineTime time.Time
+	lastVolumeKlineTime time.Time
+
+	// 量能基准：最后一次触发放量信号时的平均成交量，后续必须倍量超越才触发
+	lastVolumeAvgBase float64
 }
 
 // NewVolumePriceStrategy 创建量价异常策略实例
@@ -22,7 +31,7 @@ func NewVolumePriceStrategy(cfg config.VolumePriceStrategyConfig, deps Dependenc
 }
 
 func (s *VolumePriceStrategy) Name() string        { return "volume_price_strategy" }
-func (s *VolumePriceStrategy) Type() string        { return "volume_price" }
+func (s *VolumePriceStrategy) Type() string        { return "volume" }
 func (s *VolumePriceStrategy) Enabled() bool       { return s.config.Enabled }
 func (s *VolumePriceStrategy) Config() interface{} { return s.config }
 
@@ -36,21 +45,49 @@ func (s *VolumePriceStrategy) Analyze(symbolID int, symbolCode, period string, k
 
 	var signals []models.Signal
 
-	// 1. 检查价格波动异常
+	// 1. 检查价格波动异常（带冷却）
 	if sig := s.checkPriceAnomaly(symbolID, latestKline, historicalKlines); sig != nil {
 		signals = append(signals, *sig)
 	}
 
-	// 2. 检查成交量异常
+	// 2. 检查成交量异常（带冷却）
 	if sig := s.checkVolumeAnomaly(symbolID, latestKline, historicalKlines); sig != nil {
 		signals = append(signals, *sig)
+	}
+
+	// 同一根K线只保留强度最高的信号
+	if len(signals) > 1 {
+		best := signals[0]
+		for i := 1; i < len(signals); i++ {
+			if signals[i].Strength > best.Strength {
+				best = signals[i]
+			}
+		}
+		signals = []models.Signal{best}
 	}
 
 	return signals, nil
 }
 
-// checkPriceAnomaly 检查价格波动异常
+// cooldownDuration 返回信号冷却时间
+func (s *VolumePriceStrategy) cooldownDuration() time.Duration {
+	// 默认 1 小时冷却
+	minutes := 60
+	if minutes < 10 {
+		minutes = 10
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
+// checkPriceAnomaly 检查价格波动异常（带冷却）
 func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Kline, historical []models.Kline) *models.Signal {
+	s.mu.Lock()
+	if !s.lastPriceKlineTime.IsZero() && latest.OpenTime.Sub(s.lastPriceKlineTime) < s.cooldownDuration() {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	// 计算历史波动幅度
 	var totalVol float64
 	for _, k := range historical {
@@ -64,20 +101,18 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 	currentVol := (latest.HighPrice - latest.LowPrice) / latest.ClosePrice
 
 	if currentVol > threshold {
+		s.mu.Lock()
+		s.lastPriceKlineTime = latest.OpenTime
+		s.mu.Unlock()
+
 		direction := "long"
 		if latest.ClosePrice < latest.OpenPrice {
 			direction = "short"
 		}
 
 		signalType := models.SignalTypePriceSurge
-
-		// 计算价格放大倍数
 		priceAmplification := currentVol / avgVol
-
-		// 根据放大倍数动态计算强度
-		// 2倍触发，2-3倍为1星，3-4倍为2星，4-5倍为3星，5倍以上为4星
 		strength := calculateStrength(priceAmplification, s.config.VolatilityMultiplier)
-
 		expireTime := time.Now().Add(6 * time.Hour)
 
 		return &models.Signal{
@@ -105,8 +140,16 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 	return nil
 }
 
-// checkVolumeAnomaly 检查成交量异常
+// checkVolumeAnomaly 检查成交量异常（带冷却 + 量能基准去重）
 func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kline, historical []models.Kline) *models.Signal {
+	s.mu.Lock()
+	// 冷却期检查：基于K线时间
+	if !s.lastVolumeKlineTime.IsZero() && latest.OpenTime.Sub(s.lastVolumeKlineTime) < s.cooldownDuration() {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+
 	// 计算历史平均成交量
 	var totalVol float64
 	for _, k := range historical {
@@ -116,26 +159,37 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 	threshold := avgVol * s.config.VolumeMultiplier
 
 	if latest.Volume > threshold {
+		s.mu.Lock()
+
+		// 量能基准去重：如果已有基准值，当前K线必须超越基准的倍量才算有效信号
+		// 冷却期过后，如果量能没有进一步增强（倍量），仍然不触发
+		if s.lastVolumeAvgBase > 0 && s.lastVolumeKlineTime.Before(latest.OpenTime) {
+			baselineThreshold := s.lastVolumeAvgBase * s.config.VolumeMultiplier
+			if latest.Volume <= baselineThreshold {
+				s.mu.Unlock()
+				return nil
+			}
+		}
+
+		s.lastVolumeKlineTime = latest.OpenTime
+		s.lastVolumeAvgBase = avgVol // 记录本次触发时的平均成交量作为基准
+		s.mu.Unlock()
+
 		direction := "long"
 		if latest.ClosePrice < latest.OpenPrice {
 			direction = "short"
 		}
 
-		// 量价齐升/齐跌判断
 		priceChange := (latest.ClosePrice - latest.OpenPrice) / latest.OpenPrice
 		signalType := models.SignalTypeVolumeSurge
 		if priceChange > 0.01 {
-			signalType = "volume_price_rise" // 量价齐升
+			signalType = "volume_price_rise"
 		} else if priceChange < -0.01 {
-			signalType = "volume_price_fall" // 量价齐跌
+			signalType = "volume_price_fall"
 		}
 
-		// 计算量能放大倍数
 		volumeAmplification := latest.Volume / avgVol
-
-		// 根据放大倍数动态计算强度
 		strength := calculateStrength(volumeAmplification, s.config.VolumeMultiplier)
-
 		expireTime := time.Now().Add(6 * time.Hour)
 
 		return &models.Signal{
@@ -165,17 +219,7 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 }
 
 // calculateStrength 根据放大倍数计算信号强度
-// thresholdMultiplier: 触发阈值倍数（用于判断是否触发）
-// amplification: 实际放大倍数
 func calculateStrength(amplification, thresholdMultiplier float64) int {
-	// 基准强度为1星（刚好触发）
-	// 每超过1个阈值倍数，增加1星强度
-	// 2倍阈值 = 1星
-	// 3倍阈值 = 2星
-	// 4倍阈值 = 3星
-	// 5倍阈值 = 4星
-	// 6倍及以上 = 5星
-
 	if amplification >= thresholdMultiplier*6 {
 		return 5
 	}

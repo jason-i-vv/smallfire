@@ -18,6 +18,7 @@ type Manager struct {
 	notifiers    map[string]Notifier
 	summarySvc   *SummaryService
 	notifyRepo   repository.NotificationRepo
+	batcher      *SignalBatcher
 }
 
 func NewManager(notifiers []Notifier, summarySvc *SummaryService, notifyRepo repository.NotificationRepo) *Manager {
@@ -31,7 +32,15 @@ func NewManager(notifiers []Notifier, summarySvc *SummaryService, notifyRepo rep
 		m.notifiers[n.Channel()] = n
 	}
 
+	m.batcher = NewSignalBatcher(m, 3*time.Second, 50)
+	m.batcher.Start()
+
 	return m
+}
+
+// Stop 停止管理器（含批处理器）
+func (m *Manager) Stop() {
+	m.batcher.Stop()
 }
 
 // SendToAll 发送到所有渠道
@@ -45,16 +54,19 @@ func (m *Manager) SendToAll(content *NotifyContent) {
 	}
 }
 
-// SendSignal 发送信号通知
+// SendSignal 发送信号通知（走批处理，合并为汇总消息）
 func (m *Manager) SendSignal(signal *models.Signal) error {
-	for _, notifier := range m.notifiers {
-		go func(n Notifier) {
-			if err := n.SendSignalNotification(signal); err != nil {
-				utils.Error("send signal notification failed", zap.Error(err))
-			}
-		}(notifier)
-	}
+	m.batcher.Add(signal)
 	return nil
+}
+
+// sendSignalImmediate 立即发送单条信号通知（批处理器内部调用）
+func (m *Manager) sendSignalImmediate(signal *models.Signal) {
+	for _, notifier := range m.notifiers {
+		if err := notifier.SendSignalNotification(signal); err != nil {
+			utils.Error("send signal notification failed", zap.Error(err))
+		}
+	}
 }
 
 // SendTradeOpened 发送开仓通知

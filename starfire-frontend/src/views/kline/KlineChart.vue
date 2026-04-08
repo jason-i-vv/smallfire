@@ -252,14 +252,12 @@ const initChart = () => {
             : Math.floor(Date.now() / 1000);
         }
 
-        // timestamp 是 UTC 秒时间戳
-        // 用 getUTCHours()/getUTCDate() 直接取 UTC 时间显示，不做本地时区转换
-        // 这样 2026-03-18T18:30:00Z 显示为 03-18 18:30
-        const date = new Date(timestamp * 1000);
-        const hours = date.getUTCHours().toString().padStart(2, '0');
-        const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-        const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
-        const day = date.getUTCDate().toString().padStart(2, '0');
+        // timestamp 是 UTC 秒时间戳，加 8 小时偏移后显示 UTC+8 时间
+        const utc8Date = new Date(timestamp * 1000 + 8 * 3600 * 1000);
+        const hours = utc8Date.getUTCHours().toString().padStart(2, '0');
+        const minutes = utc8Date.getUTCMinutes().toString().padStart(2, '0');
+        const month = (utc8Date.getUTCMonth() + 1).toString().padStart(2, '0');
+        const day = utc8Date.getUTCDate().toString().padStart(2, '0');
         return `${month}-${day} ${hours}:${minutes}`;
       }
     }
@@ -336,6 +334,21 @@ const fetchKlines = async () => {
       return
     }
 
+    // 如果有 signalId 但没有 signalTime，先获取信号详情拿到信号时间
+    if (signalId.value && !signalTime.value) {
+      try {
+        const res = await signalApi.detail(signalId.value)
+        if (res.data) {
+          const time = normalizeTimestamp(res.data.kline_time || res.data.time || res.data.created_at)
+          signalTime.value = alignTimeToPeriod(time, period.value)
+          signalType.value = res.data.signal_type || res.data.type || signalType.value
+          console.log('从信号详情获取信号时间:', new Date(signalTime.value * 1000).toISOString())
+        }
+      } catch (error) {
+        console.error('获取信号详情失败:', error)
+      }
+    }
+
     const params = {
       symbol_id: symbolId.value,
       period: period.value,
@@ -357,9 +370,9 @@ const fetchKlines = async () => {
     } else if (hasSignalTime) {
       // 如果有信号时间但没有箱体，以信号时间为中心获取K线
       const periodSeconds = getPeriodSeconds(period.value)
-      // 以信号时间为中心，前后各获取约100根K线作为上下文
-      params.start_time = signalTime.value - 100 * periodSeconds
-      params.end_time = signalTime.value + 100 * periodSeconds
+      // 以信号时间为中心，前后各获取50根K线
+      params.start_time = signalTime.value - 50 * periodSeconds
+      params.end_time = signalTime.value + 50 * periodSeconds
       console.log('信号模式 - K线请求时间范围:', new Date(params.start_time * 1000).toISOString(), '到', new Date(params.end_time * 1000).toISOString(), '信号时间:', new Date(signalTime.value * 1000).toISOString())
     }
 

@@ -1,6 +1,7 @@
 package market
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -37,8 +38,8 @@ func (m *HotManager) UpdateHotSymbols() error {
 	enabledFetchers := m.factory.ListEnabledFetchers()
 
 	for _, fetcher := range enabledFetchers {
-		if err := m.updateMarketHot(fetcher); err != nil {
-			m.logger.Error("更新热度标的失败",
+		if err := m.updateMarketHotWithFallback(fetcher.MarketCode()); err != nil {
+			m.logger.Warn("市场热度更新失败",
 				zap.String("market", fetcher.MarketCode()),
 				zap.Error(err))
 		}
@@ -47,25 +48,48 @@ func (m *HotManager) UpdateHotSymbols() error {
 	return nil
 }
 
+// updateMarketHotWithFallback 尝试多数据源降级
+func (m *HotManager) updateMarketHotWithFallback(marketCode string) error {
+	fetchers := m.factory.GetFetchersWithFallback(marketCode)
+	if len(fetchers) == 0 {
+		return fmt.Errorf("无可用抓取器: %s", marketCode)
+	}
+
+	var lastErr error
+	for i, fetcher := range fetchers {
+		symbols, err := fetcher.FetchSymbols()
+		if err != nil {
+			lastErr = err
+			m.logger.Warn("数据源不可用，尝试下一个",
+				zap.String("market", marketCode),
+				zap.Int("source", i+1),
+				zap.Error(err))
+			continue
+		}
+
+		// 成功获取数据，执行更新
+		if err := m.doUpdateHot(marketCode, symbols); err != nil {
+			lastErr = err
+			continue
+		}
+
+		m.logger.Info("热度标的更新成功",
+			zap.String("market", marketCode),
+			zap.Int("source", i+1),
+			zap.Int("symbols", len(symbols)))
+		return nil
+	}
+
+	return lastErr
+}
+
 func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
-	marketCode := fetcher.MarketCode()
+	return m.updateMarketHotWithFallback(fetcher.MarketCode())
+}
+
+func (m *HotManager) doUpdateHot(marketCode string, symbols []SymbolInfo) error {
 	limit := m.getLimit(marketCode)
 	hotDays := m.getHotDays(marketCode)
-
-	// 获取所有交易对
-	symbols, err := fetcher.FetchSymbols()
-	if err != nil {
-		m.logger.Error("获取交易对列表失败",
-			zap.String("market", marketCode),
-			zap.Error(err))
-		return err
-	}
-
-	// 模拟按热度排序（这里简化处理，后续可根据成交量、成交额等计算热度）
-	// 暂时随机设置热度分数
-	for i := range symbols {
-		symbols[i].HotScore = float64(len(symbols) - i)
-	}
 
 	// 按热度排序
 	sort.Slice(symbols, func(i, j int) bool {
@@ -80,10 +104,7 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 	// 获取市场ID
 	market, err := m.marketRepo.FindByCode(marketCode)
 	if err != nil {
-		m.logger.Error("获取市场信息失败",
-			zap.String("market", marketCode),
-			zap.Error(err))
-		return err
+		return fmt.Errorf("获取市场信息失败: %w", err)
 	}
 
 	// 更新数据库
@@ -91,10 +112,8 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 	createdCount := 0
 	updatedCount := 0
 	for _, sym := range symbols {
-		// 查找或创建标的
 		symbol, err := m.symbolRepo.FindByCode(marketCode, sym.Code)
 		if err != nil {
-			// 创建新标的
 			symbol = &models.Symbol{
 				MarketID:       market.ID,
 				MarketCode:     marketCode,
@@ -114,7 +133,6 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 			}
 			createdCount++
 		} else {
-			// 更新热度
 			symbol.HotScore = sym.HotScore
 			symbol.LastHotAt = &now
 			symbol.IsTracking = true
@@ -130,7 +148,7 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 		}
 	}
 
-	// 清理过期标的（超过N天无热度更新）
+	// 清理过期标的
 	cutoff := now.AddDate(0, 0, -hotDays)
 	if err := m.symbolRepo.DisableExpiredHot(cutoff); err != nil {
 		m.logger.Error("清理过期热度标的失败", zap.Error(err))
@@ -138,7 +156,8 @@ func (m *HotManager) updateMarketHot(fetcher Fetcher) error {
 
 	m.logger.Info("热度标的更新完成",
 		zap.String("market", marketCode),
-		zap.Int("total", createdCount+updatedCount))
+		zap.Int("created", createdCount),
+		zap.Int("updated", updatedCount))
 
 	return nil
 }

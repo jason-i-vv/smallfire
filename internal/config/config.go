@@ -53,14 +53,15 @@ type MarketsConfig struct {
 }
 
 type MarketConfig struct {
-	Enabled       bool     `mapstructure:"enabled"`
-	APIKey        string   `mapstructure:"api_key"`
-	APISecret     string   `mapstructure:"api_secret"`
-	Testnet       bool     `mapstructure:"testnet"`
-	SymbolsLimit  int      `mapstructure:"symbols_limit"`
-	HotDays       int      `mapstructure:"hot_days"`
-	Periods       []string `mapstructure:"periods"`
-	FetchInterval int      `mapstructure:"fetch_interval"`
+	Enabled            bool     `mapstructure:"enabled"`
+	APIKey             string   `mapstructure:"api_key"`
+	APISecret          string   `mapstructure:"api_secret"`
+	Testnet            bool     `mapstructure:"testnet"`
+	SymbolsLimit       int      `mapstructure:"symbols_limit"`
+	HotDays            int      `mapstructure:"hot_days"`
+	Periods            []string `mapstructure:"periods"`
+	FetchInterval      int      `mapstructure:"fetch_interval"`
+	MaxConcurrentSync  int      `mapstructure:"max_concurrent_sync"` // 最大并发同步数
 }
 
 type EMAConfig struct {
@@ -68,11 +69,13 @@ type EMAConfig struct {
 }
 
 type StrategiesConfig struct {
-	Box         BoxStrategyConfig         `mapstructure:"box"`
-	Trend       TrendStrategyConfig       `mapstructure:"trend"`
-	KeyLevel    KeyLevelStrategyConfig    `mapstructure:"key_level"`
-	VolumePrice VolumePriceStrategyConfig `mapstructure:"volume_price"`
-	Wick        WickStrategyConfig        `mapstructure:"wick"`
+	RunnerInterval         int `mapstructure:"runner_interval"`          // 策略执行间隔（秒），整点对齐
+	MaxConcurrentAnalysis  int `mapstructure:"max_concurrent_analysis"`  // 最大并发分析数
+	Box                    BoxStrategyConfig         `mapstructure:"box"`
+	Trend                  TrendStrategyConfig       `mapstructure:"trend"`
+	KeyLevel               KeyLevelStrategyConfig    `mapstructure:"key_level"`
+	VolumePrice            VolumePriceStrategyConfig `mapstructure:"volume_price"`
+	Wick                   WickStrategyConfig        `mapstructure:"wick"`
 }
 
 type BoxStrategyConfig struct {
@@ -129,7 +132,13 @@ type WickStrategyConfig struct {
 
 	// 假突破识别
 	FakeBreakoutEnabled  bool    `mapstructure:"fake_breakout_enabled"` // 是否识别假突破
-	BreakoutThreshold   float64 `mapstructure:"breakout_threshold"`   // 突破阈值（默认0.5%）
+	BreakoutThreshold   float64 `mapstructure:"breakout_threshold"`   // 固定突破阈值（%）回退值
+
+	// ATR 动态阈值
+	ATRPeriod            int     `mapstructure:"atr_period"`               // ATR 计算周期
+	ATRMultiplier        float64 `mapstructure:"atr_multiplier"`           // 阈值 = ATR%/price * 倍数
+	MinBreakoutThreshold float64 `mapstructure:"min_breakout_threshold"`   // 最小突破阈值（%）
+	MaxBreakoutThreshold float64 `mapstructure:"max_breakout_threshold"`   // 最大突破阈值（%）
 
 	// 强度计算
 	StrengthLookback  int     `mapstructure:"strength_lookback"`   // 历史引线回溯数

@@ -37,11 +37,11 @@ func (e *EMACalculator) Calculate(klines []models.Kline) []models.Kline {
 		for i, v := range ema {
 			switch period {
 			case 30:
-				klines[i].EMAShort = &v
+				klines[i].EMAShort = v
 			case 60:
-				klines[i].EMAMedium = &v
+				klines[i].EMAMedium = v
 			case 90:
-				klines[i].EMALong = &v
+				klines[i].EMALong = v
 			}
 		}
 	}
@@ -49,16 +49,14 @@ func (e *EMACalculator) Calculate(klines []models.Kline) []models.Kline {
 	return klines
 }
 
-func (e *EMACalculator) calculateSingleEMA(klines []models.Kline, period int) []float64 {
+func (e *EMACalculator) calculateSingleEMA(klines []models.Kline, period int) []*float64 {
 	if len(klines) < period {
-		result := make([]float64, len(klines))
-		for i := 0; i < len(klines); i++ {
-			result[i] = 0
-		}
+		result := make([]*float64, len(klines))
+		// 数据不足时返回 nil，避免下游误判为有效 EMA 值
 		return result
 	}
 
-	result := make([]float64, len(klines))
+	result := make([]*float64, len(klines))
 	multiplier := 2.0 / float64(period+1)
 
 	// 初始SMA作为第一个EMA
@@ -70,11 +68,12 @@ func (e *EMACalculator) calculateSingleEMA(klines []models.Kline, period int) []
 
 	for i := 0; i < len(klines); i++ {
 		if i < period-1 {
-			result[i] = 0 // 数据不足，用0表示
+			// 数据不足，保持 nil
 		} else if i == period-1 {
-			result[i] = sma
+			result[i] = &sma
 		} else {
-			result[i] = (klines[i].ClosePrice-result[i-1])*multiplier + result[i-1]
+			v := (klines[i].ClosePrice-*result[i-1])*multiplier + *result[i-1]
+			result[i] = &v
 		}
 	}
 

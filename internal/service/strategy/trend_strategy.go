@@ -1,11 +1,11 @@
 package strategy
 
 import (
-	"math"
 	"time"
 
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
+	"github.com/smallfire/starfire/internal/service/trend"
 )
 
 // TrendStrategy 趋势策略
@@ -34,36 +34,27 @@ func (s *TrendStrategy) Analyze(symbolID int, symbolCode, period string, klines 
 
 	var signals []models.Signal
 
-	// 1. 确定趋势
-	trend := s.determineTrend(symbolID, symbolCode, period, klines)
+	// 1. 确定趋势（使用统一的趋势计算）
+	trendModel := s.determineTrend(symbolID, period, klines)
 
 	// 2. 检查趋势变化
 	activeTrend, _ := s.deps.TrendRepo.GetActive(symbolID, period)
 
 	if activeTrend == nil {
-		// 新趋势
-		s.deps.TrendRepo.Create(trend)
-	} else if trend.TrendType != activeTrend.TrendType {
-		// 趋势反转
+		s.deps.TrendRepo.Create(trendModel)
+	} else if trendModel.TrendType != activeTrend.TrendType {
 		activeTrend.Status = models.TrendStatusEnded
 		activeTrend.EndTime = &klines[len(klines)-1].OpenTime
 		s.deps.TrendRepo.Update(activeTrend)
 
-		// 生成反转信号
-		sig := s.createReversalSignal(trend, klines[len(klines)-1])
-		signals = append(signals, *sig)
-
-		// 创建新趋势
-		s.deps.TrendRepo.Create(trend)
+		s.deps.TrendRepo.Create(trendModel)
 	} else {
-		// 更新趋势
-		activeTrend.Strength = trend.Strength
-		activeTrend.EMAShort = trend.EMAShort
-		activeTrend.EMAMedium = trend.EMAMedium
-		activeTrend.EMALong = trend.EMALong
+		activeTrend.Strength = trendModel.Strength
+		activeTrend.EMAShort = trendModel.EMAShort
+		activeTrend.EMAMedium = trendModel.EMAMedium
+		activeTrend.EMALong = trendModel.EMALong
 		s.deps.TrendRepo.Update(activeTrend)
 
-		// 检查趋势回撤信号
 		if sig := s.checkRetracement(activeTrend, klines); sig != nil {
 			signals = append(signals, *sig)
 		}
@@ -72,15 +63,11 @@ func (s *TrendStrategy) Analyze(symbolID int, symbolCode, period string, klines 
 	return signals, nil
 }
 
-// determineTrend 确定趋势状态
-func (s *TrendStrategy) determineTrend(symbolID int, symbolCode, period string, klines []models.Kline) *models.Trend {
-	// 获取最新的EMA值
+// determineTrend 确定趋势状态，使用统一的趋势计算工具
+func (s *TrendStrategy) determineTrend(symbolID int, period string, klines []models.Kline) *models.Trend {
 	lastKline := klines[len(klines)-1]
 
 	var emaShort, emaMedium, emaLong float64
-	var trendType string
-	var strength int
-
 	if lastKline.EMAShort != nil {
 		emaShort = *lastKline.EMAShort
 	}
@@ -91,25 +78,8 @@ func (s *TrendStrategy) determineTrend(symbolID int, symbolCode, period string, 
 		emaLong = *lastKline.EMALong
 	}
 
-	if emaShort > emaMedium && emaMedium > emaLong {
-		trendType = models.TrendTypeBullish
-	} else if emaShort < emaMedium && emaMedium < emaLong {
-		trendType = models.TrendTypeBearish
-	} else {
-		trendType = models.TrendTypeSideways
-	}
-
-	// 计算趋势强度（基于EMA间距）
-	shortMedGap := math.Abs(emaShort-emaMedium) / emaMedium
-	medLongGap := math.Abs(emaMedium-emaLong) / emaLong
-
-	if shortMedGap > 0.01 && medLongGap > 0.02 {
-		strength = 3
-	} else if shortMedGap > 0.005 && medLongGap > 0.01 {
-		strength = 2
-	} else {
-		strength = 1
-	}
+	// 使用共享趋势计算，优先 EMA，不可用时从 K 线计算
+	trendType, strength := trend.CalculateFromKlines(klines)
 
 	return &models.Trend{
 		SymbolID:  symbolID,
@@ -126,64 +96,21 @@ func (s *TrendStrategy) determineTrend(symbolID int, symbolCode, period string, 
 	}
 }
 
-// createReversalSignal 创建趋势反转信号
-func (s *TrendStrategy) createReversalSignal(trend *models.Trend, kline models.Kline) *models.Signal {
-	direction := "long"
-	if trend.TrendType == models.TrendTypeBearish {
-		direction = "short"
-	}
-
-	signalType := models.SignalTypeTrendReversal
-	price := kline.ClosePrice
-
-	// 计算止盈止损（基于长期趋势）
-	var stopLoss, target float64
-	if trend.EMALong != 0 {
-		if trend.TrendType == models.TrendTypeBullish {
-			stopLoss = trend.EMALong * 0.995    // 0.5% below EMA90
-			target = price + (price-stopLoss)*3 // 3倍风险收益比
-		} else {
-			stopLoss = trend.EMALong * 1.005    // 0.5% above EMA90
-			target = price - (stopLoss-price)*3 // 3倍风险收益比
-		}
-	}
-
-	expireTime := time.Now().Add(24 * time.Hour)
-
-	return &models.Signal{
-		SignalType:       signalType,
-		SourceType:       models.SourceTypeTrend,
-		Direction:        direction,
-		Strength:         trend.Strength,
-		Price:            price,
-		TargetPrice:      &target,
-		StopLossPrice:    &stopLoss,
-		Period:           kline.Period,
-		SignalData:       &models.JSONB{},
-		Status:           models.SignalStatusPending,
-		ExpiredAt:        &expireTime,
-		NotificationSent: false,
-		CreatedAt:        time.Now(),
-		KlineTime:        ptrTime(kline.CloseTime),
-	}
-}
-
 // checkRetracement 检查趋势回撤信号
 func (s *TrendStrategy) checkRetracement(trend *models.Trend, klines []models.Kline) *models.Signal {
 	lastKline := klines[len(klines)-1]
 	price := lastKline.ClosePrice
 
-	// 计算回撤幅度
 	var retracementPct float64
 
 	switch trend.Strength {
-	case 3: // 长期均线回撤
+	case 3:
 		if trend.TrendType == models.TrendTypeBullish && trend.EMALong != 0 {
 			retracementPct = (trend.EMALong - price) / trend.EMALong
 		} else if trend.TrendType == models.TrendTypeBearish && trend.EMALong != 0 {
 			retracementPct = (price - trend.EMALong) / trend.EMALong
 		}
-	case 2: // 中期均线回撤
+	case 2:
 		if trend.TrendType == models.TrendTypeBullish && trend.EMAMedium != 0 {
 			retracementPct = (trend.EMAMedium - price) / trend.EMAMedium
 		} else if trend.TrendType == models.TrendTypeBearish && trend.EMAMedium != 0 {
@@ -193,7 +120,6 @@ func (s *TrendStrategy) checkRetracement(trend *models.Trend, klines []models.Kl
 		return nil
 	}
 
-	// 回撤超过1%触发信号
 	if retracementPct > 0.01 && retracementPct < 0.05 {
 		direction := "long"
 		if trend.TrendType == models.TrendTypeBearish {
@@ -214,7 +140,7 @@ func (s *TrendStrategy) checkRetracement(trend *models.Trend, klines []models.Kl
 			ExpiredAt:        &expireTime,
 			NotificationSent: false,
 			CreatedAt:        time.Now(),
-			KlineTime:        ptrTime(lastKline.CloseTime),
+			KlineTime:        ptrTime(lastKline.OpenTime),
 		}
 	}
 

@@ -214,15 +214,18 @@ func (r *KlineRepoPG) BatchCreate(klines []*models.Kline) error {
 		}
 	}()
 
+	// ON CONFLICT DO NOTHING: 防止重复数据导致整个批次失败
 	query := `
 		INSERT INTO klines (symbol_id, period, open_time, close_time, open_price, high_price,
 		                   low_price, close_price, volume, quote_volume, trades_count,
 		                   is_closed, ema_short, ema_medium, ema_long, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+		ON CONFLICT (symbol_id, period, open_time) DO NOTHING
 	`
 
+	inserted := 0
 	for _, kline := range klines {
-		_, err := tx.Exec(context.Background(), query,
+		result, err := tx.Exec(context.Background(), query,
 			kline.SymbolID, kline.Period, kline.OpenTime, kline.CloseTime,
 			kline.OpenPrice, kline.HighPrice, kline.LowPrice, kline.ClosePrice,
 			kline.Volume, kline.QuoteVolume, kline.TradesCount, kline.IsClosed,
@@ -230,6 +233,9 @@ func (r *KlineRepoPG) BatchCreate(klines []*models.Kline) error {
 		)
 		if err != nil {
 			return fmt.Errorf("批量创建K线失败: %w", err)
+		}
+		if n := result.RowsAffected(); n > 0 {
+			inserted++
 		}
 	}
 

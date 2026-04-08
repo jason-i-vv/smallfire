@@ -12,8 +12,10 @@ import (
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
 	"github.com/smallfire/starfire/internal/repository"
+	"github.com/smallfire/starfire/internal/service/ema"
 	"github.com/smallfire/starfire/internal/service/market"
 	"github.com/smallfire/starfire/internal/service/strategy"
+	trendpkg "github.com/smallfire/starfire/internal/service/trend"
 	"go.uber.org/zap"
 )
 
@@ -23,6 +25,7 @@ type BacktestService struct {
 	symbolRepo  repository.SymbolRepo
 	strategyFac *strategy.Factory
 	marketFac   *market.Factory
+	emaCalc     *ema.EMACalculator
 	logger      *zap.Logger
 }
 
@@ -32,6 +35,7 @@ func NewBacktestService(
 	symbolRepo repository.SymbolRepo,
 	strategyFac *strategy.Factory,
 	marketFac *market.Factory,
+	emaCalc *ema.EMACalculator,
 	logger *zap.Logger,
 ) *BacktestService {
 	return &BacktestService{
@@ -39,6 +43,7 @@ func NewBacktestService(
 		symbolRepo:  symbolRepo,
 		strategyFac: strategyFac,
 		marketFac:   marketFac,
+		emaCalc:     emaCalc,
 		logger:      logger,
 	}
 }
@@ -82,8 +87,8 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 	needFetch := len(klines) < 10
 	var earliestDBTime time.Time
 	if !needFetch && len(klines) > 0 {
-		// klines 是从新到旧排列的，最后一根是最早的
-		earliestDBTime = klines[len(klines)-1].OpenTime
+		// GetBySymbolPeriod 带 startTime/endTime 时返回升序（旧→新），第一根是最早的
+		earliestDBTime = klines[0].OpenTime
 		if earliestDBTime.After(startTimeParse) {
 			needFetch = true
 		}
@@ -119,16 +124,16 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 		return nil, fmt.Errorf("K线数据不足，需要至少10根K线")
 	}
 
-	// 反转数组，使时间正序
-	sortedKlines := make([]models.Kline, len(klines))
-	for i := range klines {
-		sortedKlines[i] = klines[len(klines)-1-i]
-	}
+	// sortedKlines 升序（旧→新），由 GetBySymbolPeriod + fetch 得到的数据已经是升序
+	sortedKlines := klines
 
 	s.logger.Info("获取K线数据成功",
 		zap.Int("symbol_id", symbol.ID),
 		zap.String("symbol_code", req.SymbolCode),
 		zap.Int("kline_count", len(sortedKlines)))
+
+	// 4.5 计算EMA指标（趋势策略依赖EMA判断趋势方向和强度）
+	sortedKlines = s.emaCalc.Calculate(sortedKlines)
 
 	// 5. 获取策略
 	selectedStrategy, ok := s.strategyFac.GetStrategy(req.StrategyType)
@@ -248,25 +253,12 @@ func (s *BacktestService) fetchKlinesFromExchange(symbolID int, marketCode, symb
 		return nil, fmt.Errorf("交易所返回空数据")
 	}
 
-	// 转换为 models.Kline 并存储到数据库
-	var klines []models.Kline
-	for _, k := range klineData {
-		// 检查是否已存在
-		exists, err := s.klineRepo.Exists(int64(symbolID), period, k.OpenTime)
-		if err != nil {
-			s.logger.Warn("检查K线是否存在失败", zap.Error(err))
-		}
-		if exists {
-			// 获取已有的K线
-			existing, err := s.klineRepo.GetByTime(int64(symbolID), period, k.OpenTime)
-			if err == nil && existing != nil {
-				klines = append(klines, *existing)
-			}
-			continue
-		}
+	s.logger.Info("交易所返回K线数据", zap.Int("count", len(klineData)))
 
-		// 创建新的K线记录
-		kline := &models.Kline{
+	// 批量转换为 models.Kline
+	klineModels := make([]*models.Kline, 0, len(klineData))
+	for _, k := range klineData {
+		klineModels = append(klineModels, &models.Kline{
 			SymbolID:    symbolID,
 			Period:      period,
 			OpenTime:    k.OpenTime,
@@ -280,14 +272,18 @@ func (s *BacktestService) fetchKlinesFromExchange(symbolID int, marketCode, symb
 			TradesCount: k.TradesCount,
 			IsClosed:    true,
 			CreatedAt:   time.Now(),
-		}
+		})
+	}
 
-		// 保存到数据库
-		if err := s.klineRepo.Create(kline); err != nil {
-			s.logger.Warn("保存K线失败", zap.Error(err))
-		}
+	// 批量插入（ON CONFLICT DO NOTHING 处理重复）
+	if err := s.klineRepo.BatchCreate(klineModels); err != nil {
+		s.logger.Warn("批量保存K线失败", zap.Error(err))
+	}
 
-		klines = append(klines, *kline)
+	// 从数据库一次性查询该时间范围的全部K线（确保数据完整）
+	klines, err := s.klineRepo.GetBySymbolPeriod(int64(symbolID), period, &startTime, &endTime, 0)
+	if err != nil {
+		return nil, fmt.Errorf("查询K线数据失败: %w", err)
 	}
 
 	return klines, nil
@@ -1020,8 +1016,9 @@ func (a *boxStrategyAnalyzer) GetTrends() []*models.Trend {
 
 // trendStrategyAnalyzer 趋势策略分析器
 type trendStrategyAnalyzer struct {
-	delegate strategy.Strategy
-	trends  []*models.Trend
+	delegate     strategy.Strategy
+	trends       []*models.Trend
+	lastTrend    *models.Trend // 记录上一个趋势状态，用于检测变化
 }
 
 func newTrendStrategyAnalyzer(delegate strategy.Strategy) *trendStrategyAnalyzer {
@@ -1037,53 +1034,80 @@ func (a *trendStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string,
 		return signals, err
 	}
 
-	// 收集趋势信息
-	trend := a.analyzeTrend(symbolID, period, klines)
-	if trend != nil {
-		a.trends = append(a.trends, trend)
+	// 回测中只保留趋势回撤信号，过滤掉趋势反转等非回撤信号
+	// 实盘只需识别趋势并在回撤到均线时发出信号
+	var filtered []models.Signal
+	for _, sig := range signals {
+		if sig.SignalType == models.SignalTypeTrendRetracement {
+			filtered = append(filtered, sig)
+		}
 	}
 
-	return signals, nil
+	// 只在趋势类型或强度变化时记录
+	a.recordTrendChange(symbolID, period, klines)
+
+	return filtered, nil
 }
 
-func (a *trendStrategyAnalyzer) analyzeTrend(symbolID int, period string, klines []models.Kline) *models.Trend {
+// recordTrendChange 只在趋势类型或强度发生变化时记录趋势，避免每个K线都生成一条
+func (a *trendStrategyAnalyzer) recordTrendChange(symbolID int, period string, klines []models.Kline) {
 	if len(klines) < 30 {
-		return nil
+		return
 	}
 
-	// 简单趋势判断
-	recentKlines := klines[len(klines)-30:]
-	var opens, highs, lows, closes []float64
-	for _, k := range recentKlines {
-		opens = append(opens, k.OpenPrice)
-		highs = append(highs, k.HighPrice)
-		lows = append(lows, k.LowPrice)
-		closes = append(closes, k.ClosePrice)
-	}
+	trendType, strength := trendpkg.CalculateFromKlines(klines)
+	lastKline := klines[len(klines)-1]
+	firstKline := klines[0]
 
-	// 计算简单移动平均
-	avgClose := 0.0
-	for _, c := range closes {
-		avgClose += c
-	}
-	avgClose /= float64(len(closes))
-
-	latestClose := closes[len(closes)-1]
-	var trendType string
-	if latestClose > avgClose*1.02 {
-		trendType = "uptrend"
-	} else if latestClose < avgClose*0.98 {
-		trendType = "downtrend"
+	// K 线数组可能是从旧到新或从新到旧，取正确的时间范围
+	var startTime, endTime time.Time
+	if firstKline.OpenTime.Before(lastKline.OpenTime) {
+		startTime = firstKline.OpenTime
+		endTime = lastKline.CloseTime
 	} else {
-		trendType = "sideways"
+		startTime = lastKline.OpenTime
+		endTime = firstKline.CloseTime
 	}
 
-	return &models.Trend{
+	// 获取 EMA 值
+	var emaShort, emaMedium, emaLong float64
+	if lastKline.EMAShort != nil {
+		emaShort = *lastKline.EMAShort
+	}
+	if lastKline.EMAMedium != nil {
+		emaMedium = *lastKline.EMAMedium
+	}
+	if lastKline.EMALong != nil {
+		emaLong = *lastKline.EMALong
+	}
+
+	// 趋势未变化则跳过
+	if a.lastTrend != nil && a.lastTrend.TrendType == trendType && a.lastTrend.Strength == strength {
+		// 更新结束时间
+		a.lastTrend.EndTime = &endTime
+		a.lastTrend.EMAShort = emaShort
+		a.lastTrend.EMAMedium = emaMedium
+		a.lastTrend.EMALong = emaLong
+		return
+	}
+
+	// 关闭上一个趋势
+	if a.lastTrend != nil {
+		a.lastTrend.EndTime = &endTime
+		a.trends = append(a.trends, a.lastTrend)
+	}
+
+	// 创建新趋势
+	a.lastTrend = &models.Trend{
 		SymbolID:  symbolID,
 		Period:    period,
 		TrendType: trendType,
-		StartTime: recentKlines[0].OpenTime,
-		EndTime:   &recentKlines[len(recentKlines)-1].CloseTime,
+		Strength:  strength,
+		EMAShort:  emaShort,
+		EMAMedium: emaMedium,
+		EMALong:   emaLong,
+		StartTime: startTime,
+		EndTime:   &endTime,
 		CreatedAt: time.Now(),
 	}
 }
@@ -1093,6 +1117,11 @@ func (a *trendStrategyAnalyzer) GetBoxes() []*models.Box {
 }
 
 func (a *trendStrategyAnalyzer) GetTrends() []*models.Trend {
+	// 把回测结束时仍在进行的最后一个趋势也加入结果
+	if a.lastTrend != nil {
+		a.trends = append(a.trends, a.lastTrend)
+		a.lastTrend = nil
+	}
 	return a.trends
 }
 
@@ -1104,15 +1133,16 @@ type keyLevelStrategyAnalyzer struct {
 	supports       []*LevelInfo // 支撑位列表
 	lookbackKlines int          // 回望K线数
 	breakDistance  float64      // 突破阈值(%)
+	minBreakoutAge int          // 价位最小成熟期(K线数)
+	iteration      int          // 当前迭代次数（每次 Analyze 调用递增）
 }
 
 type LevelInfo struct {
-	Price      float64   // 价位
-	Time       time.Time // 形成时间
-	Index      int       // 在K线数组中的索引
-	Broken     bool      // 是否已突破
-	BrokenBy   int       // 被哪根K线突破
-	TouchCount int       // 被触及次数（价格在价位附近波动但未突破的K线数）
+	Price           float64   // 价位
+	Time            time.Time // 形成时间
+	Broken          bool      // 是否已突破
+	TouchCount      int       // 被触及次数（价格在价位附近波动但未突破的K线数）
+	createdAtIter   int       // 创建时的迭代次数，用于计算真实年龄
 }
 
 // keyLevelSwingPoint 波峰波谷（关键位策略专用）
@@ -1128,8 +1158,9 @@ func newKeyLevelStrategyAnalyzer(delegate strategy.Strategy) *keyLevelStrategyAn
 		delegate:       delegate,
 		resistances:    make([]*LevelInfo, 0),
 		supports:       make([]*LevelInfo, 0),
-		lookbackKlines: 50,   // 回望K线数
-		breakDistance:  0.0,  // 突破阈值(%) - 0表示严格突破
+		lookbackKlines: 50,    // 回望K线数
+		breakDistance:  0.002, // 突破阈值 0.2%，过滤噪音穿越
+		minBreakoutAge: 5,     // 价位至少经过5根K线验证后才能产生突破信号
 	}
 }
 
@@ -1138,55 +1169,59 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 		return nil, nil
 	}
 
+	a.iteration++
 	var signals []models.Signal
 
 	// 最后一根K线
 	latestKline := klines[len(klines)-1]
 	latestPrice := latestKline.ClosePrice
-	latestIdx := len(klines) - 1
 
 	// 检测当前窗口内的波峰波谷，识别新的阻力位和支撑位
 	levels := a.detectKeyLevelSwingPoints(klines)
 
-	// 添加新的阻力位（去重）
+
+		// 添加新的阻力位（去重）
 	for _, sw := range levels {
 		if sw.Type == 0 { // 波峰 = 阻力位
 			if !a.hasLevel(a.resistances, sw.Price) {
 				a.resistances = append(a.resistances, &LevelInfo{
-					Price:      sw.Price,
-					Time:       sw.Time,
-					Index:      sw.Index,
-					Broken:     false,
-					TouchCount: 1, // 初始触及次数为1（检测到波峰本身就是一次触及）
+					Price:         sw.Price,
+					Time:          sw.Time,
+					Broken:        false,
+					TouchCount:    1,
+					createdAtIter: a.iteration,
 				})
 			}
 		} else { // 波谷 = 支撑位
 			if !a.hasLevel(a.supports, sw.Price) {
 				a.supports = append(a.supports, &LevelInfo{
-					Price:      sw.Price,
-					Time:       sw.Time,
-					Index:      sw.Index,
-					Broken:     false,
-					TouchCount: 1,
+					Price:         sw.Price,
+					Time:          sw.Time,
+					Broken:        false,
+					TouchCount:    1,
+					createdAtIter: a.iteration,
 				})
 			}
 		}
 	}
 
-	// 统计每个价位被后续K线触及的次数（价格接近但未突破）
-	a.countTouches(a.resistances, klines, latestIdx, "resistance")
-	a.countTouches(a.supports, klines, latestIdx, "support")
+	// 统计触及：只检查最新一根K线，避免跨窗口重复计数
+	a.countTouchSingle(a.resistances, latestKline, "resistance")
+	a.countTouchSingle(a.supports, latestKline, "support")
 
 	// 检查阻力位突破（向上）
-	// 同一根 K 线只取被突破的距当前价格最近的阻力位，避免重复信号
 	var closestResistance *LevelInfo
 	for _, level := range a.resistances {
 		if level.Broken {
 			continue
 		}
-		if latestPrice > level.Price {
+		klinesAway := a.iteration - level.createdAtIter
+		if klinesAway < a.minBreakoutAge {
+			continue
+		}
+		breakoutPrice := level.Price * (1 + a.breakDistance)
+		if latestPrice > breakoutPrice {
 			level.Broken = true
-			level.BrokenBy = latestIdx
 			if closestResistance == nil || level.Price > closestResistance.Price {
 				closestResistance = level
 			}
@@ -1194,7 +1229,7 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 	}
 	if closestResistance != nil {
 		level := closestResistance
-		klinesAway := latestIdx - level.Index
+		klinesAway := a.iteration - level.createdAtIter
 		distance := (latestPrice - level.Price) / level.Price * 100
 		sig := &models.Signal{
 			SymbolID:         symbolID,
@@ -1222,15 +1257,18 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 	}
 
 	// 检查支撑位突破（向下）
-	// 同一根 K 线只取被突破的距当前价格最近的支撑位
 	var closestSupport *LevelInfo
 	for _, level := range a.supports {
 		if level.Broken {
 			continue
 		}
-		if latestPrice < level.Price {
+		klinesAway := a.iteration - level.createdAtIter
+		if klinesAway < a.minBreakoutAge {
+			continue
+		}
+		breakoutPrice := level.Price * (1 - a.breakDistance)
+		if latestPrice < breakoutPrice {
 			level.Broken = true
-			level.BrokenBy = latestIdx
 			if closestSupport == nil || level.Price < closestSupport.Price {
 				closestSupport = level
 			}
@@ -1238,7 +1276,7 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 	}
 	if closestSupport != nil {
 		level := closestSupport
-		klinesAway := latestIdx - level.Index
+		klinesAway := a.iteration - level.createdAtIter
 		distance := (level.Price - latestPrice) / level.Price * 100
 		sig := &models.Signal{
 			SymbolID:         symbolID,
@@ -1268,35 +1306,31 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 	return signals, nil
 }
 
-// hasLevel 检查价位是否已存在
+// hasLevel 检查价位是否已存在（使用相对容差 0.1%，与实盘策略一致）
 func (a *keyLevelStrategyAnalyzer) hasLevel(levels []*LevelInfo, price float64) bool {
 	for _, l := range levels {
-		if math.Abs(l.Price-price) < 0.01 {
+		if price > 0 && math.Abs(l.Price-price)/price < 0.001 {
 			return true
 		}
 	}
 	return false
 }
 
-// countTouches 统计价位被K线触及的次数（价格接近但未突破）
-func (a *keyLevelStrategyAnalyzer) countTouches(levels []*LevelInfo, klines []models.Kline, latestIdx int, levelType string) {
+// countTouchSingle 只检查最新一根K线是否触及价位，避免跨窗口重复计数
+func (a *keyLevelStrategyAnalyzer) countTouchSingle(levels []*LevelInfo, kline models.Kline, levelType string) {
 	for _, level := range levels {
 		if level.Broken {
 			continue
 		}
-		// 只统计价位形成之后的K线
-		for i := level.Index + 1; i <= latestIdx; i++ {
-			k := klines[i]
-			tolerance := level.Price * 0.003 // 0.3% 容差视为触及
-			switch levelType {
-			case "resistance":
-				if k.HighPrice >= level.Price-tolerance && k.ClosePrice < level.Price+tolerance {
-					level.TouchCount++
-				}
-			case "support":
-				if k.LowPrice <= level.Price+tolerance && k.ClosePrice > level.Price-tolerance {
-					level.TouchCount++
-				}
+		tolerance := level.Price * 0.003 // 0.3% 容差视为触及
+		switch levelType {
+		case "resistance":
+			if kline.HighPrice >= level.Price-tolerance && kline.ClosePrice < level.Price+tolerance {
+				level.TouchCount++
+			}
+		case "support":
+			if kline.LowPrice <= level.Price+tolerance && kline.ClosePrice > level.Price-tolerance {
+				level.TouchCount++
 			}
 		}
 	}
@@ -1326,7 +1360,11 @@ func (a *keyLevelStrategyAnalyzer) calculateStrength(level *LevelInfo, allLevels
 // detectKeyLevelSwingPoints 检测波峰波谷（关键位策略专用）
 func (a *keyLevelStrategyAnalyzer) detectKeyLevelSwingPoints(klines []models.Kline) []keyLevelSwingPoint {
 	var swings []keyLevelSwingPoint
-	lookback := 3 // 波峰波谷检测的回溯数
+	lookback := 3
+
+	
+
+ // 波峰波谷检测的回溯数
 
 	// 只检测最近一段K线，避免重复检测
 	startIdx := 0
@@ -1452,24 +1490,16 @@ func (s *BacktestService) runBacktestLoop(
 		windowSize = len(klines) / 2
 	}
 
-	// 反转K线数组：从旧到新排列
-	// 注意：原始数据是从新到旧排列的 (klines[0]=最新)
-	// 反转后 klines[0]=最旧, klines[len-1]=最新
-	reversedKlines := make([]models.Kline, len(klines))
-	for i := 0; i < len(klines); i++ {
-		reversedKlines[i] = klines[len(klines)-1-i]
-	}
-
+	// klines 已经是升序（旧→新），由 RunBacktest 传入
 	// 遍历K线 - 从0到len-windowSize
-	// 这样会从较早的K线开始遍历到较晚的K线
 	// analysisWindow 包含从 i 到 i+windowSize-1 的K线（从旧到新）
 	// latestKline = klines[i+windowSize-1] 是窗口中最新的K线
-	for i := 0; i <= len(reversedKlines)-windowSize; i++ {
-		currentKline := reversedKlines[i+windowSize-1] // 窗口中最新的K线
+	for i := 0; i <= len(klines)-windowSize; i++ {
+		currentKline := klines[i+windowSize-1] // 窗口中最新的K线
 		currentPrice := currentKline.ClosePrice
 
 		// 当前分析窗口 - 包含从 i 到 i+windowSize-1 的K线（从旧到新）
-		analysisWindow := reversedKlines[i : i+windowSize]
+		analysisWindow := klines[i : i+windowSize]
 
 		// 运行策略分析
 		newSignals, _ := analyzer.Analyze(symbol.ID, symbol.SymbolCode, req.Period, analysisWindow)
@@ -1526,7 +1556,7 @@ func (s *BacktestService) runBacktestLoop(
 						if sig.Direction != currentPosition.Direction && currentPosition.ExitTime != nil {
 							// 反向开仓
 							sigPtr := &sig
-							s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
+							currentPosition = s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
 							break
 						}
 					}
@@ -1540,7 +1570,7 @@ func (s *BacktestService) runBacktestLoop(
 				for _, sig := range newSignals {
 					if sig.Status == models.SignalStatusPending {
 						sigPtr := &sig
-						s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
+						currentPosition = s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
 						break // 每次只开一个仓位
 					}
 				}
@@ -1576,14 +1606,14 @@ func (s *BacktestService) runBacktestLoop(
 	return trades, signals, boxes, trends
 }
 
-// openNewPosition 开新仓位
+// openNewPosition 开新仓位，返回新建的交易记录
 func (s *BacktestService) openNewPosition(
 	req *models.BacktestRequest,
 	signal *models.Signal,
 	currentKline models.Kline,
 	trades *[]*models.BacktestTrade,
 	signals *[]*models.Signal,
-) {
+) *models.BacktestTrade {
 	positionValue := req.InitialCapital * req.PositionSize
 	entryPrice := signal.Price
 	if entryPrice <= 0 {
@@ -1607,6 +1637,8 @@ func (s *BacktestService) openNewPosition(
 		zap.String("direction", signal.Direction),
 		zap.Float64("price", entryPrice),
 		zap.Float64("quantity", quantity))
+
+	return trade
 }
 
 // calculateStopLossPrice 计算止损价格
@@ -1822,14 +1854,24 @@ func (s *BacktestService) sortBacktestResult(
 	})
 }
 
-// GetSupportedStrategies 获取支持的策略列表
+// GetSupportedStrategies 获取支持的策略列表（回测始终返回全部策略，不受 enabled 限制）
 func (s *BacktestService) GetSupportedStrategies() []map[string]string {
-	strategies := s.strategyFac.ListStrategies()
-	result := make([]map[string]string, 0, len(strategies))
-	for _, st := range strategies {
+	// 定义回测支持的策略类型（不依赖 config enabled 配置）
+	allStrategies := []struct {
+		strategyType string
+		name         string
+	}{
+		{"box", "箱体突破"},
+		{"trend", "趋势跟踪"},
+		{"key_level", "关键价位"},
+		{"volume_price", "量价分析"},
+		{"wick", "引线策略"},
+	}
+	result := make([]map[string]string, 0, len(allStrategies))
+	for _, st := range allStrategies {
 		result = append(result, map[string]string{
-			"type": st.Type(),
-			"name": st.Name(),
+			"type": st.strategyType,
+			"name": st.name,
 		})
 	}
 	return result

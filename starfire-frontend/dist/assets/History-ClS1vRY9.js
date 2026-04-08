@@ -1,1 +1,0 @@
-import{_ as t,o,c as a,f as e}from"./index-CZx4TIkS.js";const c={},r={class:"history"};function l(n,s){return o(),a("div",r,[...s[0]||(s[0]=[e("h1",{class:"page-title"},"交易历史",-1),e("div",{class:"placeholder"},[e("p",null,"交易历史页占位")],-1)])])}const d=t(c,[["render",l],["__scopeId","data-v-2271ca9e"]]);export{d as default};

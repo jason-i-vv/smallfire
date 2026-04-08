@@ -740,7 +740,7 @@ func (s *BoxStrategy) createBreakoutSignal(box models.Box, kline models.Kline, d
 		ExpiredAt:        &expireTime,
 		NotificationSent: false,
 		CreatedAt:        time.Now(),
-		KlineTime:        ptrTime(kline.CloseTime),
+		KlineTime:        ptrTime(kline.OpenTime),
 	}
 }
 

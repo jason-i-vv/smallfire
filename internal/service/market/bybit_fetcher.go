@@ -196,7 +196,7 @@ func (f *BybitFetcher) FetchKlinesByTimeRange(symbol, period string, startTime, 
 		}
 
 		// 更新end时间，继续获取更早的数据
-		currentEnd = klines[0].OpenTime.Add(-time.Second)
+		currentEnd = klines[len(klines)-1].OpenTime.Add(-time.Second)
 		if currentEnd.Before(startTime) || currentEnd.Equal(startTime) {
 			break
 		}
@@ -318,13 +318,13 @@ func parseTimestamp(v interface{}) (time.Time, error) {
 		if err != nil {
 			return time.Now(), err
 		}
-		return time.Unix(timestamp/1000, 0), nil
+		return time.Unix(timestamp/1000, 0).UTC(), nil
 	case float64:
-		return time.Unix(int64(t)/1000, 0), nil
+		return time.Unix(int64(t)/1000, 0).UTC(), nil
 	case int64:
-		return time.Unix(t/1000, 0), nil
+		return time.Unix(t/1000, 0).UTC(), nil
 	}
-	return time.Now(), nil
+	return time.Now().UTC(), nil
 }
 
 func parseFloat(v interface{}) float64 {

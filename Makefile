@@ -44,10 +44,9 @@ db-stop:
 db-connect:
 	@docker exec -it smallfire-postgres-1 psql -U postgres -d starfire_quant
 
-# 数据库初始化
+# 数据库初始化（迁移在程序启动时自动执行）
 db-init:
-	@echo "Initializing database..."
-	@docker-compose exec postgres psql -U postgres -d starfire_quant -f /docker-entrypoint-initdb.d/001_init.sql
+	@echo "数据库迁移在程序启动时自动执行，无需手动初始化"
 
 # 数据库重置
 db-reset:
@@ -55,7 +54,13 @@ db-reset:
 	@docker-compose down -v
 	@docker-compose up -d postgres
 	@sleep 5
-	@make db-init
+	@echo "数据库重置完成，下次启动程序时将自动执行迁移"
+
+# 查看迁移状态
+db-migrate-status:
+	@echo "查看迁移状态..."
+	@docker exec -it starfire-postgres psql -U postgres -d starfire_quant \
+		-c "SELECT version, description, applied_at FROM schema_migrations ORDER BY version;"
 
 # ============================================
 # Docker 开发模式（推荐）

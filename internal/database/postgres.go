@@ -32,6 +32,13 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*DB, error) {
 		return nil, fmt.Errorf("数据库连接测试失败: %w", err)
 	}
 
+	// 执行数据库自动迁移
+	migrator := NewMigrator(pool)
+	if err := migrator.Run(context.Background()); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("数据库迁移失败: %w", err)
+	}
+
 	return &DB{Pool: pool}, nil
 }
 

@@ -263,6 +263,8 @@ func parseEastmoneyKlines(klines []string, period string) []KlineData {
 		if err != nil {
 			continue
 		}
+		// 统一转为 UTC 存储
+		openTime = openTime.UTC()
 
 		open, _ := strconv.ParseFloat(parts[1], 64)
 		close, _ := strconv.ParseFloat(parts[2], 64)
@@ -287,18 +289,22 @@ func parseEastmoneyKlines(klines []string, period string) []KlineData {
 }
 
 // getPeriodEndTime 根据周期计算K线收盘时间
+// A股交易时间以 CST(UTC+8) 为准，收盘时间 15:00 CST = 07:00 UTC
 func getPeriodEndTime(period string, openTime time.Time) time.Time {
+	cst := time.FixedZone("CST", 8*3600)
 	switch period {
 	case "101": // 日K
-		return time.Date(openTime.Year(), openTime.Month(), openTime.Day(), 15, 0, 0, 0, openTime.Location())
+		closeTime := time.Date(openTime.Year(), openTime.Month(), openTime.Day(), 15, 0, 0, 0, cst)
+		return closeTime.UTC()
 	case "102": // 周K
-		closeTime := time.Date(openTime.Year(), openTime.Month(), openTime.Day(), 15, 0, 0, 0, openTime.Location())
+		closeTime := time.Date(openTime.Year(), openTime.Month(), openTime.Day(), 15, 0, 0, 0, cst)
 		for closeTime.Weekday() != time.Friday {
 			closeTime = closeTime.AddDate(0, 0, 1)
 		}
-		return closeTime
+		return closeTime.UTC()
 	case "103": // 月K
-		return time.Date(openTime.Year(), openTime.Month()+1, 0, 15, 0, 0, 0, openTime.Location())
+		closeTime := time.Date(openTime.Year(), openTime.Month()+1, 0, 15, 0, 0, 0, cst)
+		return closeTime.UTC()
 	default:
 		return openTime.Add(24 * time.Hour)
 	}

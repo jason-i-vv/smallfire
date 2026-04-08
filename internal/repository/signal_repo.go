@@ -234,7 +234,7 @@ func (r *SignalRepoPG) Create(signal *models.Signal) error {
 		INSERT INTO signals (symbol_id, signal_type, source_type, direction, strength, price,
 		                    target_price, stop_loss_price, period, status, confirmed_at, expired_at,
 		                    triggered_at, notification_sent, kline_time, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
 		RETURNING id
 	`
 
@@ -379,6 +379,13 @@ func (r *SignalRepoPG) Query(query *models.SignalQuery) ([]*models.Signal, int, 
 	if query.Market != "" {
 		conditions = append(conditions, fmt.Sprintf("m.market_code = $%d", argIndex))
 		args = append(args, query.Market)
+		argIndex++
+	}
+
+	// 标的代码条件
+	if query.SymbolCode != "" {
+		conditions = append(conditions, fmt.Sprintf("sy.symbol_code = $%d", argIndex))
+		args = append(args, query.SymbolCode)
 		argIndex++
 	}
 

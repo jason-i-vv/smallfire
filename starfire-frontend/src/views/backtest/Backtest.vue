@@ -36,7 +36,7 @@
                 <el-option
                   v-for="symbol in symbols"
                   :key="symbol.symbol_code"
-                  :label="symbol.symbol_code"
+                  :label="symbol.symbol_name ? `${symbol.symbol_code} ${symbol.symbol_name}` : symbol.symbol_code"
                   :value="symbol.symbol_code"
                 />
               </el-select>
@@ -214,13 +214,13 @@
         </div>
 
         <!-- 信号列表 -->
-        <el-card v-if="result" class="result-card">
+        <el-card v-if="result" class="result-card" :class="{ 'chart-mode-card': signalViewMode === 'chart' && supportsChartMode }">
           <template #header>
             <div class="card-header">
               <span>信号列表</span>
               <div class="card-header-actions">
                 <span class="trade-count">共 {{ result.signals?.length || 0 }} 个信号</span>
-                <el-button-group v-if="isWickStrategy" size="small">
+                <el-button-group v-if="supportsChartMode" size="small">
                   <el-button :type="signalViewMode === 'chart' ? 'primary' : ''" @click="signalViewMode = 'chart'">
                     <el-icon><Histogram /></el-icon> 图表
                   </el-button>
@@ -234,14 +234,14 @@
 
           <!-- 图表模式：内嵌K线图表，标记所有引线信号 -->
           <BacktestChart
-            v-if="signalViewMode === 'chart' && isWickStrategy && currentSymbolId && result.signals?.length > 0"
+            v-if="signalViewMode === 'chart' && supportsChartMode && currentSymbolId && result.signals?.length > 0"
             :symbol-id="currentSymbolId"
             :period="form.period"
             :start-time="result.request.start_time"
             :end-time="result.request.end_time"
             :signals="result.signals"
           />
-          <div v-else-if="signalViewMode === 'chart' && isWickStrategy && (!result.signals || result.signals.length === 0)" class="chart-empty">
+          <div v-else-if="signalViewMode === 'chart' && supportsChartMode && (!result.signals || result.signals.length === 0)" class="chart-empty">
             暂无信号数据
           </div>
 
@@ -441,7 +441,7 @@
         <el-card v-if="result" class="result-card info-card">
           <template #header>回测信息</template>
           <el-descriptions :column="3" border>
-            <el-descriptions-item label="标的">{{ result.request.symbol_code }}</el-descriptions-item>
+            <el-descriptions-item label="标的">{{ currentSymbolName }}</el-descriptions-item>
             <el-descriptions-item label="周期">{{ result.request.period }}</el-descriptions-item>
             <el-descriptions-item label="策略">{{ getStrategyLabel(result.request.strategy_type) }}</el-descriptions-item>
             <el-descriptions-item label="开始时间">{{ result.request.start_time }}</el-descriptions-item>
@@ -512,15 +512,24 @@ const equityData = computed(() => {
 })
 
 const isWickStrategy = computed(() => form.value.strategy_type === 'wick')
+const isVolumeStrategy = computed(() => form.value.strategy_type === 'volume_price')
+const supportsChartMode = computed(() => isWickStrategy.value || isVolumeStrategy.value)
 
 const currentSymbolId = computed(() => {
   const found = symbols.value.find(s => s.symbol_code === form.value.symbol_code)
   return found?.id || null
 })
 
+const currentSymbolName = computed(() => {
+  const code = result.value?.request?.symbol_code || form.value.symbol_code
+  if (!code) return '-'
+  const found = symbols.value.find(s => s.symbol_code === code)
+  return found?.symbol_name ? `${code} ${found.symbol_name}` : code
+})
+
 // 切换策略时自动重置视图模式
 watch(() => form.value.strategy_type, (newType) => {
-  signalViewMode.value = newType === 'wick' ? 'chart' : 'list'
+  signalViewMode.value = (newType === 'wick' || newType === 'volume_price') ? 'chart' : 'list'
 })
 
 // 策略标签映射
@@ -607,11 +616,11 @@ const getTrendLabel = (type) => {
 // 初始化时间范围
 const initTimeRange = () => {
   const now = new Date()
-  const oneYearAgo = new Date()
-  oneYearAgo.setFullYear(now.getFullYear() - 1)
+  const threeMonthsAgo = new Date()
+  threeMonthsAgo.setMonth(now.getMonth() - 3)
 
   form.value.end_time = formatDateTime(now)
-  form.value.start_time = formatDateTime(oneYearAgo)
+  form.value.start_time = formatDateTime(threeMonthsAgo)
 }
 
 const formatDateTime = (date) => {
@@ -695,7 +704,7 @@ const runBacktest = async () => {
     result.value = res.data
 
     // 根据策略类型设置视图模式
-    signalViewMode.value = form.value.strategy_type === 'wick' ? 'chart' : 'list'
+    signalViewMode.value = (form.value.strategy_type === 'wick' || form.value.strategy_type === 'volume_price') ? 'chart' : 'list'
 
     // 保存结果到 sessionStorage
     saveToSession()
@@ -728,7 +737,7 @@ const restoreFromSession = () => {
       result.value = data.result
       form.value = { ...form.value, ...data.form }
       // 恢复后根据策略类型设置视图模式
-      signalViewMode.value = form.value.strategy_type === 'wick' ? 'chart' : 'list'
+      signalViewMode.value = (form.value.strategy_type === 'wick' || form.value.strategy_type === 'volume_price') ? 'chart' : 'list'
       return true
     } catch (e) {
       console.error('Failed to restore backtest data:', e)
@@ -1053,16 +1062,10 @@ onMounted(() => {
     font-size: 14px;
   }
 
-  // 表格行悬停效果
-  :deep(.el-table) {
-    tbody tr {
-      cursor: pointer;
-      transition: background-color 0.2s;
-
-      &:hover > td {
-        background-color: rgba($primary, 0.08) !important;
-      }
+  .chart-mode-card {
+    :deep(.el-card__body) {
+      padding: 0 !important;
     }
   }
 }
-</style>
+</style>}

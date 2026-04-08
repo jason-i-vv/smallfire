@@ -183,17 +183,10 @@ func (f *FeishuNotifier) SendSignalNotification(signal *models.Signal) error {
 	signalType := f.getSignalTypeName(signal.SignalType)
 
 	content := &NotifyContent{
-		Title:   fmt.Sprintf("%s 信号", emoji),
+		Title:   fmt.Sprintf("%s %s %s", emoji, signal.SymbolCode, signalType),
 		Type:    models.NotifyTypeSignal,
-		Message: fmt.Sprintf("📊 **信号类型**: %s\n📈 **方向**: %s\n⭐ **强度**: %s\n💰 **信号价格**: %.4f",
-			signalType, direction, strength, signal.Price),
-		Data: map[string]interface{}{
-			"symbol_id":   signal.SymbolID,
-			"signal_type": signal.SignalType,
-			"direction":   signal.Direction,
-			"strength":    signal.Strength,
-			"price":       signal.Price,
-		},
+		Message: fmt.Sprintf("📊 **周期**: %s\n📈 **方向**: %s\n⭐ **强度**: %s\n💰 **信号价格**: %.4f",
+			signal.Period, direction, strength, signal.Price),
 	}
 
 	return f.Send(content)
@@ -210,6 +203,10 @@ func (f *FeishuNotifier) getSignalTypeName(signalType string) string {
 		"volume_surge":         "成交量放大",
 		"price_surge_up":       "价格急涨",
 		"price_surge_down":     "价格急跌",
+		"upper_wick_reversal":  "上引线反转",
+		"lower_wick_reversal":  "下引线反转",
+		"fake_breakout_upper":  "假突破上引线",
+		"fake_breakout_lower":  "假突破下引线",
 	}
 	if name, ok := names[signalType]; ok {
 		return name

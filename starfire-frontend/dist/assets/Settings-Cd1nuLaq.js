@@ -1,0 +1,1 @@
+import{_ as t,o as a,c,f as e}from"./index-Bn05FDjT.js";const o={},n={class:"settings"};function r(l,s){return a(),c("div",n,[...s[0]||(s[0]=[e("h1",{class:"page-title"},"设置",-1),e("div",{class:"placeholder"},[e("p",null,"设置页占位")],-1)])])}const d=t(o,[["render",r],["__scopeId","data-v-7aef007b"]]);export{d as default};

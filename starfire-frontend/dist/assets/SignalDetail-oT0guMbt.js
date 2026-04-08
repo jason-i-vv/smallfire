@@ -1,0 +1,1 @@
+import{_ as a,o as t,c,f as e}from"./index-Bn05FDjT.js";const l={},o={class:"signal-detail"};function n(r,s){return t(),c("div",o,[...s[0]||(s[0]=[e("h1",{class:"page-title"},"信号详情",-1),e("div",{class:"placeholder"},[e("p",null,"信号详情页占位")],-1)])])}const i=a(l,[["render",n],["__scopeId","data-v-e969d1b3"]]);export{i as default};
