@@ -1,6 +1,7 @@
 package trading
 
 import (
+	"github.com/smallfire/starfire/internal/models"
 	"github.com/smallfire/starfire/internal/repository"
 	"go.uber.org/zap"
 )
@@ -14,12 +15,12 @@ type Dependency struct {
 
 // MonitorFactory 价格监控工厂接口
 type MonitorFactory interface {
-	Subscribe(track interface{})
-	Unsubscribe(track interface{})
+	Subscribe(track *models.TradeTrack)
+	Unsubscribe(track *models.TradeTrack)
 }
 
 // Notifier 通知器接口
 type Notifier interface {
-	SendTradeOpened(track interface{})
-	SendTradeClosed(track interface{})
+	SendTradeOpened(track *models.TradeTrack)
+	SendTradeClosed(track *models.TradeTrack)
 }

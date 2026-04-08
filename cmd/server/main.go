@@ -88,12 +88,10 @@ func main() {
 		Logger:     utils.Logger,
 	}
 	tradeExecutor := trading.NewTradeExecutor(&cfg.Trading, tradingDeps)
-	_ = tradeExecutor
 	utils.Info("交易执行器初始化成功")
 
 	// 初始化统计分析服务
-	statsService := trading.NewStatisticsService(trackRepo, &cfg.Trading)
-	_ = statsService
+	statsService := trading.NewStatisticsService(trackRepo, signalRepo, &cfg.Trading)
 	utils.Info("统计分析服务初始化成功")
 
 	// 初始化通知服务
@@ -229,7 +227,7 @@ func main() {
 	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, utils.Logger)
 	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
-	tradeHandler := handler.NewTradeHandler(trackRepo, statsService, utils.Logger)
+	tradeHandler := handler.NewTradeHandler(trackRepo, tradeExecutor, statsService, utils.Logger)
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
 	boxHandler := handler.NewBoxHandler(boxRepo, symbolRepo, utils.Logger)
 	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelRepo, utils.Logger)

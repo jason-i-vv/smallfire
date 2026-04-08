@@ -2,12 +2,24 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smallfire/starfire/internal/database"
 	"github.com/smallfire/starfire/internal/models"
 )
+
+// tradeTrackColumns 查询列名
+const tradeTrackColumns = `
+	id, signal_id, symbol_id, direction, entry_price, entry_time, quantity,
+	position_value, stop_loss_price, stop_loss_percent, take_profit_price,
+	take_profit_percent, trailing_stop_enabled, trailing_stop_active,
+	trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
+	exit_reason, pnl, pnl_percent, fees, status, current_price,
+	unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at
+`
 
 // TradeTrackRepoPG 交易跟踪数据访问实现
 type TradeTrackRepoPG struct {
@@ -21,18 +33,27 @@ func NewTradeTrackRepoPG(db *database.DB) TradeTrackRepo {
 	}
 }
 
+// scanTradeTrack 从行数据扫描到 TradeTrack 结构体
+func scanTradeTrack(row interface{ Scan(dest ...any) error }) (*models.TradeTrack, error) {
+	var track models.TradeTrack
+	if err := row.Scan(
+		&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
+		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
+		&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
+		&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
+		&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
+		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
+		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
+		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
+		&track.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	return &track, nil
+}
+
 func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
-	var tracks []*models.TradeTrack
-	query := `
-		SELECT id, signal_id, symbol_id, direction, entry_price, entry_time, quantity,
-		       position_value, stop_loss_price, stop_loss_percent, take_profit_price,
-		       take_profit_percent, trailing_stop_enabled, trailing_stop_active,
-		       trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
-		       exit_reason, pnl, pnl_percent, fees, status, current_price,
-		       unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at
-		FROM trade_tracks
-		WHERE status = $1
-	`
+	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE status = $1 ORDER BY created_at DESC"
 
 	rows, err := r.db.Query(context.Background(), query, models.TrackStatusOpen)
 	if err != nil {
@@ -40,108 +61,40 @@ func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var track models.TradeTrack
-		if err := rows.Scan(
-			&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
-			&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
-			&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
-			&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
-			&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
-			&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
-			&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
-			&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-			&track.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("扫描持仓数据失败: %w", err)
-		}
-		tracks = append(tracks, &track)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("遍历持仓结果失败: %w", err)
-	}
-
-	return tracks, nil
+	return scanTradeTracks(rows)
 }
 
 func (r *TradeTrackRepoPG) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) {
-	var track models.TradeTrack
-	query := `
-		SELECT id, signal_id, symbol_id, direction, entry_price, entry_time, quantity,
-		       position_value, stop_loss_price, stop_loss_percent, take_profit_price,
-		       take_profit_percent, trailing_stop_enabled, trailing_stop_active,
-		       trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
-		       exit_reason, pnl, pnl_percent, fees, status, current_price,
-		       unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at
-		FROM trade_tracks
-		WHERE status = $1 AND symbol_id = $2
-	`
+	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE status = $1 AND symbol_id = $2"
 
-	err := r.db.QueryRow(context.Background(), query, models.TrackStatusOpen, symbolID).Scan(
-		&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
-		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
-		&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
-		&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
-		&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
-		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
-		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
-		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-		&track.UpdatedAt,
-	)
-
+	track, err := scanTradeTrack(r.db.QueryRow(context.Background(), query, models.TrackStatusOpen, symbolID))
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("查询标的持仓失败: %w", err)
 	}
 
-	return &track, nil
+	return track, nil
 }
 
 func (r *TradeTrackRepoPG) GetBySignalID(signalID int) (*models.TradeTrack, error) {
-	var track models.TradeTrack
-	query := `
-		SELECT id, signal_id, symbol_id, direction, entry_price, entry_time, quantity,
-		       position_value, stop_loss_price, stop_loss_percent, take_profit_price,
-		       take_profit_percent, trailing_stop_enabled, trailing_stop_active,
-		       trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
-		       exit_reason, pnl, pnl_percent, fees, status, current_price,
-		       unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at
-		FROM trade_tracks
-		WHERE signal_id = $1
-	`
+	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE signal_id = $1"
 
-	err := r.db.QueryRow(context.Background(), query, signalID).Scan(
-		&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
-		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
-		&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
-		&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
-		&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
-		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
-		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
-		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-		&track.UpdatedAt,
-	)
-
+	track, err := scanTradeTrack(r.db.QueryRow(context.Background(), query, signalID))
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("查询信号关联持仓失败: %w", err)
 	}
 
-	return &track, nil
+	return track, nil
 }
 
 func (r *TradeTrackRepoPG) CountClosedSince(startTime time.Time) (int, error) {
 	var count int
-	query := `
-		SELECT COUNT(*)
-		FROM trade_tracks
-		WHERE status = $1 AND exit_time >= $2
-	`
+	query := `SELECT COUNT(*) FROM trade_tracks WHERE status = $1 AND exit_time >= $2`
 
 	err := r.db.QueryRow(context.Background(), query, models.TrackStatusClosed, startTime).Scan(&count)
 	if err != nil {
@@ -152,17 +105,7 @@ func (r *TradeTrackRepoPG) CountClosedSince(startTime time.Time) (int, error) {
 }
 
 func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error) {
-	var tracks []*models.TradeTrack
-	baseQuery := `
-		SELECT id, signal_id, symbol_id, direction, entry_price, entry_time, quantity,
-		       position_value, stop_loss_price, stop_loss_percent, take_profit_price,
-		       take_profit_percent, trailing_stop_enabled, trailing_stop_active,
-		       trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
-		       exit_reason, pnl, pnl_percent, fees, status, current_price,
-		       unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at
-		FROM trade_tracks
-		WHERE status = $1
-	`
+	baseQuery := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE status = $1"
 
 	var query string
 	var args []interface{}
@@ -187,29 +130,7 @@ func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time) ([]*mo
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var track models.TradeTrack
-		if err := rows.Scan(
-			&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
-			&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
-			&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
-			&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
-			&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
-			&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
-			&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
-			&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-			&track.UpdatedAt,
-		); err != nil {
-			return nil, fmt.Errorf("扫描平仓数据失败: %w", err)
-		}
-		tracks = append(tracks, &track)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("遍历平仓结果失败: %w", err)
-	}
-
-	return tracks, nil
+	return scanTradeTracks(rows)
 }
 
 func (r *TradeTrackRepoPG) Create(track *models.TradeTrack) error {
@@ -271,35 +192,16 @@ func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 }
 
 func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error) {
-	var tracks []*models.TradeTrack
 	var count int
 
-	// 计算总数
-	countQuery := `
-		SELECT COUNT(*)
-		FROM trade_tracks
-		WHERE created_at BETWEEN $1 AND $2
-	`
-
+	countQuery := `SELECT COUNT(*) FROM trade_tracks WHERE created_at BETWEEN $1 AND $2`
 	err := r.db.QueryRow(context.Background(), countQuery, startDate, endDate).Scan(&count)
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询交易历史总数失败: %w", err)
 	}
 
-	// 查询分页数据
 	offset := (page - 1) * size
-	dataQuery := `
-		SELECT id, signal_id, symbol_id, direction, entry_price, entry_time, quantity,
-		       position_value, stop_loss_price, stop_loss_percent, take_profit_price,
-		       take_profit_percent, trailing_stop_enabled, trailing_stop_active,
-		       trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
-		       exit_reason, pnl, pnl_percent, fees, status, current_price,
-		       unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at
-		FROM trade_tracks
-		WHERE created_at BETWEEN $1 AND $2
-		ORDER BY created_at DESC
-		LIMIT $3 OFFSET $4
-	`
+	dataQuery := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4"
 
 	rows, err := r.db.Query(context.Background(), dataQuery, startDate, endDate, size, offset)
 	if err != nil {
@@ -307,62 +209,43 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 	}
 	defer rows.Close()
 
-	for rows.Next() {
-		var track models.TradeTrack
-		if err := rows.Scan(
-			&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
-			&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
-			&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
-			&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
-			&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
-			&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
-			&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
-			&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-			&track.UpdatedAt,
-		); err != nil {
-			return nil, 0, fmt.Errorf("扫描交易历史数据失败: %w", err)
-		}
-		tracks = append(tracks, &track)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("遍历交易历史结果失败: %w", err)
+	tracks, err := scanTradeTracks(rows)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	return tracks, count, nil
 }
 
 func (r *TradeTrackRepoPG) GetByID(id int) (*models.TradeTrack, error) {
-	var track models.TradeTrack
-	query := `
-		SELECT id, signal_id, symbol_id, direction, entry_price, entry_time, quantity,
-		       position_value, stop_loss_price, stop_loss_percent, take_profit_price,
-		       take_profit_percent, trailing_stop_enabled, trailing_stop_active,
-		       trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
-		       exit_reason, pnl, pnl_percent, fees, status, current_price,
-		       unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at
-		FROM trade_tracks
-		WHERE id = $1
-	`
+	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE id = $1"
 
-	err := r.db.QueryRow(context.Background(), query, id).Scan(
-		&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
-		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
-		&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
-		&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
-		&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
-		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
-		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
-		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-		&track.UpdatedAt,
-	)
-
+	track, err := scanTradeTrack(r.db.QueryRow(context.Background(), query, id))
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("查询交易记录失败: %w", err)
 	}
 
-	return &track, nil
+	return track, nil
+}
+
+// scanTradeTracks 从行集合扫描多个 TradeTrack
+func scanTradeTracks(rows interface{ Next() bool; Scan(dest ...any) error; Err() error }) ([]*models.TradeTrack, error) {
+	var tracks []*models.TradeTrack
+
+	for rows.Next() {
+		track, err := scanTradeTrack(rows)
+		if err != nil {
+			return nil, err
+		}
+		tracks = append(tracks, track)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历结果失败: %w", err)
+	}
+
+	return tracks, nil
 }

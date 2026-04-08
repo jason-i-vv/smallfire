@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,14 +16,16 @@ import (
 // TradeHandler 交易跟踪API处理器
 type TradeHandler struct {
 	trackRepo    repository.TradeTrackRepo
+	executor     *trading.TradeExecutor
 	statsService *trading.StatisticsService
 	logger       *zap.Logger
 }
 
 // NewTradeHandler 创建交易跟踪API处理器
-func NewTradeHandler(trackRepo repository.TradeTrackRepo, statsService *trading.StatisticsService, logger *zap.Logger) *TradeHandler {
+func NewTradeHandler(trackRepo repository.TradeTrackRepo, executor *trading.TradeExecutor, statsService *trading.StatisticsService, logger *zap.Logger) *TradeHandler {
 	return &TradeHandler{
 		trackRepo:    trackRepo,
+		executor:     executor,
 		statsService: statsService,
 		logger:       logger,
 	}
@@ -201,7 +204,7 @@ func (h *TradeHandler) ClosePosition(c *gin.Context) {
 	}
 
 	var req struct {
-		Price float64 `json:"price"`
+		Price float64 `json:"price" binding:"required,gt=0"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -217,43 +220,17 @@ func (h *TradeHandler) ClosePosition(c *gin.Context) {
 	}
 
 	if track == nil || track.Status != models.TrackStatusOpen {
-		HandleError(c, http.StatusBadRequest, nil)
+		HandleError(c, http.StatusBadRequest, fmt.Errorf("交易记录不存在或已平仓"))
 		return
 	}
 
-	// 这里应该调用 TradeExecutor 进行平仓，暂时直接更新状态
-	track.Status = models.TrackStatusClosed
-	track.ExitPrice = &req.Price
-	track.ExitTime = &time.Time{}
-	track.ExitReason = func() *string {
-		s := models.ExitReasonManual
-		return &s
-	}()
-
-	// 计算盈亏
-	if track.Direction == "long" {
-		pnl := (req.Price - *track.EntryPrice) * *track.Quantity
-		pnl -= track.Fees
-		track.PnL = &pnl
-		track.PnLPercent = func() *float64 {
-			pct := pnl / *track.PositionValue
-			return &pct
-		}()
-	} else {
-		pnl := (*track.EntryPrice - req.Price) * *track.Quantity
-		pnl -= track.Fees
-		track.PnL = &pnl
-		track.PnLPercent = func() *float64 {
-			pct := pnl / *track.PositionValue
-			return &pct
-		}()
-	}
-
-	if err := h.trackRepo.Update(track); err != nil {
+	if err := h.executor.CloseByManual(track, req.Price); err != nil {
 		h.logger.Error("平仓失败", zap.Int("id", id), zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
 		return
 	}
 
-	HandleSuccess(c, track)
+	// 重新查询获取更新后的数据
+	updated, _ := h.trackRepo.GetByID(id)
+	HandleSuccess(c, updated)
 }

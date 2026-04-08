@@ -10,112 +10,148 @@
       </el-col>
     </el-row>
 
-    <!-- 图表区域 -->
-    <el-row :gutter="20">
-      <el-col :span="12">
-        <el-card>
-          <template #header>收益曲线</template>
-          <EquityCurve :data="equityData" />
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card>
-          <template #header>月度收益</template>
-          <div ref="monthlyChart" class="chart-placeholder">
-            <div class="icon">📊</div>
-            <p>月度收益图表</p>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-state">
+      <el-icon class="is-loading"><Loading /></el-icon>
+      <span>加载中...</span>
+    </div>
 
-    <el-row :gutter="20" class="mt-20">
-      <el-col :span="12">
-        <el-card>
-          <template #header>信号类型分析</template>
-          <div ref="signalChart" class="chart-placeholder">
-            <div class="icon">📈</div>
-            <p>信号类型分析图表</p>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card>
-          <template #header>交易记录</template>
-          <TradeTable :data="trades" />
-        </el-card>
-      </el-col>
-    </el-row>
+    <!-- 空状态 -->
+    <div v-else-if="!loading && noData" class="empty-state">
+      <p>暂无交易数据</p>
+    </div>
+
+    <!-- 图表区域 -->
+    <template v-else>
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <el-card>
+            <template #header>收益曲线</template>
+            <EquityCurve :data="equityData" />
+          </el-card>
+        </el-col>
+        <el-col :span="12">
+          <el-card>
+            <template #header>信号类型分析</template>
+            <div v-if="signalAnalysis.length > 0" class="signal-analysis-list">
+              <div v-for="item in signalAnalysis" :key="item.signal_type" class="signal-item">
+                <span class="signal-type">{{ signalTypeLabel(item.signal_type) }}</span>
+                <span class="signal-stats">
+                  {{ item.total_trades }}笔 · 胜率 {{ formatPercent(item.win_rate) }} · 盈亏 {{ formatPnL(item.total_pnl) }}
+                </span>
+              </div>
+            </div>
+            <div v-else class="empty-chart">
+              <p>暂无信号分析数据</p>
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>交易记录</template>
+            <TradeTable :trades="recentTrades" />
+          </el-card>
+        </el-col>
+      </el-row>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { Loading } from '@element-plus/icons-vue'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
 import TradeTable from '@/components/trades/TradeTable.vue'
 import { tradeApi } from '@/api/trades'
+import { formatPnL, formatPercent } from '@/utils/formatters'
 
-const equityData = ref([])
-const trades = ref([])
+const loading = ref(false)
+const stats = ref(null)
+const signalAnalysis = ref([])
+const recentTrades = ref([])
 
-const summaryStats = ref([
-  { label: '总收益率', value: '12.5%', class: 'stat-profit' },
-  { label: '总盈亏', value: '+¥12,580.50', class: 'stat-profit' },
-  { label: '胜率', value: '62.5%', class: 'stat-rate' },
-  { label: '盈亏比', value: '1.85:1', class: 'stat-rate' },
-  { label: '最大回撤', value: '12.3%', class: 'stat-loss' },
-  { label: '交易次数', value: '48', class: 'stat-neutral' },
-  { label: '平均盈亏', value: '+¥262.10', class: 'stat-profit' },
-  { label: '活跃天数', value: '35', class: 'stat-neutral' }
-])
+const noData = computed(() => {
+  return stats.value && stats.value.total_trades === 0
+})
 
-const fetchData = async () => {
-  try {
-    const [equityRes, historyRes] = await Promise.all([
-      tradeApi.equity(),
-      tradeApi.history({ limit: 10 })
-    ])
+const summaryStats = computed(() => {
+  if (!stats.value) return []
+  const s = stats.value
+  return [
+    { label: '总收益率', value: formatPercent(s.total_return), class: s.total_return >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: '总盈亏', value: formatPnL(s.total_pnl), class: s.total_pnl >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: '胜率', value: formatPercent(s.win_rate), class: 'stat-rate' },
+    { label: '盈亏比', value: s.profit_factor > 0 ? s.profit_factor.toFixed(2) + ':1' : '-', class: 'stat-rate' },
+    { label: '最大回撤', value: formatPercent(-s.max_drawdown_pct), class: 'stat-loss' },
+    { label: '交易次数', value: s.total_trades.toString(), class: 'stat-neutral' },
+    { label: '夏普比率', value: s.sharpe_ratio.toFixed(2), class: s.sharpe_ratio >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: '卡玛比率', value: s.calmar_ratio.toFixed(2), class: s.calmar_ratio >= 0 ? 'stat-profit' : 'stat-loss' },
+  ]
+})
 
-    equityData.value = equityRes.data?.equity_curve || generateMockEquityData()
-    trades.value = historyRes.data?.items || generateMockTrades()
-  } catch (error) {
-    console.error('Failed to fetch statistics:', error)
-    equityData.value = generateMockEquityData()
-    trades.value = generateMockTrades()
-  }
-}
-
-const generateMockEquityData = () => {
+const equityData = computed(() => {
+  if (!stats.value || stats.value.total_trades === 0) return []
+  // 从统计数据生成简单的权益曲线点
+  // TODO: 后续可增加专门的权益曲线 API
   const data = []
   const now = Date.now()
-  let equity = 100000
-
-  for (let i = 30; i >= 0; i--) {
+  let equity = stats.value.initial_capital || 100000
+  const returnPerTrade = stats.value.total_trades > 0
+    ? stats.value.total_pnl / stats.value.total_trades : 0
+  const days = Math.max(30, stats.value.total_trades)
+  for (let i = days; i >= 0; i--) {
     const timestamp = now - i * 24 * 60 * 60 * 1000
-    const change = (Math.random() - 0.48) * 2000
-    equity += change
-    data.push({ timestamp, equity })
+    if (i === days) {
+      data.push({ timestamp, equity })
+    } else {
+      equity += returnPerTrade / days
+      data.push({ timestamp, equity })
+    }
   }
-
   return data
+})
+
+const signalTypeLabel = (type) => {
+  const labels = {
+    box: '箱体',
+    trend: '趋势',
+    key_level: '关键位',
+    volume: '量价',
+    wick: '引线',
+    unknown: '未知'
+  }
+  return labels[type] || type
 }
 
-const generateMockTrades = () => {
-  const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'AVAXUSDT']
-  const directions = ['long', 'short']
-  const now = Date.now()
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const [statsRes, analysisRes, historyRes] = await Promise.all([
+      tradeApi.stats(),
+      tradeApi.signalAnalysis(),
+      tradeApi.history({ page: 1, size: 10 })
+    ])
 
-  return Array.from({ length: 8 }).map((_, i) => ({
-    id: i + 1,
-    closed_at: now - i * 1000 * 60 * 60 * 24,
-    symbol_code: symbols[i % symbols.length],
-    direction: directions[i % directions.length],
-    entry_price: 3000 + i * 100,
-    exit_price: 3100 + i * 100 + (Math.random() - 0.5) * 200,
-    quantity: 0.1 + Math.random() * 0.9,
-    realized_pnl: (Math.random() - 0.4) * 500,
-    pnl_percent: (Math.random() - 0.4) * 10
-  }))
+    stats.value = statsRes.data || null
+    signalAnalysis.value = analysisRes.data ? Object.values(analysisRes.data) : []
+    recentTrades.value = (historyRes.data?.list || []).map(t => ({
+      closed_at: t.exit_time,
+      symbol_code: t.symbol_code || '',
+      direction: t.direction,
+      entry_price: t.entry_price,
+      exit_price: t.exit_price,
+      quantity: t.quantity,
+      realized_pnl: t.pnl,
+      pnl_percent: t.pnl_percent
+    }))
+  } catch (error) {
+    console.error('Failed to fetch statistics:', error)
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(() => {
@@ -156,20 +192,41 @@ onMounted(() => {
     }
   }
 
-  .chart-placeholder {
+  .loading-state, .empty-state {
     text-align: center;
     padding: 60px 24px;
     background-color: $surface;
+    border: 1px solid $border;
     border-radius: $border-radius;
+    color: $text-secondary;
+  }
 
-    .icon {
-      font-size: 48px;
-      margin-bottom: 16px;
-    }
+  .signal-analysis-list {
+    .signal-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid $border;
 
-    p {
-      color: $text-secondary;
+      &:last-child { border-bottom: none; }
+
+      .signal-type {
+        color: $primary;
+        font-weight: 600;
+      }
+
+      .signal-stats {
+        color: $text-secondary;
+        font-size: 14px;
+      }
     }
+  }
+
+  .empty-chart {
+    text-align: center;
+    padding: 40px 24px;
+    color: $text-secondary;
   }
 
   .mt-20 {

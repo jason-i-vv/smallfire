@@ -1,6 +1,7 @@
 package trading
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -11,15 +12,17 @@ import (
 
 // StatisticsService 交易统计分析服务
 type StatisticsService struct {
-	trackRepo repository.TradeTrackRepo
-	config    *config.TradingConfig
+	trackRepo  repository.TradeTrackRepo
+	signalRepo repository.SignalRepo
+	config     *config.TradingConfig
 }
 
 // NewStatisticsService 创建统计分析服务实例
-func NewStatisticsService(trackRepo repository.TradeTrackRepo, cfg *config.TradingConfig) *StatisticsService {
+func NewStatisticsService(trackRepo repository.TradeTrackRepo, signalRepo repository.SignalRepo, cfg *config.TradingConfig) *StatisticsService {
 	return &StatisticsService{
-		trackRepo: trackRepo,
-		config:    cfg,
+		trackRepo:  trackRepo,
+		signalRepo: signalRepo,
+		config:     cfg,
 	}
 }
 
@@ -57,7 +60,10 @@ type TradeStatistics struct {
 
 // GetStatistics 获取统计数据
 func (s *StatisticsService) GetStatistics(startDate, endDate *time.Time) (*TradeStatistics, error) {
-	tracks, _ := s.trackRepo.GetClosedTracks(startDate, endDate)
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
 	return s.calculateStatistics(tracks)
 }
 
@@ -158,9 +164,41 @@ func (s *StatisticsService) calculateStatistics(tracks []*models.TradeTrack) (*T
 		stats.AvgHoldingHours = totalHoldingHours / float64(stats.TotalTrades)
 	}
 
-	// 暂时不计算 SharpeRatio 和 CalmarRatio（需要更多数据）
-	stats.SharpeRatio = 0
-	stats.CalmarRatio = 0
+	// 收集每笔收益率用于夏普比率计算
+	var returns []float64
+	for _, track := range tracks {
+		if track.PnL != nil && track.PositionValue != nil && *track.PositionValue > 0 {
+			returns = append(returns, *track.PnL / *track.PositionValue)
+		}
+	}
+
+	// 计算夏普比率（年化，假设无风险利率 0）
+	if len(returns) >= 2 {
+		meanReturn := 0.0
+		for _, r := range returns {
+			meanReturn += r
+		}
+		meanReturn /= float64(len(returns))
+
+		variance := 0.0
+		for _, r := range returns {
+			diff := r - meanReturn
+			variance += diff * diff
+		}
+		variance /= float64(len(returns) - 1)
+		stdDev := math.Sqrt(variance)
+
+		if stdDev > 0 {
+			// 年化因子: 假设平均持仓时间代表交易频率
+			annualFactor := math.Sqrt(365 * 24 / max(stats.AvgHoldingHours, 1))
+			stats.SharpeRatio = (meanReturn / stdDev) * annualFactor
+		}
+	}
+
+	// 计算卡玛比率
+	if stats.MaxDrawdownPct > 0 {
+		stats.CalmarRatio = stats.TotalReturn / stats.MaxDrawdownPct
+	}
 
 	return stats, nil
 }
@@ -176,7 +214,10 @@ type SignalAnalysis struct {
 
 // GetSignalAnalysis 按信号类型分析
 func (s *StatisticsService) GetSignalAnalysis() (map[string]*SignalAnalysis, error) {
-	tracks, _ := s.trackRepo.GetClosedTracks(nil, nil)
+	tracks, err := s.trackRepo.GetClosedTracks(nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
 
 	analysis := make(map[string]*SignalAnalysis)
 
@@ -209,6 +250,12 @@ func (s *StatisticsService) GetSignalAnalysis() (map[string]*SignalAnalysis, err
 }
 
 func (s *StatisticsService) getSignalType(track *models.TradeTrack) string {
-	// 暂时返回默认类型，实际需要根据 SignalID 关联查询
-	return "unknown"
+	if s.signalRepo == nil {
+		return "unknown"
+	}
+	signal, err := s.signalRepo.GetByID(track.SignalID)
+	if err != nil || signal == nil {
+		return "unknown"
+	}
+	return signal.SourceType
 }
