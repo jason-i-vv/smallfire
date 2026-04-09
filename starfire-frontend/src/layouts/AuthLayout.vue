@@ -5,7 +5,7 @@
         <span class="logo-icon">🔥</span>
         <span class="logo-text">星火量化</span>
       </div>
-      <slot />
+      <router-view />
     </div>
   </div>
 </template>
