@@ -19,7 +19,12 @@ func CalculateATR(klines []models.Kline, period int) float64 {
 		period = len(klines) - 1
 	}
 
-	lookback := klines[len(klines)-period-1 : len(klines)-1]
+	// 取 period+1 根 K 线，计算 period 个 TR 值
+	startIdx := len(klines) - period - 1
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	lookback := klines[startIdx : len(klines)-1]
 	var trSum float64
 	for i := range lookback {
 		if i == 0 {
@@ -35,7 +40,10 @@ func CalculateATR(klines []models.Kline, period int) float64 {
 		trSum += tr
 	}
 
-	return trSum / float64(period)
+	if period-1 <= 0 {
+		return 0
+	}
+	return trSum / float64(period-1)
 }
 
 // CalculateATRPercent 计算 ATR 占最新收盘价的百分比
