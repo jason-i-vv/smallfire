@@ -27,6 +27,7 @@ func (r *KeyLevelRepoPG) GetActive(symbolID int, period string) ([]*models.KeyLe
 		       broken_price, broken_direction, klines_count, valid_until, created_at, updated_at
 		FROM key_levels
 		WHERE symbol_id = $1 AND period = $2 AND broken = false
+			  AND (valid_until IS NULL OR valid_until > NOW())
 		ORDER BY price
 	`
 
@@ -63,6 +64,7 @@ func (r *KeyLevelRepoPG) FindActive(symbolID int, period string, levelSubtype st
 		       broken_price, broken_direction, klines_count, valid_until, created_at, updated_at
 		FROM key_levels
 		WHERE symbol_id = $1 AND period = $2 AND level_subtype = $3 AND broken = false
+			  AND (valid_until IS NULL OR valid_until > NOW())
 		LIMIT 1
 	`
 
@@ -86,6 +88,7 @@ func (r *KeyLevelRepoPG) GetBySymbol(symbolID int) ([]*models.KeyLevel, error) {
 		       broken_price, broken_direction, klines_count, valid_until, created_at, updated_at
 		FROM key_levels
 		WHERE symbol_id = $1 AND broken = false
+			  AND (valid_until IS NULL OR valid_until > NOW())
 		ORDER BY price
 	`
 
@@ -118,8 +121,8 @@ func (r *KeyLevelRepoPG) GetBySymbol(symbolID int) ([]*models.KeyLevel, error) {
 func (r *KeyLevelRepoPG) Create(level *models.KeyLevel) error {
 	query := `
 		INSERT INTO key_levels (symbol_id, level_type, level_subtype, price, period, broken,
-		                        klines_count, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		                        klines_count, valid_until, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 		RETURNING id
 	`
 

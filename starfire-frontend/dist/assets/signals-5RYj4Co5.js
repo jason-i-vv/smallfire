@@ -1,0 +1,1 @@
+import{x as t}from"./index-B2lM7DaN.js";const i={list:s=>t.get("/signals",{params:s}),detail:s=>t.get(`/signals/${s}`),track:s=>t.post(`/signals/${s}/track`),getCounts:()=>t.get("/signals/counts")};export{i as s};

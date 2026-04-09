@@ -15,9 +15,19 @@ const routes = [
     ]
   },
   {
+    path: '/register',
+    component: AuthLayout,
+    children: [
+      {
+        path: '',
+        name: 'Register',
+        component: () => import('@/views/auth/Register.vue')
+      }
+    ]
+  },
+  {
     path: '/',
     component: DefaultLayout,
-    redirect: '/',
     children: [
       {
         path: '',
@@ -73,6 +83,11 @@ const routes = [
         path: 'backtest',
         name: 'Backtest',
         component: () => import('@/views/backtest/Backtest.vue')
+      },
+      {
+        path: 'users',
+        name: 'UserList',
+        component: () => import('@/views/users/UserList.vue')
       }
     ]
   }
@@ -81,6 +96,20 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+// 路由守卫
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem('token')
+  const publicPaths = ['/login', '/register']
+
+  if (!token && !publicPaths.includes(to.path)) {
+    next('/login')
+  } else if (token && publicPaths.includes(to.path)) {
+    next('/')
+  } else {
+    next()
+  }
 })
 
 export default router

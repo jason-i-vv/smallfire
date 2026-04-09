@@ -26,6 +26,7 @@ type BacktestService struct {
 	strategyFac *strategy.Factory
 	marketFac   *market.Factory
 	emaCalc     *ema.EMACalculator
+	config      config.Config
 	logger      *zap.Logger
 }
 
@@ -36,6 +37,7 @@ func NewBacktestService(
 	strategyFac *strategy.Factory,
 	marketFac *market.Factory,
 	emaCalc *ema.EMACalculator,
+	cfg config.Config,
 	logger *zap.Logger,
 ) *BacktestService {
 	return &BacktestService{
@@ -44,6 +46,7 @@ func NewBacktestService(
 		strategyFac: strategyFac,
 		marketFac:   marketFac,
 		emaCalc:     emaCalc,
+		config:      cfg,
 		logger:      logger,
 	}
 }
@@ -142,7 +145,7 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 	}
 
 	// 6. 创建策略分析器
-	analyzer := newStrategyAnalyzer(selectedStrategy, req.StrategyType)
+	analyzer := newStrategyAnalyzer(selectedStrategy, req.StrategyType, s.config)
 
 	// 7. 运行回测
 	trades, signals, boxes, trends := s.runBacktestLoop(req, symbol, sortedKlines, analyzer)
@@ -1143,6 +1146,7 @@ type LevelInfo struct {
 	Broken          bool      // 是否已突破
 	TouchCount      int       // 被触及次数（价格在价位附近波动但未突破的K线数）
 	createdAtIter   int       // 创建时的迭代次数，用于计算真实年龄
+	lastTouchIter  int       // 最后一次被触及的迭代次数
 }
 
 // keyLevelSwingPoint 波峰波谷（关键位策略专用）
@@ -1153,14 +1157,26 @@ type keyLevelSwingPoint struct {
 	Time  time.Time
 }
 
-func newKeyLevelStrategyAnalyzer(delegate strategy.Strategy) *keyLevelStrategyAnalyzer {
+func newKeyLevelStrategyAnalyzer(delegate strategy.Strategy, keyLevelCfg config.KeyLevelStrategyConfig) *keyLevelStrategyAnalyzer {
+	breakDistance := keyLevelCfg.LevelDistance / 100.0
+	if breakDistance <= 0 {
+		breakDistance = 0.002 // 默认 0.2%
+	}
+	lookback := keyLevelCfg.LookbackKlines
+	if lookback <= 0 {
+		lookback = 50
+	}
+	minAge := keyLevelCfg.MinBreakoutAge
+	if minAge <= 0 {
+		minAge = 5
+	}
 	return &keyLevelStrategyAnalyzer{
 		delegate:       delegate,
 		resistances:    make([]*LevelInfo, 0),
 		supports:       make([]*LevelInfo, 0),
-		lookbackKlines: 50,    // 回望K线数
-		breakDistance:  0.002, // 突破阈值 0.2%，过滤噪音穿越
-		minBreakoutAge: 5,     // 价位至少经过5根K线验证后才能产生突破信号
+		lookbackKlines: lookback,
+		breakDistance:  breakDistance,
+		minBreakoutAge: minAge,
 	}
 }
 
@@ -1171,6 +1187,11 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 
 	a.iteration++
 	var signals []models.Signal
+
+	// 清理过期价位：超过 lookbackKlines*2 根K线未触及且未突破的价位自动失效
+	maxAge := a.lookbackKlines * 2
+	a.resistances = a.filterExpiredLevels(a.resistances, maxAge)
+	a.supports = a.filterExpiredLevels(a.supports, maxAge)
 
 	// 最后一根K线
 	latestKline := klines[len(klines)-1]
@@ -1222,7 +1243,7 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 		breakoutPrice := level.Price * (1 + a.breakDistance)
 		if latestPrice > breakoutPrice {
 			level.Broken = true
-			if closestResistance == nil || level.Price > closestResistance.Price {
+			if closestResistance == nil || level.Price < closestResistance.Price {
 				closestResistance = level
 			}
 		}
@@ -1236,7 +1257,7 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 			SignalType:       "resistance_break",
 			SourceType:       "key_level",
 			Direction:        "long",
-			Strength:         a.calculateStrength(level, a.resistances),
+			Strength:         a.calculateStrength(level),
 			Price:            latestPrice,
 			StopLossPrice:    &level.Price,
 			Period:           latestKline.Period,
@@ -1245,9 +1266,9 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 				"level_price":        level.Price,
 				"level_time":         level.Time,
 				"level_distance":     distance,
-				"touch_count":        level.TouchCount,
+				"klines_count":        level.TouchCount,
 				"klines_away":        klinesAway,
-				"level_description":  fmt.Sprintf("波峰阻力位，触及%d次，形成于%d根K线前", level.TouchCount, klinesAway),
+				"level_description":  fmt.Sprintf("突破阻力位，触及%d次，形成于%d根K线前", level.TouchCount, klinesAway),
 			},
 			Status:           models.SignalStatusPending,
 			NotificationSent: false,
@@ -1269,7 +1290,7 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 		breakoutPrice := level.Price * (1 - a.breakDistance)
 		if latestPrice < breakoutPrice {
 			level.Broken = true
-			if closestSupport == nil || level.Price < closestSupport.Price {
+			if closestSupport == nil || level.Price > closestSupport.Price {
 				closestSupport = level
 			}
 		}
@@ -1283,7 +1304,7 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 			SignalType:       "support_break",
 			SourceType:       "key_level",
 			Direction:        "short",
-			Strength:         a.calculateStrength(level, a.supports),
+			Strength:         a.calculateStrength(level),
 			Price:            latestPrice,
 			StopLossPrice:    &level.Price,
 			Period:           latestKline.Period,
@@ -1292,9 +1313,9 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 				"level_price":        level.Price,
 				"level_time":         level.Time,
 				"level_distance":     distance,
-				"touch_count":        level.TouchCount,
+				"klines_count":        level.TouchCount,
 				"klines_away":        klinesAway,
-				"level_description":  fmt.Sprintf("波谷支撑位，触及%d次，形成于%d根K线前", level.TouchCount, klinesAway),
+				"level_description":  fmt.Sprintf("跌破支撑位，触及%d次，形成于%d根K线前", level.TouchCount, klinesAway),
 			},
 			Status:           models.SignalStatusPending,
 			NotificationSent: false,
@@ -1303,7 +1324,50 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 		signals = append(signals, *sig)
 	}
 
+	// 同一K线同时产生做多和做空信号时，选择突破距离更大的一方
+	signals = resolveConflictingSignals(signals)
+
 	return signals, nil
+}
+
+// resolveConflictingSignals 当同一K线同时产生 long 和 short 信号时，
+// 选择突破距离更大的一方（更确定的突破）。
+// 距离相近（差异 < 30%）时，取触及次数更高的一方。
+func resolveConflictingSignals(signals []models.Signal) []models.Signal {
+	if len(signals) < 2 {
+		return signals
+	}
+
+	var longSig, shortSig *models.Signal
+	for i := range signals {
+		if signals[i].Direction == "long" {
+			longSig = &signals[i]
+		} else {
+			shortSig = &signals[i]
+		}
+	}
+	if longSig == nil || shortSig == nil {
+		return signals
+	}
+
+	longDist := (*longSig.SignalData)["level_distance"].(float64)
+	shortDist := (*shortSig.SignalData)["level_distance"].(float64)
+
+	// 距离相近时，取触及次数更高的一方
+	if longDist > 0 && shortDist > 0 && math.Abs(longDist-shortDist)/math.Max(longDist, shortDist) < 0.3 {
+		longTouch := int((*longSig.SignalData)["klines_count"].(float64))
+		shortTouch := int((*shortSig.SignalData)["klines_count"].(float64))
+		if longTouch >= shortTouch {
+			return []models.Signal{*longSig}
+		}
+		return []models.Signal{*shortSig}
+	}
+
+	// 取突破距离更大的一方
+	if longDist >= shortDist {
+		return []models.Signal{*longSig}
+	}
+	return []models.Signal{*shortSig}
 }
 
 // hasLevel 检查价位是否已存在（使用相对容差 0.1%，与实盘策略一致）
@@ -1316,6 +1380,25 @@ func (a *keyLevelStrategyAnalyzer) hasLevel(levels []*LevelInfo, price float64) 
 	return false
 }
 
+
+// filterExpiredLevels 清理过期价位：超过 maxAge 根K线未触及且未突破的价位自动失效
+func (a *keyLevelStrategyAnalyzer) filterExpiredLevels(levels []*LevelInfo, maxAge int) []*LevelInfo {
+	var active []*LevelInfo
+	for _, level := range levels {
+		if level.Broken {
+			continue
+		}
+		lastActive := level.createdAtIter
+		if level.lastTouchIter > lastActive {
+			lastActive = level.lastTouchIter
+		}
+		if a.iteration-lastActive <= maxAge {
+			active = append(active, level)
+		}
+	}
+	return active
+}
+
 // countTouchSingle 只检查最新一根K线是否触及价位，避免跨窗口重复计数
 func (a *keyLevelStrategyAnalyzer) countTouchSingle(levels []*LevelInfo, kline models.Kline, levelType string) {
 	for _, level := range levels {
@@ -1325,36 +1408,27 @@ func (a *keyLevelStrategyAnalyzer) countTouchSingle(levels []*LevelInfo, kline m
 		tolerance := level.Price * 0.003 // 0.3% 容差视为触及
 		switch levelType {
 		case "resistance":
-			if kline.HighPrice >= level.Price-tolerance && kline.ClosePrice < level.Price+tolerance {
+			if kline.HighPrice >= level.Price-tolerance && kline.ClosePrice <= level.Price {
 				level.TouchCount++
 			}
 		case "support":
-			if kline.LowPrice <= level.Price+tolerance && kline.ClosePrice > level.Price-tolerance {
+			if kline.LowPrice <= level.Price+tolerance && kline.ClosePrice >= level.Price {
 				level.TouchCount++
 			}
 		}
 	}
 }
 
-// calculateStrength 计算信号强度
-func (a *keyLevelStrategyAnalyzer) calculateStrength(level *LevelInfo, allLevels []*LevelInfo) int {
-	// 基于附近价位数量计算强度
-	nearbyCount := 0
-	tolerance := level.Price * 0.005 // 0.5% 容差
-	for _, l := range allLevels {
-		if l == level {
-			continue
-		}
-		if math.Abs(l.Price-level.Price) < tolerance {
-			nearbyCount++
-		}
+// calculateStrength 计算信号强度（基于触及次数，与实盘策略一致）
+func (a *keyLevelStrategyAnalyzer) calculateStrength(level *LevelInfo) int {
+	strength := level.TouchCount
+	if strength > 5 {
+		strength = 5
 	}
-	if nearbyCount >= 2 {
-		return 3
-	} else if nearbyCount >= 1 {
-		return 2
+	if strength < 1 {
+		strength = 1
 	}
-	return 1
+	return strength
 }
 
 // detectKeyLevelSwingPoints 检测波峰波谷（关键位策略专用）
@@ -1392,7 +1466,8 @@ func (a *keyLevelStrategyAnalyzer) detectKeyLevelSwingPoints(klines []models.Kli
 				break
 			}
 		}
-		if isHigh && currHigh > prevHigh && currHigh > nextHigh {
+		midPrice := (klines[i].HighPrice + klines[i].LowPrice) / 2
+			if isHigh && currHigh > prevHigh && currHigh > nextHigh && klines[i].ClosePrice > midPrice {
 			swings = append(swings, keyLevelSwingPoint{
 				Index: i,
 				Type:  0, // 波峰
@@ -1413,7 +1488,7 @@ func (a *keyLevelStrategyAnalyzer) detectKeyLevelSwingPoints(klines []models.Kli
 				break
 			}
 		}
-		if isLow && currLow < prevLow && currLow < nextLow {
+		if isLow && currLow < prevLow && currLow < nextLow && klines[i].ClosePrice < (klines[i].HighPrice+klines[i].LowPrice)/2 {
 			swings = append(swings, keyLevelSwingPoint{
 				Index: i,
 				Type:  1, // 波谷
@@ -1456,14 +1531,14 @@ func (a *genericStrategyAnalyzer) GetTrends() []*models.Trend {
 }
 
 // newStrategyAnalyzer 创建策略分析器
-func newStrategyAnalyzer(delegate strategy.Strategy, strategyType string) strategyAnalyzer {
+func newStrategyAnalyzer(delegate strategy.Strategy, strategyType string, cfg config.Config) strategyAnalyzer {
 	switch strategyType {
 	case "box":
 		return newBoxStrategyAnalyzer(delegate)
 	case "trend":
 		return newTrendStrategyAnalyzer(delegate)
 	case "key_level":
-		return newKeyLevelStrategyAnalyzer(delegate)
+		return newKeyLevelStrategyAnalyzer(delegate, cfg.Strategies.KeyLevel)
 	default:
 		return newGenericStrategyAnalyzer(delegate)
 	}

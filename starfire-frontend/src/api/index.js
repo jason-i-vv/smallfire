@@ -27,9 +27,21 @@ api.interceptors.response.use(
     return res
   },
   error => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+    if (error.response) {
+      const { status, data } = error.response
+      const message = data?.message || error.message
+      if (status === 401) {
+        localStorage.removeItem('token')
+        token = ''
+        const currentPath = window.location.pathname
+        if (currentPath !== '/login' && currentPath !== '/register') {
+          window.location.href = '/login'
+        }
+      } else if (status === 403) {
+        ElMessage.error(message || '权限不足')
+      } else {
+        ElMessage.error(message)
+      }
     }
     return Promise.reject(error)
   }

@@ -18,71 +18,80 @@
       </el-col>
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">今日盈亏</div>
-          <div class="stat-value profit">+¥2,350.00</div>
+          <div class="stat-label">总保证金</div>
+          <div class="stat-value">{{ formatPnL(totalMargin) }}</div>
         </div>
       </el-col>
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">保证金</div>
-          <div class="stat-value">¥52,400.00</div>
+          <div class="stat-label">持仓均价</div>
+          <div class="stat-value">{{ positions.length > 0 ? formatPrice(avgEntryPrice) : '-' }}</div>
         </div>
       </el-col>
     </el-row>
 
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-state">
+      <el-icon class="is-loading"><Loading /></el-icon>
+      <span>加载中...</span>
+    </div>
+
     <!-- 持仓列表 -->
-    <el-card>
-      <template #header>
-        <span>当前持仓</span>
-      </template>
-      <PositionList :positions="positions" @close="handleClosePosition" />
-    </el-card>
+    <template v-else>
+      <el-card v-if="positions.length > 0">
+        <template #header>
+          <span>当前持仓</span>
+        </template>
+        <PositionList :positions="positions" @close="handleClosePosition" />
+      </el-card>
+      <div v-else class="empty-state">
+        <p>暂无持仓</p>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PositionList from '@/components/trades/PositionList.vue'
 import { tradeApi } from '@/api/trades'
-import { formatPnL } from '@/utils/formatters'
+import { formatPnL, formatPrice } from '@/utils/formatters'
 
+const loading = ref(false)
 const positions = ref([])
 
 const totalPnL = computed(() => {
   return positions.value.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0)
 })
 
+const totalMargin = computed(() => {
+  return positions.value.reduce((sum, p) => sum + (p.position_value || 0), 0)
+})
+
+const avgEntryPrice = computed(() => {
+  if (positions.value.length === 0) return 0
+  const total = positions.value.reduce((sum, p) => sum + (p.entry_price || 0), 0)
+  return total / positions.value.length
+})
+
 const fetchPositions = async () => {
+  loading.value = true
   try {
     const res = await tradeApi.positions()
-    positions.value = res.data || generateMockPositions()
+    positions.value = res.data || []
   } catch (error) {
     console.error('Failed to fetch positions:', error)
-    positions.value = generateMockPositions()
+  } finally {
+    loading.value = false
   }
-}
-
-const generateMockPositions = () => {
-  const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT']
-  const directions = ['long', 'short']
-
-  return symbols.map((symbol, i) => ({
-    id: i + 1,
-    symbol_code: symbol,
-    direction: directions[i % directions.length],
-    entry_price: 3000 + i * 10000,
-    current_price: 3100 + i * 10000 + (Math.random() - 0.5) * 2000,
-    quantity: 0.1 + Math.random() * 0.9,
-    unrealized_pnl: (Math.random() - 0.4) * 1000,
-    pnl_percent: (Math.random() - 0.4) * 10
-  }))
 }
 
 const handleClosePosition = async (position) => {
   try {
     await ElMessageBox.confirm(
-      `确定要平仓 ${position.symbol_code} 吗？`,
+      `确定要平仓 ${position.symbol_code || position.symbol_id} 吗？`,
       '确认平仓',
       {
         confirmButtonText: '确定',
@@ -90,7 +99,7 @@ const handleClosePosition = async (position) => {
         type: 'warning'
       }
     )
-    await tradeApi.closePosition(position.id, { reason: 'manual' })
+    await tradeApi.closePosition(position.id, { price: position.current_price })
     ElMessage.success('平仓成功')
     fetchPositions()
   } catch (error) {
@@ -135,6 +144,15 @@ onMounted(() => {
       .profit { color: $success; }
       .loss { color: $danger; }
     }
+  }
+
+  .loading-state, .empty-state {
+    text-align: center;
+    padding: 60px 24px;
+    background-color: $surface;
+    border: 1px solid $border;
+    border-radius: $border-radius;
+    color: $text-secondary;
   }
 
   :deep(.el-card) {

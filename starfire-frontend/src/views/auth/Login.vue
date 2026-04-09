@@ -29,6 +29,10 @@
             登录
           </el-button>
         </el-form-item>
+
+        <div class="register-link">
+          还没有账号？<router-link to="/register">立即注册</router-link>
+        </div>
       </el-form>
     </el-card>
   </div>
@@ -64,7 +68,7 @@ const handleLogin = async () => {
     ElMessage.success('登录成功')
     router.push('/')
   } catch (error) {
-    ElMessage.error(error.message || '登录失败')
+    // 错误已在拦截器中提示
   } finally {
     loading.value = false
   }
@@ -113,6 +117,21 @@ const handleLogin = async () => {
 
   :deep(.el-input__inner) {
     color: $text-primary;
+  }
+
+  .register-link {
+    text-align: center;
+    color: $text-secondary;
+    font-size: 14px;
+
+    a {
+      color: $primary;
+      text-decoration: none;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
   }
 }
 </style>

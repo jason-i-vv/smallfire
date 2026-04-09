@@ -97,8 +97,9 @@ strategies:
     check_interval: 60
   key_level:
     enabled: false
-    lookback_klines: 20
-    level_distance: 0.5
+    lookback_klines: 50
+    level_distance: 0.2
+    min_breakout_age: 5
     check_interval: 60
   volume_price:
     enabled: false
