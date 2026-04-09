@@ -27,5 +27,7 @@ func (h *StrategyHandler) GetStrategies(c *gin.Context) {
 		"trend":        h.config.Trend,
 		"key_level":    h.config.KeyLevel,
 		"volume_price": h.config.VolumePrice,
+		"wick":         h.config.Wick,
+		"candlestick":  h.config.Candlestick,
 	})
 }
