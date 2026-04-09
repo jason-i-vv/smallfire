@@ -174,7 +174,7 @@ func (h *SignalHandler) GetSignalCounts(c *gin.Context) {
 
 	// 获取各信号类型的数量
 	signalTypeCounts := make(map[string]int)
-	signalTypes := []string{"", "box_breakout", "box_breakdown", "trend_retracement", "resistance_break", "support_break", "volume_price_rise", "volume_price_fall", "price_surge", "upper_wick_reversal", "lower_wick_reversal", "fake_breakout_upper", "fake_breakout_lower"}
+	signalTypes := []string{"", "box_breakout", "box_breakdown", "trend_retracement", "resistance_break", "support_break", "volume_price_rise", "volume_price_fall", "price_surge", "upper_wick_reversal", "lower_wick_reversal", "fake_breakout_upper", "fake_breakout_lower", "engulfing_bullish", "engulfing_bearish", "momentum_bullish", "momentum_bearish", "morning_star", "evening_star"}
 	for _, signalType := range signalTypes {
 		count, err := h.signalRepo.CountBySignalType(signalType)
 		if err != nil {
