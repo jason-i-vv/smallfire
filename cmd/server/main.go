@@ -15,7 +15,9 @@ import (
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/database"
 	"github.com/smallfire/starfire/internal/handler"
+	"github.com/smallfire/starfire/internal/middleware"
 	"github.com/smallfire/starfire/internal/repository"
+	authservice "github.com/smallfire/starfire/internal/service/auth"
 	"github.com/smallfire/starfire/internal/service/ema"
 	"github.com/smallfire/starfire/internal/service/market"
 	"github.com/smallfire/starfire/internal/service/monitoring"
@@ -67,6 +69,14 @@ func main() {
 	trackRepo := repository.NewTradeTrackRepoPG(db)
 	monitorRepo := repository.NewMonitorRepoPG(db)
 	notifyRepo := repository.NewNotificationRepoPG(db)
+	userRepo := repository.NewUserRepoPG(db)
+
+	// 初始化认证服务
+	if cfg.JWT.Secret == "" {
+		utils.Fatal("JWT密钥未配置，请设置 JWT_SECRET 环境变量")
+	}
+		authsvc := authservice.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.ExpirationDuration(), utils.Logger)
+	utils.Info("认证服务初始化成功")
 
 	// 初始化监测服务
 	tickerRepo := repository.NewMemoryTickerRepo()
@@ -231,6 +241,8 @@ func main() {
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
 	boxHandler := handler.NewBoxHandler(boxRepo, symbolRepo, utils.Logger)
 	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelRepo, utils.Logger)
+authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
+	userHandler := handler.NewUserHandler(authsvc, utils.Logger)
 
 	// API 版本
 	apiV1 := r.Group("/api/v1")
@@ -242,97 +254,122 @@ func main() {
 				"data": gin.H{
 					"status": "ok",
 				},
-				"timestamp": time.Now().Unix(),
+					"timestamp": time.Now().Unix(),
 			})
 		})
 
-		// 市场 API
-		marketsGroup := apiV1.Group("/markets")
+		// 公开路由（无需认证）
+		authGroup := apiV1.Group("/auth")
 		{
-			marketsGroup.GET("", marketHandler.GetMarkets)
-			marketsGroup.GET("/:market_code", marketHandler.GetMarket)
+			authGroup.POST("/register", authHandler.Register)
+			authGroup.POST("/login", authHandler.Login)
 		}
 
-		// 交易标的 API
-		symbolsGroup := apiV1.Group("/symbols")
+		// 需要认证的路由
+	authenticated := apiV1.Group("")
+		authenticated.Use(middleware.AuthMiddleware(cfg.JWT.Secret, userRepo))
 		{
-			symbolsGroup.GET("", symbolHandler.GetSymbols)
-			symbolsGroup.GET("/resolve", symbolHandler.ResolveSymbol)
-			symbolsGroup.GET("/:id/klines", symbolHandler.GetSymbolKlines)
-		}
+			// 认证相关
+			authenticated.GET("/auth/me", authHandler.Me)
+			authenticated.PUT("/auth/password", authHandler.ChangePassword)
 
-		// K线数据 API
-		apiV1.GET("/klines", symbolHandler.GetKlines)
+			// 市场 API
+			marketsGroup := authenticated.Group("/markets")
+			{
+				marketsGroup.GET("", marketHandler.GetMarkets)
+				marketsGroup.GET("/:market_code", marketHandler.GetMarket)
+			}
 
-		// 市场交易标的 API
-		marketSymbolsGroup := apiV1.Group("/markets/:market_code/symbols")
-		{
-			marketSymbolsGroup.GET("", symbolHandler.GetMarketSymbols)
-		}
+			// 交易标的 API
+			symbolsGroup := authenticated.Group("/symbols")
+			{
+				symbolsGroup.GET("", symbolHandler.GetSymbols)
+				symbolsGroup.GET("/resolve", symbolHandler.ResolveSymbol)
+				symbolsGroup.GET("/:id/klines", symbolHandler.GetSymbolKlines)
+			}
 
-		// 策略信号 API
-		signalsGroup := apiV1.Group("/signals")
-		{
-			signalsGroup.GET("", signalHandler.GetSignals)
-			signalsGroup.GET("/counts", signalHandler.GetSignalCounts)
-			signalsGroup.GET("/:id", signalHandler.GetSignal)
-		}
+			// K线数据 API
+			authenticated.GET("/klines", symbolHandler.GetKlines)
 
-		// 标的信号 API
-		symbolSignalsGroup := apiV1.Group("/symbols/:id/signals")
-		{
-			symbolSignalsGroup.GET("", signalHandler.GetSymbolSignals)
-		}
+			// 市场交易标的 API
+			marketSymbolsGroup := authenticated.Group("/markets/:market_code/symbols")
+			{
+				marketSymbolsGroup.GET("", symbolHandler.GetMarketSymbols)
+			}
 
-		// 策略配置 API
-		strategiesGroup := apiV1.Group("/strategies")
-		{
-			strategiesGroup.GET("", strategyHandler.GetStrategies)
-		}
+			// 策略信号 API
+			signalsGroup := authenticated.Group("/signals")
+			{
+				signalsGroup.GET("", signalHandler.GetSignals)
+				signalsGroup.GET("/counts", signalHandler.GetSignalCounts)
+				signalsGroup.GET("/:id", signalHandler.GetSignal)
+			}
 
-		// 箱体 API
-		boxesGroup := apiV1.Group("/boxes")
-		{
-			boxesGroup.GET("", boxHandler.GetBoxes)
-			boxesGroup.GET("/:id", boxHandler.GetBox)
-		}
+			// 标的信号 API
+			symbolSignalsGroup := authenticated.Group("/symbols/:id/signals")
+			{
+				symbolSignalsGroup.GET("", signalHandler.GetSymbolSignals)
+			}
 
-		// 标的箱体 API
-		symbolBoxesGroup := apiV1.Group("/symbols/:id/boxes")
-		{
-			symbolBoxesGroup.GET("", boxHandler.GetBoxesBySymbol)
-		}
+			// 策略配置 API
+			strategiesGroup := authenticated.Group("/strategies")
+			{
+				strategiesGroup.GET("", strategyHandler.GetStrategies)
+			}
 
-		// 关键价位 API
-		keyLevelsGroup := apiV1.Group("/key-levels")
-		{
-			keyLevelsGroup.GET("", keyLevelHandler.GetAllKeyLevels)
-		}
+			// 箱体 API
+			boxesGroup := authenticated.Group("/boxes")
+			{
+				boxesGroup.GET("", boxHandler.GetBoxes)
+				boxesGroup.GET("/:id", boxHandler.GetBox)
+			}
 
-		// 标的的关键价位 API
-		symbolKeyLevelsGroup := apiV1.Group("/symbols/:id/key-levels")
-		{
-			symbolKeyLevelsGroup.GET("", keyLevelHandler.GetKeyLevelsBySymbol)
-		}
+			// 标的箱体 API
+			symbolBoxesGroup := authenticated.Group("/symbols/:id/boxes")
+			{
+				symbolBoxesGroup.GET("", boxHandler.GetBoxesBySymbol)
+			}
 
-		// 回测 API
-		backtestGroup := apiV1.Group("/backtest")
-		{
-			backtestGroup.POST("", backtestHandler.RunBacktest)
-			backtestGroup.GET("/strategies", backtestHandler.GetSupportedStrategies)
-			backtestGroup.GET("/periods", backtestHandler.GetSupportedPeriods)
-		}
+			// 关键价位 API
+			keyLevelsGroup := authenticated.Group("/key-levels")
+			{
+				keyLevelsGroup.GET("", keyLevelHandler.GetAllKeyLevels)
+			}
 
-		// 交易跟踪 API
-		tradesGroup := apiV1.Group("/trades")
-		{
-			tradesGroup.GET("/positions", tradeHandler.GetOpenPositions)
-			tradesGroup.GET("/history", tradeHandler.GetTradeHistory)
-			tradesGroup.GET("/closed", tradeHandler.GetClosedPositions)
-			tradesGroup.GET("/stats", tradeHandler.GetTradeStats)
-			tradesGroup.GET("/signal-analysis", tradeHandler.GetSignalAnalysis)
-			tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
-			tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
+			// 标的的关键价位 API
+			symbolKeyLevelsGroup := authenticated.Group("/symbols/:id/key-levels")
+			{
+				symbolKeyLevelsGroup.GET("", keyLevelHandler.GetKeyLevelsBySymbol)
+			}
+
+			// 回测 API
+			backtestGroup := authenticated.Group("/backtest")
+			{
+				backtestGroup.POST("", backtestHandler.RunBacktest)
+				backtestGroup.GET("/strategies", backtestHandler.GetSupportedStrategies)
+				backtestGroup.GET("/periods", backtestHandler.GetSupportedPeriods)
+			}
+
+			// 交易跟踪 API
+			tradesGroup := authenticated.Group("/trades")
+			{
+				tradesGroup.GET("/positions", tradeHandler.GetOpenPositions)
+				tradesGroup.GET("/history", tradeHandler.GetTradeHistory)
+				tradesGroup.GET("/closed", tradeHandler.GetClosedPositions)
+				tradesGroup.GET("/stats", tradeHandler.GetTradeStats)
+				tradesGroup.GET("/signal-analysis", tradeHandler.GetSignalAnalysis)
+				tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
+				tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
+			}
+
+			// 管理员 API
+			adminGroup := authenticated.Group("/users")
+			adminGroup.Use(middleware.RequireRole("admin"))
+			{
+				adminGroup.GET("", userHandler.ListUsers)
+				adminGroup.PUT("/:id/status", userHandler.UpdateUserStatus)
+				adminGroup.PUT("/:id/password", userHandler.ResetPassword)
+			}
 		}
 	}
 

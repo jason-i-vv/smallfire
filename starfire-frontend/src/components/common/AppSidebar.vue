@@ -57,6 +57,7 @@
             <span>系统设置</span>
           </template>
           <el-menu-item index="/settings">系统配置</el-menu-item>
+          <el-menu-item v-if="isAdmin" index="/users">用户管理</el-menu-item>
         </el-sub-menu>
 
         <el-menu-item index="/backtest">
@@ -78,6 +79,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import {
   HomeFilled,
   TrendCharts,
@@ -91,14 +93,17 @@ import {
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const isCollapsed = ref(false)
+
+const isAdmin = computed(() => authStore.isAdmin)
 
 const activeMenu = computed(() => {
   const path = route.path
   // 匹配根路径
   if (path === '/') return '/'
   // 匹配其他路径
-  const matchPath = ['/signals', '/boxes', '/tracking', '/positions', '/trades', '/statistics', '/settings', '/backtest']
+  const matchPath = ['/signals', '/boxes', '/tracking', '/positions', '/trades', '/statistics', '/settings', '/backtest', '/users']
   for (const p of matchPath) {
     if (path.startsWith(p)) return path
   }

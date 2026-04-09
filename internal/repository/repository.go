@@ -148,4 +148,16 @@ type NotificationRepo interface {
 	Update(notification *models.Notification) error
 }
 
+// UserRepo 用户数据访问接口
+type UserRepo interface {
+	GetByUsername(username string) (*models.User, error)
+	GetByID(id int) (*models.User, error)
+	Create(user *models.User) error
+	UpdatePassword(id int, passwordHash string) error
+	UpdateLastLoginAt(id int) error
+	UpdateIsActive(id int, isActive bool) error
+	List() ([]*models.User, error)
+	ExistsByUsername(username string) (bool, error)
+}
+
 

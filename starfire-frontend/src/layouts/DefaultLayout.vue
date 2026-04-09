@@ -62,6 +62,7 @@ const lastSyncTime = ref('--')
 let timer = null
 
 onMounted(() => {
+  authStore.fetchUser()
   updateSyncTime()
   timer = setInterval(updateSyncTime, 60000)
 })
@@ -88,7 +89,8 @@ const pageTitleMap = {
   '/boxes': '箱体列表',
   '/tracking': '趋势标的',
   '/settings': '系统设置',
-  '/backtest': '策略回测'
+  '/backtest': '策略回测',
+  '/users': '用户管理'
 }
 
 const pageTitle = computed(() => {
