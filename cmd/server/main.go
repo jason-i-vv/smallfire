@@ -145,8 +145,7 @@ func main() {
 	utils.Info("行情抓取器工厂初始化成功", zap.Int("fetcher_count", factory.Count()))
 
 	// 初始化 K线查询服务
-	klineService := market.NewKlineService(klineRepo, factory, utils.Logger)
-	_ = klineService
+	klineService := market.NewKlineService(klineRepo, symbolRepo, factory, utils.Logger)
 	utils.Info("K线查询服务初始化成功")
 
 	// 初始化热度管理器
@@ -179,7 +178,7 @@ func main() {
 	backtestStrategyFactory := strategy.NewFactory(&cfg.Strategies, strategyDeps, utils.Logger, true)
 
 	// 初始化回测服务
-	backtestService := backtest.NewBacktestService(klineRepo, symbolRepo, backtestStrategyFactory, factory, emaCalc, utils.Logger)
+	backtestService := backtest.NewBacktestService(klineRepo, symbolRepo, backtestStrategyFactory, factory, emaCalc, *cfg, utils.Logger)
 	utils.Info("回测服务初始化成功")
 
 	// 初始化同步服务
@@ -234,7 +233,7 @@ func main() {
 
 	// 初始化 API 处理器
 	marketHandler := handler.NewMarketHandler(marketRepo, utils.Logger)
-	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, utils.Logger)
+	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, klineService, utils.Logger)
 	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
 	tradeHandler := handler.NewTradeHandler(trackRepo, tradeExecutor, statsService, utils.Logger)

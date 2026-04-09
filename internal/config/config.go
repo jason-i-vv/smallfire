@@ -105,8 +105,9 @@ type TrendStrategyConfig struct {
 
 type KeyLevelStrategyConfig struct {
 	Enabled        bool    `mapstructure:"enabled"`
-	LookbackKlines int     `mapstructure:"lookback_klines"` // 回溯K线数
-	LevelDistance  float64 `mapstructure:"level_distance"`  // 价位间距阈值(%)
+	LookbackKlines int     `mapstructure:"lookback_klines"`   // 回溯K线数
+	LevelDistance  float64 `mapstructure:"level_distance"`    // 突破阈值(%)
+	MinBreakoutAge int     `mapstructure:"min_breakout_age"`  // 价位最小成熟期(K线数)
 	CheckInterval  int     `mapstructure:"check_interval"`
 }
 
