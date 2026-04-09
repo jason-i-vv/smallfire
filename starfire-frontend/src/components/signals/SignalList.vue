@@ -70,7 +70,8 @@ const getSourceTypeName = (type) => {
     trend: '趋势',
     key_level: '关键位',
     volume: '量价',
-    wick: '引线'
+    wick: '引线',
+    candlestick: 'K线形态'
   }
   return names[type] || type
 }
@@ -96,6 +97,13 @@ const getSignalTypeName = (type) => {
     lower_wick_reversal: '下引线反转',
     fake_breakout_upper: '假突破上引',
     fake_breakout_lower: '假突破下引',
+    // K线形态信号
+    engulfing_bullish: '阳包阴吞没',
+    engulfing_bearish: '阴包阳吞没',
+    momentum_bullish: '连阳动量',
+    momentum_bearish: '连阴动量',
+    morning_star: '早晨之星',
+    evening_star: '黄昏之星',
     // 交易信号
     long_signal: '做多信号',
     short_signal: '做空信号'

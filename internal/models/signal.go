@@ -78,11 +78,20 @@ const (
 	SignalTypeFakeBreakoutUpper = "fake_breakout_upper"  // 假突破上引线（空头）
 	SignalTypeFakeBreakoutLower = "fake_breakout_lower"  // 假突破下引线（多头）
 
-	SourceTypeBox      = "box"
-	SourceTypeTrend   = "trend"
-	SourceTypeKeyLevel = "key_level"
-	SourceTypeVolume   = "volume"
-	SourceTypeWick     = "wick"
+	// K线形态信号类型
+	SignalTypeEngulfingBullish = "engulfing_bullish" // 阳包阴（看多）
+	SignalTypeEngulfingBearish = "engulfing_bearish" // 阴包阳（看空）
+	SignalTypeMomentumBullish  = "momentum_bullish"  // 三连阳实体递增（看多）
+	SignalTypeMomentumBearish  = "momentum_bearish"  // 三连阴实体递增（看空）
+	SignalTypeMorningStar      = "morning_star"       // 早晨之星（看多）
+	SignalTypeEveningStar      = "evening_star"       // 黄昏之星（看空）
+
+	SourceTypeBox        = "box"
+	SourceTypeTrend      = "trend"
+	SourceTypeKeyLevel   = "key_level"
+	SourceTypeVolume     = "volume"
+	SourceTypeWick       = "wick"
+	SourceTypeCandlestick = "candlestick"
 
 	DirectionLong  = "long"
 	DirectionShort = "short"

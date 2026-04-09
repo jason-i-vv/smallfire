@@ -206,7 +206,8 @@ const sourceTypeOptions = reactive([
   { label: '趋势', value: 'trend', count: 0 },
   { label: '关键位', value: 'key_level', count: 0 },
   { label: '量价', value: 'volume', count: 0 },
-  { label: '引线', value: 'wick', count: 0 }
+  { label: '引线', value: 'wick', count: 0 },
+  { label: 'K线形态', value: 'candlestick', count: 0 }
 ])
 
 // 策略类型与信号类型的映射关系
@@ -216,7 +217,8 @@ const sourceSignalTypeMap = {
   'trend': ['trend_retracement', 'trend_reversal'],
   'key_level': ['resistance_break', 'support_break'],
   'volume': ['volume_price_rise', 'volume_price_fall', 'price_surge', 'volume_surge'],
-  'wick': ['upper_wick_reversal', 'lower_wick_reversal', 'fake_breakout_upper', 'fake_breakout_lower']
+  'wick': ['upper_wick_reversal', 'lower_wick_reversal', 'fake_breakout_upper', 'fake_breakout_lower'],
+  'candlestick': ['engulfing_bullish', 'engulfing_bearish', 'momentum_bullish', 'momentum_bearish', 'morning_star', 'evening_star']
 }
 
 // 所有信号类型选项（完整列表）
@@ -234,7 +236,13 @@ const allSignalTypeOptions = [
   { label: '上引线反转', value: 'upper_wick_reversal', count: 0 },
   { label: '下引线反转', value: 'lower_wick_reversal', count: 0 },
   { label: '假突破上引', value: 'fake_breakout_upper', count: 0 },
-  { label: '假突破下引', value: 'fake_breakout_lower', count: 0 }
+  { label: '假突破下引', value: 'fake_breakout_lower', count: 0 },
+  { label: '阳包阴吞没', value: 'engulfing_bullish', count: 0 },
+  { label: '阴包阳吞没', value: 'engulfing_bearish', count: 0 },
+  { label: '连阳动量', value: 'momentum_bullish', count: 0 },
+  { label: '连阴动量', value: 'momentum_bearish', count: 0 },
+  { label: '早晨之星', value: 'morning_star', count: 0 },
+  { label: '黄昏之星', value: 'evening_star', count: 0 }
 ]
 
 // 信号类型选项（动态，根据策略筛选）
@@ -419,7 +427,8 @@ const getSourceTypeName = (type) => {
     trend: '趋势',
     key_level: '关键位',
     volume: '量价',
-    wick: '引线'
+    wick: '引线',
+    candlestick: 'K线形态'
   }
   return names[type] || type
 }
@@ -445,6 +454,13 @@ const getSignalTypeName = (type) => {
     lower_wick_reversal: '下引线反转',
     fake_breakout_upper: '假突破上引',
     fake_breakout_lower: '假突破下引',
+    // K线形态信号
+    engulfing_bullish: '阳包阴吞没',
+    engulfing_bearish: '阴包阳吞没',
+    momentum_bullish: '连阳动量',
+    momentum_bearish: '连阴动量',
+    morning_star: '早晨之星',
+    evening_star: '黄昏之星',
     // 交易信号
     long_signal: '做多信号',
     short_signal: '做空信号'

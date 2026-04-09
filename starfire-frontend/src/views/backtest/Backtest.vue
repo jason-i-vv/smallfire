@@ -538,7 +538,8 @@ const strategyLabels = {
   'trend': '趋势跟踪',
   'key_level': '关键价位',
   'volume_price': '量价分析',
-  'wick': '引线策略'
+  'wick': '引线策略',
+  'candlestick': 'K线形态'
 }
 
 const getStrategyLabel = (type) => strategyLabels[type] || type
@@ -557,7 +558,13 @@ const getSignalTypeLabel = (type) => {
     'upper_wick_reversal': '上引线反转',
     'lower_wick_reversal': '下引线反转',
     'fake_breakout_upper': '假突破上引线',
-    'fake_breakout_lower': '假突破下引线'
+    'fake_breakout_lower': '假突破下引线',
+    'engulfing_bullish': '阳包阴吞没',
+    'engulfing_bearish': '阴包阳吞没',
+    'momentum_bullish': '连阳动量',
+    'momentum_bearish': '连阴动量',
+    'morning_star': '早晨之星',
+    'evening_star': '黄昏之星'
   }
   return map[type] || type
 }
@@ -645,7 +652,7 @@ const loadSymbols = async () => {
 
 // 加载策略列表
 // 策略显示顺序
-const strategyOrder = ['box', 'trend', 'key_level', 'volume_price', 'wick']
+const strategyOrder = ['box', 'trend', 'key_level', 'volume_price', 'wick', 'candlestick']
 
 const loadStrategies = async () => {
   try {

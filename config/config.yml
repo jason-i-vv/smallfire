@@ -122,6 +122,16 @@ strategies:
     strength_lookback: 20      # 历史引线回溯数
     signal_cooldown: 30        # 信号冷却期（分钟）
     check_interval: 60
+  candlestick:
+    enabled: true
+    atr_period: 14               # ATR 计算周期
+    body_atr_threshold: 0.5      # 实体最小 ATR 倍数（实体 > ATR*0.5 才算显著）
+    momentum_min_count: 3         # 三连K最少连续K线数
+    star_body_atr_max: 0.3       # 早晨/黄昏之星中间K线实体上限（ATR倍数）
+    star_shadow_ratio: 1.0       # 星形影线最小比例
+    require_trend: true          # 启用趋势过滤
+    signal_cooldown: 60          # 同类型信号冷却时间（分钟）
+    check_interval: 300
 
 # 交易配置
 trading:
