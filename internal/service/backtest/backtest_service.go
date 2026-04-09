@@ -1946,6 +1946,7 @@ func (s *BacktestService) GetSupportedStrategies() []map[string]string {
 		{"key_level", "关键价位"},
 		{"volume_price", "量价分析"},
 		{"wick", "引线策略"},
+		{"candlestick", "K线形态"},
 	}
 	result := make([]map[string]string, 0, len(allStrategies))
 	for _, st := range allStrategies {
