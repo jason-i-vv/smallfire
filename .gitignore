@@ -3,3 +3,4 @@ starfire-frontend/node_modules
 postgres_data
 .gstack/
 .claude/skills/gstack/
+.vite/
