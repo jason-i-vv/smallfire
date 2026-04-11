@@ -131,7 +131,7 @@ type CandlestickStrategyConfig struct {
 
     // ATR 参数（形态显著性判断）
     ATRPeriod        int     `mapstructure:"atr_period"`          // ATR 周期（默认14）
-    BodyATRThreshold float64 `mapstructure:"body_atr_threshold"` // 实体最小 ATR 倍数（默认0.5）
+    BodyATRThreshold float64 `mapstructure:"body_atr_threshold"` // 实体最小 ATR 倍数（默认1.0）
 
     // 三连K参数
     MomentumMinCount int     `mapstructure:"momentum_min_count"`  // 最少连续K线数（默认3）
@@ -139,6 +139,7 @@ type CandlestickStrategyConfig struct {
     // 星形参数
     StarBodyATRMax   float64 `mapstructure:"star_body_atr_max"`   // 星形中间K线实体上限（ATR倍数，默认0.3）
     StarShadowRatio  float64 `mapstructure:"star_shadow_ratio"`   // 星形影线最小比例（默认1.0）
+    StarMidpointMin  float64 `mapstructure:"star_midpoint_min"`   // 第三根K线收盘穿透第一根中点最低比例（默认0.005即0.5%）
 
     // 趋势过滤
     RequireTrend     bool    `mapstructure:"require_trend"`       // 是否启用趋势过滤（默认true）
@@ -157,10 +158,11 @@ strategies:
   candlestick:
     enabled: true
     atr_period: 14
-    body_atr_threshold: 0.5       # 实体 < ATR*0.5 的K线视为"小实体"
+    body_atr_threshold: 1.0       # 实体 > ATR*1.0 才算"显著大K线"
     momentum_min_count: 3          # 三连K最少3根
     star_body_atr_max: 0.3        # 早晨之星中间K线实体上限
     star_shadow_ratio: 1.0        # 星形影线最小比例
+    star_midpoint_min: 0.005      # 第三根K线收盘价至少穿透第一根中点0.5%
     require_trend: true            # 启用趋势过滤
     signal_cooldown: 60            # 信号冷却60分钟
     check_interval: 300
@@ -259,15 +261,18 @@ Strength 1: 3根连续 + 最后一根实体 > 第一根（刚好达标）
 
 ```
 早晨之星（看多反转）：
-条件1: 第一根K线为大阴线（实体 > ATR * BodyATRThreshold）
+条件1: 第一根K线为大阴线（实体 > ATR * BodyATRThreshold，默认1.0倍ATR）
 条件2: 第二根K线为小实体（实体 < ATR * StarBodyATRMax）
   - 可以为阳线、阴线、十字星
   - 第二根的实体中心在第一根实体范围内（Gap 更好但非必须）
 条件3: 第三根K线为大阳线（实体 > ATR * BodyATRThreshold）
   - 第三根收盘价 > 第一根实体中点
+  - 穿透比例 = (第三根收盘 - 第一根中点) / 第一根收盘 >= StarMidpointMin（默认0.5%）
 条件4: 三根K线的时间间隔连续（中间无跳过）
 
 黄昏之星（看空反转）：镜像逻辑
+  - 第三根收盘价 < 第一根实体中点
+  - 穿透比例 = (第一根中点 - 第三根收盘) / 第一根收盘 >= StarMidpointMin
 ```
 
 ### 信号强度
@@ -289,6 +294,7 @@ Strength 1: 第二根K线实体偏大（接近 StarBodyATRMax 上限）
   "star_body_atr": 0.15,
   "third_body_atr": 1.3,
   "third_close_vs_first_midpoint": 0.025,
+  "midpoint_ratio": 0.025,
   "atr": 166.8
 }
 ```
@@ -410,3 +416,61 @@ runner.go 的 `shouldCreateSignal` 检查同 SignalType 在 1 小时内是否已
 6. 更新 `config.yml` 配置
 7. 编写单元测试
 8. 前端适配（信号类型筛选 + 图表标记）
+
+## 变更记录
+
+### 2026-04-10 — 信号去重失效修复 + API 状态过滤修复
+
+**问题**：用户收到 LYB 飞书通知（momentum_bullish），但在信号列表 API 中查不到。进一步排查发现数据库中有 20773 条重复信号，去重完全失效。
+
+**根因分析**：
+1. **信号状态不匹配**：蜡烛图策略生成的信号状态为 `active`，但信号列表 API 默认查询 `status = 'pending'`，导致查不到 candlestick 类型的信号
+2. **去重查询时区问题**：pgx v5 默认将 `time.Time` 映射为 `timestamptz` 类型，但 `kline_time` 列是 `timestamp without time zone`，隐式类型转换在特定时区环境下可能导致比较失败，去重查询永远返回 false
+
+**修复内容**：
+1. `signal_handler.go` — API 的 `status` 参数改为不设默认值，查询所有状态的信号
+2. `signal_repo.go` — `ExistsDuplicate` 查询中 `$4` 增加 `::timestamp` 显式类型转换，避免 timestamptz 隐式转换
+3. `signal_repo.go` — 三个 Count 方法（`CountByMarket`、`CountBySignalType`、`CountBySourceType`）移除硬编码的 `status = 'pending'` 过滤
+4. 新增迁移 `000007_signal_unique_dedup` — 在 signals 表添加 `(symbol_id, signal_type, period, kline_time)` 唯一索引，从数据库层面防止重复
+5. 清理数据库中 20773 条重复信号，每组只保留最早创建的一条
+
+### 2026-04-11 — 回测信号验证机制
+
+**背景**：回测中发现策略产生的信号存在大量重复（去重失效），且无法审计信号是否真正满足策略条件。
+
+**设计决策**：
+- 只在回测中运行，不影响实盘性能
+- 后置验证（post-pass）：回测完成后对所有信号做一次验证
+- 只报告不过滤：无效/重复信号仍保留在结果中，验证结果作为独立报告返回
+
+**验证内容**：
+1. **去重检查** — 按 `(SymbolCode, SignalType, Period, KlineTime)` 分组，标记重复信号
+2. **正确性检查** — 用 K 线数据独立验证形态条件是否成立（吞没、动量、星形）
+3. **数据一致性检查** — 交叉验证 `signal_data` 中的存储值与实际计算值是否一致
+
+**新增文件**：
+- `internal/service/backtest/signal_verifier.go` — 验证引擎主逻辑
+- `internal/service/backtest/signal_verifier_test.go` — 12 个测试用例
+
+**修改文件**：
+- `internal/models/backtest.go` — 新增 `SignalVerificationReport` 类型和 `BacktestResponse.SignalVerification` 字段
+- `internal/service/backtest/backtest_service.go` — 在回测步骤 10-11 之间插入验证调用
+
+### 2026-04-10 — 早晨/黄昏之星检测阈值优化
+
+**问题**：回测发现多个黄昏之星信号在图表上不符合"大阳→小实体→大阴"特征。
+
+**根因分析**：
+- `body_atr_threshold` 设为 0.5，在低波动率时期（ATR 极小），普通K线也能通过阈值，被误判为"大K线"
+- 中点穿透无最低比例要求，仅检查严格不等式（`third.ClosePrice < firstMidpoint`），导致穿透仅 0.006% 的边际信号也通过
+
+**修复内容**：
+1. `body_atr_threshold` 从 0.5 提高到 1.0 — "大K线"实体至少 1 倍 ATR
+2. 新增 `star_midpoint_min` 参数（默认 0.005 = 0.5%）— 第三根K线收盘价必须显著穿透第一根中点
+3. 信号数据新增 `midpoint_ratio` 字段，记录实际穿透比例
+
+**影响范围**：
+- `internal/config/config.go` — 新增 `StarMidpointMin` 配置字段
+- `internal/service/strategy/candlestick_strategy.go` — `detectStar` 增加穿透比例检查
+- `config/config.yml` — 更新阈值参数
+- `docs/candlestick_pattern_framework_20260409.md` — 更新文档
