@@ -267,11 +267,18 @@ func (s *CandlestickStrategy) detectStar(klines []models.Kline, atr float64, tre
 		starBodyATRMax = 0.3
 	}
 
+	// 中点穿透最低比例（默认 0.5%）
+	midpointMin := s.config.StarMidpointMin
+	if midpointMin <= 0 {
+		midpointMin = 0.005
+	}
+
 	firstBody := helpers.BodySize(first)
 	starBody := helpers.BodySize(star)
 	thirdBody := helpers.BodySize(third)
 
 	var signalType, direction, desc string
+	var midpointRatio float64
 
 	if helpers.IsBearish(first) && helpers.IsBullish(third) {
 		// 早晨之星（看多反转）
@@ -285,7 +292,8 @@ func (s *CandlestickStrategy) detectStar(klines []models.Kline, atr float64, tre
 			return nil
 		}
 		firstMidpoint := (first.OpenPrice + first.ClosePrice) / 2
-		if third.ClosePrice <= firstMidpoint {
+		midpointRatio = (third.ClosePrice - firstMidpoint) / first.ClosePrice
+		if third.ClosePrice <= firstMidpoint || midpointRatio < midpointMin {
 			return nil
 		}
 
@@ -305,7 +313,8 @@ func (s *CandlestickStrategy) detectStar(klines []models.Kline, atr float64, tre
 			return nil
 		}
 		firstMidpoint := (first.OpenPrice + first.ClosePrice) / 2
-		if third.ClosePrice >= firstMidpoint {
+		midpointRatio = (firstMidpoint - third.ClosePrice) / first.ClosePrice
+		if third.ClosePrice >= firstMidpoint || midpointRatio < midpointMin {
 			return nil
 		}
 
@@ -325,6 +334,7 @@ func (s *CandlestickStrategy) detectStar(klines []models.Kline, atr float64, tre
 		"star_body_atr":                 starBody / atr,
 		"third_body_atr":                thirdBody / atr,
 		"third_close_vs_first_midpoint": math.Abs(third.ClosePrice-(first.OpenPrice+first.ClosePrice)/2) / first.ClosePrice,
+		"midpoint_ratio":                math.Abs(midpointRatio),
 		"atr":                           atr,
 	}
 
@@ -390,7 +400,7 @@ func (s *CandlestickStrategy) newSignal(signalType, direction, desc string, stre
 }
 
 func (s *CandlestickStrategy) calculateStopLoss(kline models.Kline, direction string) float64 {
-	buffer := (kline.HighPrice - kline.LowPrice) * 0.002
+	buffer := (kline.HighPrice - kline.LowPrice) * 0.1
 
 	if direction == models.DirectionLong {
 		return kline.LowPrice - buffer
