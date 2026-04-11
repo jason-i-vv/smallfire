@@ -181,9 +181,10 @@ func (f *FeishuNotifier) SendSignalNotification(signal *models.Signal) error {
 	}
 
 	signalType := f.getSignalTypeName(signal.SignalType)
+	market := getMarketLabel(signal.SymbolCode)
 
 	content := &NotifyContent{
-		Title:   fmt.Sprintf("%s %s %s", emoji, signal.SymbolCode, signalType),
+		Title:   fmt.Sprintf("%s %s %s %s", emoji, market, signal.SymbolCode, signalType),
 		Type:    models.NotifyTypeSignal,
 		Message: fmt.Sprintf("📊 **周期**: %s\n📈 **方向**: %s\n⭐ **强度**: %s\n💰 **信号价格**: %.4f",
 			signal.Period, direction, strength, signal.Price),
@@ -207,6 +208,12 @@ func (f *FeishuNotifier) getSignalTypeName(signalType string) string {
 		"lower_wick_reversal":  "下引线反转",
 		"fake_breakout_upper":  "假突破上引线",
 		"fake_breakout_lower":  "假突破下引线",
+		"engulfing_bullish":    "阳包阴吞没",
+		"engulfing_bearish":    "阴包阳吞没",
+		"momentum_bullish":     "连阳动量",
+		"momentum_bearish":     "连阴动量",
+		"morning_star":         "早晨之星",
+		"evening_star":         "黄昏之星",
 	}
 	if name, ok := names[signalType]; ok {
 		return name

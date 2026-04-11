@@ -2,6 +2,7 @@ package notification
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -151,13 +152,12 @@ func (b *SignalBatcher) buildBatchContent(signals []*models.Signal) *NotifyConte
 		}
 
 		signalType := getSignalTypeName(signal.SignalType)
+		market := getMarketLabel(signal.SymbolCode)
 
-		message += fmt.Sprintf("**%d.** %s %s %s\n", i+1, emoji, signal.SymbolCode, signalType)
+		message += fmt.Sprintf("**%d.** %s %s %s %s\n", i+1, emoji, signal.SymbolCode, signalType, market)
 		message += fmt.Sprintf("   周期: %s | 方向: %s | 强度: %s | 价格: %.4f\n\n",
 			signal.Period, direction, strength, signal.Price)
 	}
-
-	message += fmt.Sprintf("\n> 🕐 %s", FormatCSTTime(time.Now()))
 
 	return &NotifyContent{
 		Title:   fmt.Sprintf("🔔 信号汇总 (%d)", len(signals)),
@@ -182,9 +182,29 @@ func getSignalTypeName(signalType string) string {
 		"lower_wick_reversal": "下引线反转",
 		"fake_breakout_upper": "假突破上引线",
 		"fake_breakout_lower": "假突破下引线",
+		"engulfing_bullish":   "阳包阴吞没",
+		"engulfing_bearish":   "阴包阳吞没",
+		"momentum_bullish":    "连阳动量",
+		"momentum_bearish":    "连阴动量",
+		"morning_star":        "早晨之星",
+		"evening_star":        "黄昏之星",
 	}
 	if name, ok := names[signalType]; ok {
 		return name
 	}
 	return signalType
+}
+
+// getMarketLabel 从 SymbolCode 推断市场标签
+func getMarketLabel(symbolCode string) string {
+	code := strings.ToUpper(symbolCode)
+	if strings.HasSuffix(code, "USDT") {
+		return "[加密]"
+	}
+	// A股代码以数字开头，通常6位
+	if len(code) == 6 && code[0] >= '0' && code[0] <= '9' {
+		return "[A股]"
+	}
+	// 其余识别为美股
+	return "[美股]"
 }

@@ -159,6 +159,12 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 	// 10. 对返回数据进行排序（按时间正序）
 	s.sortBacktestResult(boxes, signals, trades, trends, equityCurve)
 
+	// 10.5 信号验证（回测质量审计）
+	var verification *models.SignalVerificationReport
+	if len(signals) > 0 {
+		verification = VerifySignals(signals, sortedKlines, req.StrategyType, s.config.Strategies.Candlestick)
+	}
+
 	// 11. 构建响应
 	response := &models.BacktestResponse{
 		Request:     req,
@@ -168,6 +174,7 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 		EquityCurve: equityCurve,
 		Boxes:       boxes,
 		Trends:      trends,
+		SignalVerification: verification,
 		RunTimeMs:   time.Since(startTime).Milliseconds(),
 	}
 
@@ -180,6 +187,14 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 		zap.Float64("win_rate", stats.WinRate),
 		zap.Float64("total_pnl", stats.TotalPnL),
 		zap.Int64("run_time_ms", response.RunTimeMs))
+
+	if verification != nil {
+		s.logger.Info("信号验证结果",
+			zap.Int("valid", verification.ValidCount),
+			zap.Int("invalid", verification.InvalidCount),
+			zap.Int("duplicate", verification.DuplicateCount),
+			zap.Int("skipped", verification.SkippedCount))
+	}
 
 	// 保存回测结果到本地文件
 	s.saveBacktestResult(response)
