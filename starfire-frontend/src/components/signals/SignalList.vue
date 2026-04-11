@@ -34,18 +34,9 @@
           {{ formatPrice(row.price) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150">
+      <el-table-column label="操作" width="80">
         <template #default="{ row }">
           <el-button size="small" link @click="handleView(row)">查看</el-button>
-          <el-button
-            v-if="row.status === 'pending'"
-            type="primary"
-            size="small"
-            link
-            @click="handleTrack(row)"
-          >
-            跟踪
-          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -62,7 +53,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['view', 'track'])
+const emit = defineEmits(['view'])
 
 const getSourceTypeName = (type) => {
   const names = {
@@ -70,7 +61,8 @@ const getSourceTypeName = (type) => {
     trend: '趋势',
     key_level: '关键位',
     volume: '量价',
-    wick: '引线'
+    wick: '引线',
+    candlestick: 'K线形态'
   }
   return names[type] || type
 }
@@ -88,7 +80,9 @@ const getSignalTypeName = (type) => {
     support_break: '支撑跌破',
     // 量价信号
     volume_surge: '量能放大',
-    price_surge: '价格飙升',
+    price_surge: '价格异动',
+    price_surge_up: '价格急涨',
+    price_surge_down: '价格急跌',
     volume_price_fall: '量价齐跌',
     volume_price_rise: '量价齐升',
     // 上下引线信号
@@ -96,6 +90,13 @@ const getSignalTypeName = (type) => {
     lower_wick_reversal: '下引线反转',
     fake_breakout_upper: '假突破上引',
     fake_breakout_lower: '假突破下引',
+    // K线形态信号
+    engulfing_bullish: '阳包阴吞没',
+    engulfing_bearish: '阴包阳吞没',
+    momentum_bullish: '连阳动量',
+    momentum_bearish: '连阴动量',
+    morning_star: '早晨之星',
+    evening_star: '黄昏之星',
     // 交易信号
     long_signal: '做多信号',
     short_signal: '做空信号'
@@ -105,10 +106,6 @@ const getSignalTypeName = (type) => {
 
 const handleView = (signal) => {
   emit('view', signal)
-}
-
-const handleTrack = (signal) => {
-  emit('track', signal)
 }
 </script>
 

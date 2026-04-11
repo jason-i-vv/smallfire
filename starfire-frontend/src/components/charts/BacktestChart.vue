@@ -60,9 +60,18 @@ const SIGNAL_MARKER_CONFIG = {
   'fake_breakout_upper':  { color: '#FF9800', shape: 'arrowDown', position: 'aboveBar' },
   'fake_breakout_lower':  { color: '#FFD740', shape: 'arrowUp',   position: 'belowBar' },
   'price_surge':          { color: '#FF6B6B', shape: 'arrowDown', position: 'aboveBar' },
+  'price_surge_up':       { color: '#66BB6A', shape: 'arrowUp',   position: 'belowBar' },
+  'price_surge_down':     { color: '#FF6B6B', shape: 'arrowDown', position: 'aboveBar' },
   'volume_surge':         { color: '#4FC3F7', shape: 'arrowUp',   position: 'belowBar' },
   'volume_price_rise':    { color: '#66BB6A', shape: 'arrowUp',   position: 'belowBar' },
-  'volume_price_fall':    { color: '#FF7043', shape: 'arrowDown', position: 'aboveBar' }
+  'volume_price_fall':    { color: '#FF7043', shape: 'arrowDown', position: 'aboveBar' },
+  // K线形态信号
+  'engulfing_bullish':    { color: '#7C4DFF', shape: 'arrowUp',   position: 'belowBar' },
+  'engulfing_bearish':    { color: '#E040FB', shape: 'arrowDown', position: 'aboveBar' },
+  'momentum_bullish':     { color: '#00E676', shape: 'arrowUp',   position: 'belowBar' },
+  'momentum_bearish':     { color: '#FF1744', shape: 'arrowDown', position: 'aboveBar' },
+  'morning_star':         { color: '#651FFF', shape: 'arrowUp',   position: 'belowBar' },
+  'evening_star':         { color: '#D500F9', shape: 'arrowDown', position: 'aboveBar' }
 }
 
 const SIGNAL_OVERLAY_STYLES = {
@@ -71,9 +80,18 @@ const SIGNAL_OVERLAY_STYLES = {
   'fake_breakout_upper':  { lineColor: 'rgba(255,152,0,0.5)',   dotColor: '#FF9800' },
   'fake_breakout_lower':  { lineColor: 'rgba(255,215,64,0.5)',  dotColor: '#FFD740' },
   'price_surge':          { lineColor: 'rgba(255,107,107,0.5)', dotColor: '#FF6B6B' },
+  'price_surge_up':       { lineColor: 'rgba(102,187,106,0.5)', dotColor: '#66BB6A' },
+  'price_surge_down':     { lineColor: 'rgba(255,107,107,0.5)', dotColor: '#FF6B6B' },
   'volume_surge':         { lineColor: 'rgba(79,195,247,0.5)',  dotColor: '#4FC3F7' },
   'volume_price_rise':    { lineColor: 'rgba(102,187,106,0.5)', dotColor: '#66BB6A' },
-  'volume_price_fall':    { lineColor: 'rgba(255,112,67,0.5)',  dotColor: '#FF7043' }
+  'volume_price_fall':    { lineColor: 'rgba(255,112,67,0.5)',  dotColor: '#FF7043' },
+  // K线形态信号
+  'engulfing_bullish':    { lineColor: 'rgba(124,77,255,0.5)',   dotColor: '#7C4DFF' },
+  'engulfing_bearish':    { lineColor: 'rgba(224,64,251,0.5)',   dotColor: '#E040FB' },
+  'momentum_bullish':     { lineColor: 'rgba(0,230,118,0.5)',    dotColor: '#00E676' },
+  'momentum_bearish':     { lineColor: 'rgba(255,23,68,0.5)',    dotColor: '#FF1744' },
+  'morning_star':         { lineColor: 'rgba(101,31,255,0.5)',   dotColor: '#651FFF' },
+  'evening_star':         { lineColor: 'rgba(213,0,249,0.5)',    dotColor: '#D500F9' }
 }
 
 // 信号图例
@@ -84,9 +102,18 @@ const signalTypeLegend = computed(() => {
     { type: 'fake_breakout_upper', label: '假突破上引', color: '#FF9800' },
     { type: 'fake_breakout_lower', label: '假突破下引', color: '#FFD740' },
     { type: 'price_surge', label: '价格异动', color: '#FF6B6B' },
+    { type: 'price_surge_up', label: '价格急涨', color: '#66BB6A' },
+    { type: 'price_surge_down', label: '价格急跌', color: '#FF6B6B' },
     { type: 'volume_surge', label: '量能放大', color: '#4FC3F7' },
     { type: 'volume_price_rise', label: '放量上涨', color: '#66BB6A' },
-    { type: 'volume_price_fall', label: '放量下跌', color: '#FF7043' }
+    { type: 'volume_price_fall', label: '放量下跌', color: '#FF7043' },
+    // K线形态信号
+    { type: 'engulfing_bullish', label: '阳包阴吞没', color: '#7C4DFF' },
+    { type: 'engulfing_bearish', label: '阴包阳吞没', color: '#E040FB' },
+    { type: 'momentum_bullish', label: '连阳动量', color: '#00E676' },
+    { type: 'momentum_bearish', label: '连阴动量', color: '#FF1744' },
+    { type: 'morning_star', label: '早晨之星', color: '#651FFF' },
+    { type: 'evening_star', label: '黄昏之星', color: '#D500F9' }
   ]
   return typeConfig
     .map(cfg => ({
@@ -341,9 +368,17 @@ const getSignalTypeName = (type) => {
     fake_breakout_upper: '假突破',
     fake_breakout_lower: '假突破',
     price_surge: '价格异动',
+    price_surge_up: '价格急涨',
+    price_surge_down: '价格急跌',
     volume_surge: '量能放大',
     volume_price_rise: '放量上涨',
-    volume_price_fall: '放量下跌'
+    volume_price_fall: '放量下跌',
+    engulfing_bullish: '阳包阴',
+    engulfing_bearish: '阴包阳',
+    momentum_bullish: '连阳动量',
+    momentum_bearish: '连阴动量',
+    morning_star: '早晨之星',
+    evening_star: '黄昏之星'
   }
   return names[type] || type || ''
 }
@@ -371,7 +406,9 @@ const buildOverlaySignals = () => {
 
   const supportedTypes = [
     'upper_wick_reversal', 'fake_breakout_upper', 'lower_wick_reversal', 'fake_breakout_lower',
-    'price_surge', 'volume_surge', 'volume_price_rise', 'volume_price_fall'
+    'price_surge', 'price_surge_up', 'price_surge_down', 'volume_surge', 'volume_price_rise', 'volume_price_fall',
+    'engulfing_bullish', 'engulfing_bearish', 'momentum_bullish', 'momentum_bearish',
+    'morning_star', 'evening_star'
   ]
   overlaySignals = props.signals
     .filter(s => supportedTypes.includes(s.signal_type))

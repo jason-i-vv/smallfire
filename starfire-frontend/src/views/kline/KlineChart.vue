@@ -57,6 +57,22 @@
       </span>
     </div>
 
+    <!-- EMA 均线图例：仅在趋势信号模式下显示 -->
+    <div class="level-legend" v-if="isTrendSource">
+      <span class="legend-item">
+        <span class="legend-color" style="background:#FFD740"></span>
+        EMA短
+      </span>
+      <span class="legend-item">
+        <span class="legend-color" style="background:#42A5F5"></span>
+        EMA中
+      </span>
+      <span class="legend-item">
+        <span class="legend-color" style="background:#AB47BC"></span>
+        EMA长
+      </span>
+    </div>
+
     <!-- K线图表容器 -->
     <div class="chart-container-wrap" style="position:relative">
       <div class="chart-container" ref="chartContainer"></div>
@@ -131,6 +147,8 @@ const levelPrice = ref(route.query.levelPrice ? parseFloat(route.query.levelPric
 const signalDescription = ref(route.query.description || null)
 const signalDataStr = ref(route.query.signalData || null)
 
+const SIGNAL_CONTEXT_BARS = 200 // 信号/箱体模式前后上下文K线数
+
 const chartContainer = ref(null)
 const overlayCanvas = ref(null)
 const currentPrice = ref(0)
@@ -164,11 +182,19 @@ let boxLineSeries = null // 箱体边框线系列（单边）
 let boxLineSeriesList = [] // 箱体四条边分别的线系列
 let overlayCtx = null // overlay canvas 2d context
 let overlayData = { boxes: [], keyLevels: [], signals: [] } // overlay 绘制数据
+let emaShortSeries = null // EMA 短期均线
+let emaMediumSeries = null // EMA 中期均线
+let emaLongSeries = null // EMA 长期均线
 
 const priceClass = computed(() => {
   if (priceChange.value > 0) return 'price-up'
   if (priceChange.value < 0) return 'price-down'
   return ''
+})
+
+// 是否为趋势类型信号
+const isTrendSource = computed(() => {
+  return ['trend', 'trend_retracement', 'trend_reversal'].includes(sourceType.value)
 })
 
 // 返回上一页或信号列表
@@ -194,7 +220,9 @@ const getSignalTypeName = (type) => {
     support_break: '支撑跌破',
     // 量价信号
     volume_surge: '量能放大',
-    price_surge: '价格飙升',
+    price_surge: '价格异动',
+    price_surge_up: '价格急涨',
+    price_surge_down: '价格急跌',
     volume_price_fall: '量价齐跌',
     volume_price_rise: '量价齐升',
     // 上下引线信号
@@ -202,6 +230,13 @@ const getSignalTypeName = (type) => {
     lower_wick_reversal: '下引线反转',
     fake_breakout_upper: '假突破上引',
     fake_breakout_lower: '假突破下引',
+    // K线形态信号
+    engulfing_bullish: '阳包阴吞没',
+    engulfing_bearish: '阴包阳吞没',
+    momentum_bullish: '连阳动量',
+    momentum_bearish: '连阴动量',
+    morning_star: '早晨之星',
+    evening_star: '黄昏之星',
     // 交易信号
     long_signal: '做多信号',
     short_signal: '做空信号'
@@ -281,6 +316,32 @@ const initChart = () => {
   })
   volumeSeries.priceScale().applyOptions({
     scaleMargins: { top: 0.8, bottom: 0 }
+  })
+
+  // EMA 均线系列
+  emaShortSeries = chart.addLineSeries({
+    color: '#FFD740',
+    lineWidth: 1,
+    lineStyle: 2, // 虚线
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false
+  })
+  emaMediumSeries = chart.addLineSeries({
+    color: '#42A5F5',
+    lineWidth: 1,
+    lineStyle: 2, // 虚线
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false
+  })
+  emaLongSeries = chart.addLineSeries({
+    color: '#AB47BC',
+    lineWidth: 2,
+    lineStyle: 0, // 实线
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false
   })
 
   // 初始化 overlay 并订阅缩放/滚动事件
@@ -364,15 +425,15 @@ const fetchKlines = async () => {
       // 为了确保箱体完整显示在图表上，需要获取箱体前后一段时间的K线数据
       const periodSeconds = getPeriodSeconds(period.value)
       // 在箱体时间范围前后各增加50个周期的数据作为上下文
-      params.start_time = boxStart.value - 50 * periodSeconds
-      params.end_time = boxEnd.value + 50 * periodSeconds
+      params.start_time = boxStart.value - SIGNAL_CONTEXT_BARS * periodSeconds
+      params.end_time = boxEnd.value + SIGNAL_CONTEXT_BARS * periodSeconds
       console.log('箱体模式 - K线请求时间范围:', new Date(params.start_time * 1000).toISOString(), '到', new Date(params.end_time * 1000).toISOString())
     } else if (hasSignalTime) {
       // 如果有信号时间但没有箱体，以信号时间为中心获取K线
       const periodSeconds = getPeriodSeconds(period.value)
       // 以信号时间为中心，前后各获取50根K线
-      params.start_time = signalTime.value - 50 * periodSeconds
-      params.end_time = signalTime.value + 50 * periodSeconds
+      params.start_time = signalTime.value - SIGNAL_CONTEXT_BARS * periodSeconds
+      params.end_time = signalTime.value + SIGNAL_CONTEXT_BARS * periodSeconds
       console.log('信号模式 - K线请求时间范围:', new Date(params.start_time * 1000).toISOString(), '到', new Date(params.end_time * 1000).toISOString(), '信号时间:', new Date(signalTime.value * 1000).toISOString())
     }
 
@@ -512,6 +573,31 @@ const updateKlineData = (klines) => {
   }
 
   chart?.timeScale().fitContent()
+
+  // 填充 EMA 均线数据
+  const trendTypes = ['trend', 'trend_retracement', 'trend_reversal']
+  if (trendTypes.includes(sourceType.value)) {
+    const emaShortData = []
+    const emaMediumData = []
+    const emaLongData = []
+    for (const k of klines) {
+      const time = normalizeTimestamp(k.time || k.open_time)
+      const es = parseFloat(k.ema_short)
+      const em = parseFloat(k.ema_medium)
+      const el = parseFloat(k.ema_long)
+      if (!isNaN(es) && es > 0) emaShortData.push({ time, value: es })
+      if (!isNaN(em) && em > 0) emaMediumData.push({ time, value: em })
+      if (!isNaN(el) && el > 0) emaLongData.push({ time, value: el })
+    }
+    if (emaShortSeries) emaShortSeries.setData(emaShortData)
+    if (emaMediumSeries) emaMediumSeries.setData(emaMediumData)
+    if (emaLongSeries) emaLongSeries.setData(emaLongData)
+  } else {
+    // 非趋势信号，清空 EMA 线
+    if (emaShortSeries) emaShortSeries.setData([])
+    if (emaMediumSeries) emaMediumSeries.setData([])
+    if (emaLongSeries) emaLongSeries.setData([])
+  }
 
   // 构建 overlay 信号数据（不含箱体，箱体由 drawBoxRect 处理）
   const allSignals = []
@@ -729,8 +815,8 @@ const scrollToTime = (timestamp) => {
 
   const alignedTime = alignTimeToPeriod(timestamp, period.value)
   chart.timeScale().setVisibleRange({
-    from: alignedTime - 50 * getPeriodSeconds(period.value),
-    to: alignedTime + 50 * getPeriodSeconds(period.value)
+    from: alignedTime - SIGNAL_CONTEXT_BARS * getPeriodSeconds(period.value),
+    to: alignedTime + SIGNAL_CONTEXT_BARS * getPeriodSeconds(period.value)
   })
 }
 
@@ -897,16 +983,27 @@ const getSignalDescription = (signal) => {
     case 'box_breakdown':
       return d.breakout_price ? `箱顶 ${formatPrice(d.box_high)} / 箱底 ${formatPrice(d.box_low)} → 跌破价 ${formatPrice(d.breakout_price)}` : null
     case 'upper_wick_reversal':
-      return d.body_percent != null ? `实体占比 ${d.body_percent.toFixed(1)}%，前 ${d.prev_wick_count || 0} 根相似引线` : null
     case 'lower_wick_reversal':
-      return d.body_percent != null ? `实体占比 ${d.body_percent.toFixed(1)}%，前 ${d.prev_wick_count || 0} 根相似引线` : null
     case 'fake_breakout_upper':
-      return d.breakout_point ? `假突破上引，突破点 ${formatPrice(d.breakout_point)}` : null
-    case 'fake_breakout_lower':
-      return d.breakout_point ? `假突破下引，突破点 ${formatPrice(d.breakout_point)}` : null
+    case 'fake_breakout_lower': {
+      if (d.body_percent == null) return null
+      const wickLabel = (signal.signal_type === 'lower_wick_reversal' || signal.signal_type === 'fake_breakout_lower') ? '下引线' : '上引线'
+      const mainShadow = wickLabel === '下引线' ? (d.lower_shadow_len || 0) : (d.upper_shadow_len || 0)
+      const bodySize = d.total_range ? d.total_range * d.body_percent / 100 : 0
+      const shadowRatio = bodySize > 0 ? mainShadow / bodySize : 0
+      const trendMap = { bullish: '多头', bearish: '空头', sideways: '震荡' }
+      const trendLabel = trendMap[d.trend_type] || d.trend_type || '未知'
+      const isFake = signal.signal_type.startsWith('fake_breakout')
+      if (isFake) {
+        return `${wickLabel}假突破 | 实体占比${d.body_percent.toFixed(1)}% 引线/实体=${shadowRatio.toFixed(1)}x 趋势=${trendLabel} 突破点=${d.breakout_point ? formatPrice(d.breakout_point) : '-'}`
+      }
+      return `${wickLabel} 反转 | 实体占比${d.body_percent.toFixed(1)}% 引线/实体=${shadowRatio.toFixed(1)}x 趋势=${trendLabel}`
+    }
     case 'volume_surge':
       return d.volume_amplification ? `放量 ${d.volume_amplification.toFixed(1)}x，均价 ${formatNumber(d.avg_volume)}` : null
     case 'price_surge':
+    case 'price_surge_up':
+    case 'price_surge_down':
       return d.price_amplification ? `波动放大 ${d.price_amplification.toFixed(1)}x` : null
     case 'trend_reversal':
     case 'trend_retracement':
@@ -995,7 +1092,7 @@ const buildOverlaySignals = (signals, klines) => {
   }))
 
   // 信号标记（wick / volume spike 类用 overlay 绘制，其他已由 setMarkers 处理）
-  const ovTypes = ['upper_wick_reversal', 'fake_breakout_upper', 'lower_wick_reversal', 'fake_breakout_lower', 'volume_surge', 'volume_price_rise', 'volume_price_fall']
+  const ovTypes = ['upper_wick_reversal', 'fake_breakout_upper', 'lower_wick_reversal', 'fake_breakout_lower', 'volume_surge', 'volume_price_rise', 'volume_price_fall', 'engulfing_bullish', 'engulfing_bearish', 'momentum_bullish', 'momentum_bearish', 'morning_star', 'evening_star']
   overlayData.signals = signals
     .filter(s => ovTypes.includes(s.signal_type || s.type))
     .map(s => ({
@@ -1341,6 +1438,7 @@ onUnmounted(() => {
   clearLevelLines()
   clearTradeLines()
   clearBoxLineSeries()
+  clearEMALines()
   overlayCtx = null
   if (chart) chart.remove()
 })
@@ -1378,6 +1476,20 @@ const clearBoxLineSeries = () => {
   }
   boxLineSeriesList = []
   boxLineSeries = null
+}
+
+// 清理 EMA 均线系列
+const clearEMALines = () => {
+  if (chart) {
+    [emaShortSeries, emaMediumSeries, emaLongSeries].forEach(series => {
+      if (series) {
+        try { chart.removeSeries(series) } catch (e) { /* ignore */ }
+      }
+    })
+  }
+  emaShortSeries = null
+  emaMediumSeries = null
+  emaLongSeries = null
 }
 </script>
 

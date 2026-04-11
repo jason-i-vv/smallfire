@@ -9,22 +9,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/smallfire/starfire/internal/repository"
+	"github.com/smallfire/starfire/internal/service/market"
 	"go.uber.org/zap"
 )
 
 // SymbolHandler 交易标的API处理器
 type SymbolHandler struct {
-	symbolRepo repository.SymbolRepo
-	klineRepo  repository.KlineRepo
-	logger     *zap.Logger
+	symbolRepo   repository.SymbolRepo
+	klineRepo    repository.KlineRepo
+	klineService *market.KlineService
+	logger       *zap.Logger
 }
 
 // NewSymbolHandler 创建交易标的API处理器
-func NewSymbolHandler(symbolRepo repository.SymbolRepo, klineRepo repository.KlineRepo, logger *zap.Logger) *SymbolHandler {
+func NewSymbolHandler(symbolRepo repository.SymbolRepo, klineRepo repository.KlineRepo, klineService *market.KlineService, logger *zap.Logger) *SymbolHandler {
 	return &SymbolHandler{
-		symbolRepo: symbolRepo,
-		klineRepo:  klineRepo,
-		logger:     logger,
+		symbolRepo:   symbolRepo,
+		klineRepo:    klineRepo,
+		klineService: klineService,
+		logger:       logger,
 	}
 }
 
@@ -86,7 +89,7 @@ func (h *SymbolHandler) GetSymbolKlines(c *gin.Context) {
 		limit = 100
 	}
 
-	klines, err := h.klineRepo.GetBySymbolPeriod(int64(symbolID), period, nil, nil, limit)
+	klines, err := h.klineService.GetKlines(int64(symbolID), period, nil, nil, limit)
 	if err != nil {
 		h.logger.Error("获取K线数据失败", zap.Int("symbol_id", symbolID), zap.String("period", period), zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -140,7 +143,7 @@ func (h *SymbolHandler) GetKlines(c *gin.Context) {
 		}
 	}
 
-	klines, err := h.klineRepo.GetBySymbolPeriod(int64(symbolID), period, startTime, endTime, limit)
+	klines, err := h.klineService.GetKlines(int64(symbolID), period, startTime, endTime, limit)
 	if err != nil {
 		h.logger.Error("获取K线数据失败", zap.Int("symbol_id", symbolID), zap.String("period", period), zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)

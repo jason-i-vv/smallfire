@@ -245,7 +245,10 @@ func (s *BoxStrategy) calculateDynamicThreshold(klines []models.Kline) float64 {
 		trSum += tr
 	}
 
-	atr := trSum / float64(period)
+	if period-1 <= 0 {
+		return s.config.WidthThreshold
+	}
+	atr := trSum / float64(period-1)
 
 	// 计算 ATR 占当前价格的百分比
 	latestClose := klines[len(klines)-1].ClosePrice

@@ -76,6 +76,7 @@ type StrategiesConfig struct {
 	KeyLevel               KeyLevelStrategyConfig    `mapstructure:"key_level"`
 	VolumePrice            VolumePriceStrategyConfig `mapstructure:"volume_price"`
 	Wick                   WickStrategyConfig        `mapstructure:"wick"`
+	Candlestick            CandlestickStrategyConfig `mapstructure:"candlestick"`
 }
 
 type BoxStrategyConfig struct {
@@ -148,6 +149,31 @@ type WickStrategyConfig struct {
 	SignalCooldown    int     `mapstructure:"signal_cooldown"`     // 信号冷却期（分钟）
 
 	CheckInterval     int     `mapstructure:"check_interval"`      // 检查间隔（秒）
+}
+
+// CandlestickStrategyConfig K线形态识别策略配置
+type CandlestickStrategyConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+
+	// ATR 参数（形态显著性判断）
+	ATRPeriod        int     `mapstructure:"atr_period"`          // ATR 周期（默认14）
+	BodyATRThreshold float64 `mapstructure:"body_atr_threshold"` // 实体最小 ATR 倍数（默认0.5）
+
+	// 三连K参数
+	MomentumMinCount int `mapstructure:"momentum_min_count"` // 最少连续K线数（默认3）
+
+	// 星形参数
+	StarBodyATRMax  float64 `mapstructure:"star_body_atr_max"`  // 星形中间K线实体上限（ATR倍数，默认0.3）
+	StarShadowRatio float64 `mapstructure:"star_shadow_ratio"`  // 星形影线最小比例（默认1.0）
+	StarMidpointMin float64 `mapstructure:"star_midpoint_min"` // 第三根K线收盘价穿透第一根中点的最低比例（默认0.005即0.5%）
+
+	// 趋势过滤
+	RequireTrend bool `mapstructure:"require_trend"` // 是否启用趋势过滤（默认true）
+
+	// 信号冷却
+	SignalCooldown int `mapstructure:"signal_cooldown"` // 同类型信号冷却时间（分钟，默认60）
+
+	CheckInterval int `mapstructure:"check_interval"`
 }
 
 type TradingConfig struct {

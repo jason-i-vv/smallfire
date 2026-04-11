@@ -63,6 +63,7 @@ type mockNotifier struct{}
 
 func (m *mockSignalRepo) Create(s *models.Signal) error                                           { return nil }
 func (m *mockSignalRepo) GetBySymbol(id int) ([]*models.Signal, error)                           { return nil, nil }
+func (m *mockSignalRepo) ExistsDuplicate(symbolID int, signalType, period string, klineTime *time.Time) (bool, error) { return false, nil }
 func (m *mockSignalRepo) Update(s *models.Signal) error                                           { return nil }
 func (m *mockBoxRepo) GetActiveBySymbol(id int, period string) ([]*models.Box, error)            { if m.activeBox != nil { return []*models.Box{m.activeBox}, nil }; return nil, nil }
 func (m *mockBoxRepo) Create(b *models.Box) error                                                { return nil }

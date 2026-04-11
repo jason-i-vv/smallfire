@@ -217,7 +217,7 @@ func TestVolumeStrategy_PriceAnomaly(t *testing.T) {
 	}
 	hasPriceSurge := false
 	for _, sig := range signals {
-		if sig.SignalType == "price_surge" {
+		if sig.SignalType == "price_surge" || sig.SignalType == "price_surge_up" || sig.SignalType == "price_surge_down" {
 			hasPriceSurge = true
 		}
 	}
@@ -261,7 +261,7 @@ func TestVolumeStrategy_Cooldown(t *testing.T) {
 	// 第二轮：K线时间在冷却期内（30分钟后），应被冷却阻止
 	signals, _ = s.Analyze(1, "ETHUSDT", "1h", makeAnomalyKlines(30*time.Minute))
 	for _, sig := range signals {
-		if sig.SignalType == "price_surge" {
+		if sig.SignalType == "price_surge" || sig.SignalType == "price_surge_up" || sig.SignalType == "price_surge_down" {
 			t.Error("expected cooldown to prevent signal within cooldown period")
 		}
 	}
@@ -270,7 +270,7 @@ func TestVolumeStrategy_Cooldown(t *testing.T) {
 	signals, _ = s.Analyze(1, "ETHUSDT", "1h", makeAnomalyKlines(2*time.Hour))
 	hasSignal := false
 	for _, sig := range signals {
-		if sig.SignalType == "price_surge" {
+		if sig.SignalType == "price_surge" || sig.SignalType == "price_surge_up" || sig.SignalType == "price_surge_down" {
 			hasSignal = true
 		}
 	}

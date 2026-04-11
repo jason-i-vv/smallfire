@@ -116,6 +116,7 @@ func (h *BacktestHandler) validateRequest(req *models.BacktestRequest) error {
 		"key_level":    true,
 		"volume_price": true,
 		"wick":         true,
+		"candlestick":  true,
 	}
 	if !validStrategies[req.StrategyType] {
 		return &ValidationError{Field: "strategy_type", Message: "不支持的策略类型"}

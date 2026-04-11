@@ -42,6 +42,7 @@ func (m *mockSignalRepoForStats) CountBySignalType(string) (int, error)         
 func (m *mockSignalRepoForStats) CountBySourceType(string) (int, error)              { return 0, nil }
 func (m *mockSignalRepoForStats) UpdateStatus(int, string) error                      { return nil }
 func (m *mockSignalRepoForStats) SetTriggeredAt(int, *time.Time) error               { return nil }
+func (m *mockSignalRepoForStats) ExistsDuplicate(int, string, string, *time.Time) (bool, error) { return false, nil }
 
 func TestStatisticsService_CalculateStatistics(t *testing.T) {
 	cfg := &config.TradingConfig{InitialCapital: 100000}

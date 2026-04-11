@@ -138,7 +138,7 @@ func (r *SymbolRepoPG) DisableExpiredHot(cutoff time.Time) error {
 func (r *SymbolRepoPG) GetByID(id int) (*models.Symbol, error) {
 	var symbol models.Symbol
 	query := `
-		SELECT id, market_id, symbol_code, symbol_name, symbol_type,
+		SELECT id, market_id, market_code, symbol_code, symbol_name, symbol_type,
 		       last_hot_at, hot_score, is_tracking, max_klines_count,
 		       created_at, updated_at
 		FROM symbols
@@ -146,7 +146,7 @@ func (r *SymbolRepoPG) GetByID(id int) (*models.Symbol, error) {
 	`
 
 	err := r.db.QueryRow(context.Background(), query, id).Scan(
-		&symbol.ID, &symbol.MarketID, &symbol.SymbolCode, &symbol.SymbolName, &symbol.SymbolType,
+		&symbol.ID, &symbol.MarketID, &symbol.MarketCode, &symbol.SymbolCode, &symbol.SymbolName, &symbol.SymbolType,
 		&symbol.LastHotAt, &symbol.HotScore, &symbol.IsTracking, &symbol.MaxKlinesCount,
 		&symbol.CreatedAt, &symbol.UpdatedAt,
 	)

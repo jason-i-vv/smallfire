@@ -1,1 +1,0 @@
-import{x as e}from"./index-B2lM7DaN.js";const t={list:s=>e.get("/symbols",{params:s}),listByMarket:s=>e.get(`/markets/${s}/symbols`),detail:s=>e.get(`/symbols/${s}`),resolve:s=>e.get("/symbols/resolve",{params:{symbol_code:s}})};export{t as s};

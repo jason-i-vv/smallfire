@@ -228,6 +228,12 @@ func (s *SyncService) runHotUpdateLoop() {
 // maxBackfillHours 最大回补小时数，超过此范围不再回补
 const maxBackfillHours = 168 // 7天
 
+// initialSyncLimit 新标的首次同步拉取的K线数量
+const initialSyncLimit = 500
+
+// regularSyncLimit 常规同步拉取的K线数量
+const regularSyncLimit = 100
+
 func (s *SyncService) syncSymbolKlines(symbol *models.Symbol, fetcher Fetcher, period string) error {
 	now := time.Now().UTC()
 
@@ -304,8 +310,14 @@ func (s *SyncService) syncSymbolKlines(symbol *models.Symbol, fetcher Fetcher, p
 
 	// 如果没有回补数据（或 DB 为空），走常规拉取逻辑
 	if len(toInsert) == 0 {
+		// 确定拉取数量：新标的首次同步需要更多历史数据
+		fetchLimit := regularSyncLimit
+		if latestKline == nil {
+			fetchLimit = initialSyncLimit
+		}
+
 		// 获取最新K线
-		klines, err := fetcher.FetchKlines(symbol.SymbolCode, MapPeriod(fetcher.MarketCode(), period), 100)
+		klines, err := fetcher.FetchKlines(symbol.SymbolCode, MapPeriod(fetcher.MarketCode(), period), fetchLimit)
 		if err != nil {
 			return err
 		}

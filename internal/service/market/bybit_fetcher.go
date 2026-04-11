@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/smallfire/starfire/internal/config"
@@ -53,6 +54,7 @@ type BybitTickerResp struct {
 			HighPrice24h string `json:"highPrice24h"`
 			LowPrice24h  string `json:"lowPrice24h"`
 			Volume24h    string `json:"volume24h"`
+			Turnover24h  string `json:"turnover24h"`
 		} `json:"list"`
 	} `json:"result"`
 }
@@ -77,7 +79,8 @@ func (f *BybitFetcher) SupportedPeriods() []string {
 }
 
 func (f *BybitFetcher) FetchSymbols() ([]SymbolInfo, error) {
-	url := fmt.Sprintf("%s/v5/market/instruments-info?category=linear", f.baseURL)
+	// 使用 tickers 接口获取所有合约行情数据（包含 24h 成交额）
+	url := fmt.Sprintf("%s/v5/market/tickers?category=linear", f.baseURL)
 
 	resp, err := f.client.Get(url)
 	if err != nil {
@@ -85,22 +88,32 @@ func (f *BybitFetcher) FetchSymbols() ([]SymbolInfo, error) {
 	}
 	defer resp.Body.Close()
 
-	var result BybitInstrumentsResp
+	var result BybitTickerResp
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
 	var symbols []SymbolInfo
 	for _, item := range result.Data.List {
-		// 过滤条件：只保留永续合约，排除带有到期日期后缀的合约（如 ETHUSDT-25DEC26）
-		// 永续合约通常没有 "-" 符号或者格式更简单
-		if item.QuoteCoin == "USDT" && item.Status == "Trading" && !hasExpirationSuffix(item.Symbol) {
-			symbols = append(symbols, SymbolInfo{
-				Code: item.Symbol,
-				Name: item.BaseCoin,
-				Type: "futures",
-			})
+		// 过滤: 只保留 USDT 永续合约，排除到期合约
+		if !strings.HasSuffix(item.Symbol, "USDT") || hasExpirationSuffix(item.Symbol) {
+			continue
 		}
+
+		// 排除无成交额的合约（已暂停/未上线）
+		turnover24h := parseFloat(item.Turnover24h)
+		if turnover24h <= 0 {
+			continue
+		}
+
+		hotScore := turnover24h
+
+		symbols = append(symbols, SymbolInfo{
+			Code:     item.Symbol,
+			Name:     strings.TrimSuffix(item.Symbol, "USDT"),
+			Type:     "futures",
+			HotScore: hotScore,
+		})
 	}
 
 	return symbols, nil

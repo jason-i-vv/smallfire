@@ -46,7 +46,7 @@ markets:
     api_key: ""           # 可选，用于私有接口
     api_secret: ""        # 可选
     testnet: false
-    symbols_limit: 200    # 最多跟踪的交易对数量
+    symbols_limit: 500    # 最多跟踪的交易对数量
     hot_days: 30          # 热度有效期（天）
     periods: ["15m", "1h"] # 抓取周期
     fetch_interval: 60    # 抓取间隔（秒）
@@ -72,7 +72,7 @@ ema:
 
 # 策略配置
 strategies:
-  runner_interval: 300            # 策略执行间隔（秒），整点对齐执行
+  runner_interval: 900            # 策略执行间隔（秒），整点对齐执行，应 >= 最短K线周期
   max_concurrent_analysis: 20     # 最大并发分析数
   box:
     enabled: false
@@ -92,17 +92,17 @@ strategies:
     swing_lookback: 2            # 波峰波谷检测回溯K线数
     check_interval: 60
   trend:
-    enabled: false
+    enabled: true
     ema_periods: [30, 60, 90]
     check_interval: 60
   key_level:
-    enabled: false
+    enabled: true
     lookback_klines: 50
     level_distance: 0.2
     min_breakout_age: 5
     check_interval: 60
   volume_price:
-    enabled: false
+    enabled: true
     volatility_multiplier: 2.0
     volume_multiplier: 2.0
     lookback_klines: 20
@@ -122,6 +122,17 @@ strategies:
     strength_lookback: 20      # 历史引线回溯数
     signal_cooldown: 30        # 信号冷却期（分钟）
     check_interval: 60
+  candlestick:
+    enabled: true
+    atr_period: 14               # ATR 计算周期
+    body_atr_threshold: 1.0      # 实体最小 ATR 倍数（实体 > ATR*1.0 才算显著大K线）
+    momentum_min_count: 3         # 三连K最少连续K线数
+    star_body_atr_max: 0.3       # 早晨/黄昏之星中间K线实体上限（ATR倍数）
+    star_shadow_ratio: 1.0       # 星形影线最小比例
+    star_midpoint_min: 0.005     # 第三根K线收盘价穿透第一根中点的最低比例（0.005=0.5%）
+    require_trend: true          # 启用趋势过滤
+    signal_cooldown: 60          # 同类型信号冷却时间（分钟）
+    check_interval: 300
 
 # 交易配置
 trading:

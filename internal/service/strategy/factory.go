@@ -39,6 +39,9 @@ func NewFactory(cfg *config.StrategiesConfig, deps Dependency, logger *zap.Logge
 	if registerAll || cfg.Wick.Enabled {
 		f.strategies["wick"] = NewWickStrategy(cfg.Wick, deps)
 	}
+	if registerAll || cfg.Candlestick.Enabled {
+		f.strategies["candlestick"] = NewCandlestickStrategy(cfg.Candlestick, deps)
+	}
 
 	logger.Info("策略工厂初始化成功", zap.Int("strategy_count", len(f.strategies)))
 	return f
@@ -73,6 +76,8 @@ func (f *Factory) IsEnabled(name string) bool {
 		return f.config.VolumePrice.Enabled
 	case "wick":
 		return f.config.Wick.Enabled
+	case "candlestick":
+		return f.config.Candlestick.Enabled
 	default:
 		return false
 	}

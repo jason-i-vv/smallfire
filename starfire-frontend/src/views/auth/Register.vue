@@ -1,59 +1,59 @@
 <template>
-  <div class="register-container">
-    <el-card class="register-card">
-      <template #header>
-        <h2>注册账号</h2>
-      </template>
+  <div class="register-form">
+    <h2 class="form-title">注册账号</h2>
 
-      <el-form ref="formRef" :model="registerForm" :rules="rules" label-width="80px">
-        <el-form-item label="用户名" prop="username">
-          <el-input
-            v-model="registerForm.username"
-            placeholder="3-32位字母、数字或下划线"
-            prefix-icon="User"
-          />
-        </el-form-item>
+    <el-form ref="formRef" :model="registerForm" :rules="rules">
+      <el-form-item prop="username">
+        <el-input
+          v-model="registerForm.username"
+          placeholder="用户名（3-32位字母、数字或下划线）"
+          prefix-icon="User"
+          size="large"
+        />
+      </el-form-item>
 
-        <el-form-item label="昵称" prop="nickname">
-          <el-input
-            v-model="registerForm.nickname"
-            placeholder="选填"
-            prefix-icon="UserFilled"
-          />
-        </el-form-item>
+      <el-form-item prop="nickname">
+        <el-input
+          v-model="registerForm.nickname"
+          placeholder="昵称（选填）"
+          prefix-icon="UserFilled"
+          size="large"
+        />
+      </el-form-item>
 
-        <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="registerForm.password"
-            type="password"
-            placeholder="6-64位密码"
-            prefix-icon="Lock"
-            show-password
-          />
-        </el-form-item>
+      <el-form-item prop="password">
+        <el-input
+          v-model="registerForm.password"
+          type="password"
+          placeholder="密码（6-64位）"
+          prefix-icon="Lock"
+          size="large"
+          show-password
+        />
+      </el-form-item>
 
-        <el-form-item label="确认密码" prop="confirmPassword">
-          <el-input
-            v-model="registerForm.confirmPassword"
-            type="password"
-            placeholder="再次输入密码"
-            prefix-icon="Lock"
-            show-password
-            @keyup.enter="handleRegister"
-          />
-        </el-form-item>
+      <el-form-item prop="confirmPassword">
+        <el-input
+          v-model="registerForm.confirmPassword"
+          type="password"
+          placeholder="确认密码"
+          prefix-icon="Lock"
+          size="large"
+          show-password
+          @keyup.enter="handleRegister"
+        />
+      </el-form-item>
 
-        <el-form-item>
-          <el-button type="primary" :loading="loading" @click="handleRegister" style="width: 100%">
-            注册
-          </el-button>
-        </el-form-item>
+      <el-form-item>
+        <el-button type="primary" :loading="loading" @click="handleRegister" size="large" style="width: 100%">
+          注册
+        </el-button>
+      </el-form-item>
+    </el-form>
 
-        <div class="login-link">
-          已有账号？<router-link to="/login">立即登录</router-link>
-        </div>
-      </el-form>
-    </el-card>
+    <div class="form-link">
+      已有账号？<router-link to="/login">立即登录</router-link>
+    </div>
   </div>
 </template>
 
@@ -122,51 +122,40 @@ const handleRegister = async () => {
 <style lang="scss" scoped>
 @import '@/assets/styles/variables.scss';
 
-.register-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  background: $background;
-}
-
-.register-card {
-  width: 440px;
-  background: $surface !important;
-  border: 1px solid $border !important;
-
-  :deep(.el-card__header) {
-    background: $surface !important;
-    border-bottom: 1px solid $border !important;
-    padding: 20px 24px;
+.register-form {
+  .form-title {
     text-align: center;
-  }
-
-  h2 {
-    text-align: center;
-    color: $primary;
-    margin: 0;
-    font-size: 24px;
+    color: $text-primary;
+    margin: 0 0 28px;
+    font-size: 22px;
     font-weight: 600;
-  }
-
-  :deep(.el-form-item__label) {
-    color: $text-secondary;
   }
 
   :deep(.el-input__wrapper) {
     background-color: $background;
     box-shadow: 0 0 0 1px $border inset;
+    border-radius: $border-radius;
   }
 
   :deep(.el-input__inner) {
     color: $text-primary;
   }
 
-  .login-link {
+  :deep(.el-button--primary) {
+    background-color: $primary;
+    border-color: $primary;
+
+    &:hover {
+      background-color: $primary-dark;
+      border-color: $primary-dark;
+    }
+  }
+
+  .form-link {
     text-align: center;
     color: $text-secondary;
     font-size: 14px;
+    margin-top: 8px;
 
     a {
       color: $primary;

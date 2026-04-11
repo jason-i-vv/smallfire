@@ -110,7 +110,10 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 			direction = "short"
 		}
 
-		signalType := models.SignalTypePriceSurge
+		signalType := models.SignalTypePriceSurgeUp
+		if latest.ClosePrice < latest.OpenPrice {
+			signalType = models.SignalTypePriceSurgeDown
+		}
 		priceAmplification := currentVol / avgVol
 		strength := calculateStrength(priceAmplification, s.config.VolatilityMultiplier)
 		expireTime := time.Now().Add(6 * time.Hour)

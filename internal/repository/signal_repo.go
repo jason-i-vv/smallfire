@@ -25,8 +25,9 @@ func (r *SignalRepoPG) GetByID(id int) (*models.Signal, error) {
 	var signal models.Signal
 	query := `
 		SELECT s.id, s.symbol_id, s.signal_type, s.source_type, s.direction, s.strength, s.price,
-		       s.target_price, s.stop_loss_price, s.period, s.status, s.confirmed_at, s.expired_at,
+		       s.target_price, s.stop_loss_price, s.period, s.description, s.status, s.confirmed_at, s.expired_at,
 		       s.triggered_at, s.notification_sent, s.kline_time, s.created_at,
+		       s.signal_data,
 		       COALESCE(sy.symbol_code, '') as symbol_code
 		FROM signals s
 		LEFT JOIN symbols sy ON s.symbol_id = sy.id
@@ -36,9 +37,9 @@ func (r *SignalRepoPG) GetByID(id int) (*models.Signal, error) {
 	err := r.db.QueryRow(context.Background(), query, id).Scan(
 		&signal.ID, &signal.SymbolID, &signal.SignalType, &signal.SourceType,
 		&signal.Direction, &signal.Strength, &signal.Price, &signal.TargetPrice,
-		&signal.StopLossPrice, &signal.Period, &signal.Status, &signal.ConfirmedAt,
+		&signal.StopLossPrice, &signal.Period, &signal.Description, &signal.Status, &signal.ConfirmedAt,
 		&signal.ExpiredAt, &signal.TriggeredAt, &signal.NotificationSent, &signal.KlineTime,
-		&signal.CreatedAt, &signal.SymbolCode,
+		&signal.CreatedAt, &signal.SignalData, &signal.SymbolCode,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("查询信号详情失败: %w", err)
@@ -229,19 +230,35 @@ func (r *SignalRepoPG) GetBySymbol(symbolID int) ([]*models.Signal, error) {
 	return signals, nil
 }
 
+
+func (r *SignalRepoPG) ExistsDuplicate(symbolID int, signalType, period string, klineTime *time.Time) (bool, error) {
+	if klineTime == nil {
+		return false, nil
+	}
+	var exists bool
+	// 使用 ::timestamp 显式转换避免 pgx 默认 timestamptz 类型与 timestamp 列的隐式转换问题
+	query := `SELECT EXISTS(SELECT 1 FROM signals WHERE symbol_id = $1 AND signal_type = $2 AND period = $3 AND kline_time = $4::timestamp)`
+	err := r.db.QueryRow(context.Background(), query, symbolID, signalType, period, *klineTime).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("查询重复信号失败: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *SignalRepoPG) Create(signal *models.Signal) error {
 	query := `
 		INSERT INTO signals (symbol_id, signal_type, source_type, direction, strength, price,
-		                    target_price, stop_loss_price, period, status, confirmed_at, expired_at,
-		                    triggered_at, notification_sent, kline_time, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+		                    target_price, stop_loss_price, period, description, signal_data,
+		                    status, confirmed_at, expired_at, triggered_at, notification_sent, kline_time, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
 		RETURNING id
 	`
 
 	err := r.db.QueryRow(context.Background(), query,
 		signal.SymbolID, signal.SignalType, signal.SourceType, signal.Direction,
 		signal.Strength, signal.Price, signal.TargetPrice, signal.StopLossPrice,
-		signal.Period, signal.Status, signal.ConfirmedAt, signal.ExpiredAt,
+		signal.Period, signal.Description, signal.SignalData,
+		signal.Status, signal.ConfirmedAt, signal.ExpiredAt,
 		signal.TriggeredAt, signal.NotificationSent, signal.KlineTime,
 	).Scan(&signal.ID)
 	if err != nil {
@@ -522,7 +539,7 @@ func (r *SignalRepoPG) CountByMarket(market string) (int, error) {
 
 	if market == "" {
 		// 统计所有信号
-		query = `SELECT COUNT(*) FROM signals WHERE status = 'pending'`
+		query = `SELECT COUNT(*) FROM signals`
 	} else {
 		// 按市场统计，需要JOIN
 		query = `
