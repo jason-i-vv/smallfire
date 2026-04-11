@@ -70,6 +70,7 @@ type SignalRepo interface {
 	GetByStatus(status string) ([]*models.Signal, error)
 	GetByMarket(marketCode string) ([]*models.Signal, error)
 	GetBySymbol(symbolID int) ([]*models.Signal, error)
+	ExistsDuplicate(symbolID int, signalType, period string, klineTime *time.Time) (bool, error)
 	Create(signal *models.Signal) error
 	Update(signal *models.Signal) error
 	BatchUpdateByBatchID(batchID string, fields map[string]interface{}) error

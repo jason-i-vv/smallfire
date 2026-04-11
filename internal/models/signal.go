@@ -71,6 +71,8 @@ const (
 	SignalTypeSupportBreak     = "support_break"
 	SignalTypeVolumeSurge       = "volume_surge"
 	SignalTypePriceSurge        = "price_surge"
+	SignalTypePriceSurgeUp      = "price_surge_up"
+	SignalTypePriceSurgeDown    = "price_surge_down"
 
 	// 上下引线信号类型
 	SignalTypeUpperWickReversal = "upper_wick_reversal"  // 上引线反转（空头）

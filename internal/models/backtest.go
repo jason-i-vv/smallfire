@@ -19,14 +19,44 @@ type BacktestRequest struct {
 
 // BacktestResponse 回测响应
 type BacktestResponse struct {
-	Request     *BacktestRequest  `json:"request"`      // 请求参数
-	Statistics  *BacktestStats    `json:"statistics"`  // 统计数据
-	Trades      []*BacktestTrade  `json:"trades"`       // 交易列表
-	Signals     []*Signal         `json:"signals"`      // 信号列表
-	EquityCurve []*EquityPoint    `json:"equity_curve"` // 权益曲线
-	Boxes       []*Box            `json:"boxes"`       // 箱体列表（箱体策略）
-	Trends      []*Trend          `json:"trends"`      // 趋势列表（趋势策略）
-	RunTimeMs   int64             `json:"run_time_ms"` // 运行时间(毫秒)
+	Request           *BacktestRequest          `json:"request"`              // 请求参数
+	Statistics        *BacktestStats            `json:"statistics"`          // 统计数据
+	Trades            []*BacktestTrade          `json:"trades"`             // 交易列表
+	Signals           []*Signal                 `json:"signals"`            // 信号列表
+	EquityCurve       []*EquityPoint            `json:"equity_curve"`       // 权益曲线
+	Boxes             []*Box                    `json:"boxes"`              // 箱体列表（箱体策略）
+	Trends            []*Trend                  `json:"trends"`             // 趋势列表（趋势策略）
+	SignalVerification *SignalVerificationReport `json:"signal_verification,omitempty"` // 信号验证报告
+	RunTimeMs         int64                     `json:"run_time_ms"`        // 运行时间(毫秒)
+}
+
+// VerificationStatus 信号验证状态
+type VerificationStatus string
+
+const (
+	VerificationValid     VerificationStatus = "valid"     // 信号正确
+	VerificationInvalid   VerificationStatus = "invalid"   // 形态条件不满足
+	VerificationDuplicate VerificationStatus = "duplicate" // 重复信号
+	VerificationSkipped   VerificationStatus = "skipped"   // 未实现验证的策略
+)
+
+// SignalVerificationResult 单条信号的验证结果
+type SignalVerificationResult struct {
+	SignalIndex int                `json:"signal_index"` // 信号在列表中的索引
+	SignalType  string             `json:"signal_type"`  // 信号类型
+	KlineTime   string             `json:"kline_time"`   // K线时间
+	Status      VerificationStatus `json:"status"`       // 验证状态
+	Reason      string             `json:"reason"`       // 失败原因（valid 时为空）
+}
+
+// SignalVerificationReport 信号验证汇总报告
+type SignalVerificationReport struct {
+	TotalSignals   int                        `json:"total_signals"`    // 信号总数
+	ValidCount     int                        `json:"valid_count"`      // 正确信号数
+	InvalidCount   int                        `json:"invalid_count"`    // 无效信号数
+	DuplicateCount int                        `json:"duplicate_count"`  // 重复信号数
+	SkippedCount   int                        `json:"skipped_count"`    // 跳过验证数
+	Results        []SignalVerificationResult `json:"results"`          // 每条信号的验证详情
 }
 
 // BacktestStats 回测统计

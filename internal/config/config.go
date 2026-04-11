@@ -163,8 +163,9 @@ type CandlestickStrategyConfig struct {
 	MomentumMinCount int `mapstructure:"momentum_min_count"` // 最少连续K线数（默认3）
 
 	// 星形参数
-	StarBodyATRMax  float64 `mapstructure:"star_body_atr_max"` // 星形中间K线实体上限（ATR倍数，默认0.3）
-	StarShadowRatio float64 `mapstructure:"star_shadow_ratio"` // 星形影线最小比例（默认1.0）
+	StarBodyATRMax  float64 `mapstructure:"star_body_atr_max"`  // 星形中间K线实体上限（ATR倍数，默认0.3）
+	StarShadowRatio float64 `mapstructure:"star_shadow_ratio"`  // 星形影线最小比例（默认1.0）
+	StarMidpointMin float64 `mapstructure:"star_midpoint_min"` // 第三根K线收盘价穿透第一根中点的最低比例（默认0.005即0.5%）
 
 	// 趋势过滤
 	RequireTrend bool `mapstructure:"require_trend"` // 是否启用趋势过滤（默认true）
