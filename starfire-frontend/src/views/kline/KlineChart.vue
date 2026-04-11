@@ -57,6 +57,22 @@
       </span>
     </div>
 
+    <!-- EMA 均线图例：仅在趋势信号模式下显示 -->
+    <div class="level-legend" v-if="isTrendSource">
+      <span class="legend-item">
+        <span class="legend-color" style="background:#FFD740"></span>
+        EMA短
+      </span>
+      <span class="legend-item">
+        <span class="legend-color" style="background:#42A5F5"></span>
+        EMA中
+      </span>
+      <span class="legend-item">
+        <span class="legend-color" style="background:#AB47BC"></span>
+        EMA长
+      </span>
+    </div>
+
     <!-- K线图表容器 -->
     <div class="chart-container-wrap" style="position:relative">
       <div class="chart-container" ref="chartContainer"></div>
@@ -166,11 +182,19 @@ let boxLineSeries = null // 箱体边框线系列（单边）
 let boxLineSeriesList = [] // 箱体四条边分别的线系列
 let overlayCtx = null // overlay canvas 2d context
 let overlayData = { boxes: [], keyLevels: [], signals: [] } // overlay 绘制数据
+let emaShortSeries = null // EMA 短期均线
+let emaMediumSeries = null // EMA 中期均线
+let emaLongSeries = null // EMA 长期均线
 
 const priceClass = computed(() => {
   if (priceChange.value > 0) return 'price-up'
   if (priceChange.value < 0) return 'price-down'
   return ''
+})
+
+// 是否为趋势类型信号
+const isTrendSource = computed(() => {
+  return ['trend', 'trend_retracement', 'trend_reversal'].includes(sourceType.value)
 })
 
 // 返回上一页或信号列表
@@ -196,7 +220,9 @@ const getSignalTypeName = (type) => {
     support_break: '支撑跌破',
     // 量价信号
     volume_surge: '量能放大',
-    price_surge: '价格飙升',
+    price_surge: '价格异动',
+    price_surge_up: '价格急涨',
+    price_surge_down: '价格急跌',
     volume_price_fall: '量价齐跌',
     volume_price_rise: '量价齐升',
     // 上下引线信号
@@ -290,6 +316,32 @@ const initChart = () => {
   })
   volumeSeries.priceScale().applyOptions({
     scaleMargins: { top: 0.8, bottom: 0 }
+  })
+
+  // EMA 均线系列
+  emaShortSeries = chart.addLineSeries({
+    color: '#FFD740',
+    lineWidth: 1,
+    lineStyle: 2, // 虚线
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false
+  })
+  emaMediumSeries = chart.addLineSeries({
+    color: '#42A5F5',
+    lineWidth: 1,
+    lineStyle: 2, // 虚线
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false
+  })
+  emaLongSeries = chart.addLineSeries({
+    color: '#AB47BC',
+    lineWidth: 2,
+    lineStyle: 0, // 实线
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false
   })
 
   // 初始化 overlay 并订阅缩放/滚动事件
@@ -521,6 +573,31 @@ const updateKlineData = (klines) => {
   }
 
   chart?.timeScale().fitContent()
+
+  // 填充 EMA 均线数据
+  const trendTypes = ['trend', 'trend_retracement', 'trend_reversal']
+  if (trendTypes.includes(sourceType.value)) {
+    const emaShortData = []
+    const emaMediumData = []
+    const emaLongData = []
+    for (const k of klines) {
+      const time = normalizeTimestamp(k.time || k.open_time)
+      const es = parseFloat(k.ema_short)
+      const em = parseFloat(k.ema_medium)
+      const el = parseFloat(k.ema_long)
+      if (!isNaN(es) && es > 0) emaShortData.push({ time, value: es })
+      if (!isNaN(em) && em > 0) emaMediumData.push({ time, value: em })
+      if (!isNaN(el) && el > 0) emaLongData.push({ time, value: el })
+    }
+    if (emaShortSeries) emaShortSeries.setData(emaShortData)
+    if (emaMediumSeries) emaMediumSeries.setData(emaMediumData)
+    if (emaLongSeries) emaLongSeries.setData(emaLongData)
+  } else {
+    // 非趋势信号，清空 EMA 线
+    if (emaShortSeries) emaShortSeries.setData([])
+    if (emaMediumSeries) emaMediumSeries.setData([])
+    if (emaLongSeries) emaLongSeries.setData([])
+  }
 
   // 构建 overlay 信号数据（不含箱体，箱体由 drawBoxRect 处理）
   const allSignals = []
@@ -925,6 +1002,8 @@ const getSignalDescription = (signal) => {
     case 'volume_surge':
       return d.volume_amplification ? `放量 ${d.volume_amplification.toFixed(1)}x，均价 ${formatNumber(d.avg_volume)}` : null
     case 'price_surge':
+    case 'price_surge_up':
+    case 'price_surge_down':
       return d.price_amplification ? `波动放大 ${d.price_amplification.toFixed(1)}x` : null
     case 'trend_reversal':
     case 'trend_retracement':
@@ -1359,6 +1438,7 @@ onUnmounted(() => {
   clearLevelLines()
   clearTradeLines()
   clearBoxLineSeries()
+  clearEMALines()
   overlayCtx = null
   if (chart) chart.remove()
 })
@@ -1396,6 +1476,20 @@ const clearBoxLineSeries = () => {
   }
   boxLineSeriesList = []
   boxLineSeries = null
+}
+
+// 清理 EMA 均线系列
+const clearEMALines = () => {
+  if (chart) {
+    [emaShortSeries, emaMediumSeries, emaLongSeries].forEach(series => {
+      if (series) {
+        try { chart.removeSeries(series) } catch (e) { /* ignore */ }
+      }
+    })
+  }
+  emaShortSeries = null
+  emaMediumSeries = null
+  emaLongSeries = null
 }
 </script>
 

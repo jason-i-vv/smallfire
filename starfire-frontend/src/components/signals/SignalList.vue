@@ -34,18 +34,9 @@
           {{ formatPrice(row.price) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150">
+      <el-table-column label="操作" width="80">
         <template #default="{ row }">
           <el-button size="small" link @click="handleView(row)">查看</el-button>
-          <el-button
-            v-if="row.status === 'pending'"
-            type="primary"
-            size="small"
-            link
-            @click="handleTrack(row)"
-          >
-            跟踪
-          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -62,7 +53,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['view', 'track'])
+const emit = defineEmits(['view'])
 
 const getSourceTypeName = (type) => {
   const names = {
@@ -89,7 +80,9 @@ const getSignalTypeName = (type) => {
     support_break: '支撑跌破',
     // 量价信号
     volume_surge: '量能放大',
-    price_surge: '价格飙升',
+    price_surge: '价格异动',
+    price_surge_up: '价格急涨',
+    price_surge_down: '价格急跌',
     volume_price_fall: '量价齐跌',
     volume_price_rise: '量价齐升',
     // 上下引线信号
@@ -113,10 +106,6 @@ const getSignalTypeName = (type) => {
 
 const handleView = (signal) => {
   emit('view', signal)
-}
-
-const handleTrack = (signal) => {
-  emit('track', signal)
 }
 </script>
 

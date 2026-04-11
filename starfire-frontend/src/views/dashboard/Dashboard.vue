@@ -57,7 +57,7 @@
           <template #header>
             <span>最新信号</span>
           </template>
-          <SignalList :signals="recentSignals" @view="handleViewSignal" @track="handleTrackSignal" />
+          <SignalList :signals="recentSignals" @view="handleViewSignal" />
         </el-card>
       </el-col>
     </el-row>
@@ -150,8 +150,7 @@ const fetchData = async () => {
         strength: 3,
         price: 3450,
         stop_loss_price: 3380,
-        target_price: 3600,
-        status: 'pending'
+        target_price: 3600
       }
     ]
   }
@@ -169,16 +168,6 @@ const handleClosePosition = async (position) => {
 
 const handleViewSignal = (signal) => {
   console.log('View signal:', signal)
-}
-
-const handleTrackSignal = async (signal) => {
-  try {
-    await signalApi.track(signal.id)
-    ElMessage.success('已添加到跟踪')
-    fetchData()
-  } catch (error) {
-    ElMessage.error('添加失败')
-  }
 }
 
 onMounted(() => {

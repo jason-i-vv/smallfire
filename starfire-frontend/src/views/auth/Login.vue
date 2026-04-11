@@ -1,40 +1,38 @@
 <template>
-  <div class="login-container">
-    <el-card class="login-card">
-      <template #header>
-        <h2>星火量化</h2>
-      </template>
+  <div class="login-form">
+    <h2 class="form-title">登录</h2>
 
-      <el-form ref="formRef" :model="loginForm" :rules="rules">
-        <el-form-item prop="username">
-          <el-input
-            v-model="loginForm.username"
-            placeholder="用户名"
-            prefix-icon="User"
-          />
-        </el-form-item>
+    <el-form ref="formRef" :model="loginForm" :rules="rules">
+      <el-form-item prop="username">
+        <el-input
+          v-model="loginForm.username"
+          placeholder="用户名"
+          prefix-icon="User"
+          size="large"
+        />
+      </el-form-item>
 
-        <el-form-item prop="password">
-          <el-input
-            v-model="loginForm.password"
-            type="password"
-            placeholder="密码"
-            prefix-icon="Lock"
-            @keyup.enter="handleLogin"
-          />
-        </el-form-item>
+      <el-form-item prop="password">
+        <el-input
+          v-model="loginForm.password"
+          type="password"
+          placeholder="密码"
+          prefix-icon="Lock"
+          size="large"
+          @keyup.enter="handleLogin"
+        />
+      </el-form-item>
 
-        <el-form-item>
-          <el-button type="primary" :loading="loading" @click="handleLogin" style="width: 100%">
-            登录
-          </el-button>
-        </el-form-item>
+      <el-form-item>
+        <el-button type="primary" :loading="loading" @click="handleLogin" size="large" style="width: 100%">
+          登录
+        </el-button>
+      </el-form-item>
+    </el-form>
 
-        <div class="register-link">
-          还没有账号？<router-link to="/register">立即注册</router-link>
-        </div>
-      </el-form>
-    </el-card>
+    <div class="form-link">
+      还没有账号？<router-link to="/register">立即注册</router-link>
+    </div>
   </div>
 </template>
 
@@ -78,51 +76,40 @@ const handleLogin = async () => {
 <style lang="scss" scoped>
 @import '@/assets/styles/variables.scss';
 
-.login-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  background: $background;
-}
-
-.login-card {
-  width: 400px;
-  background: $surface !important;
-  border: 1px solid $border !important;
-
-  :deep(.el-card__header) {
-    background: $surface !important;
-    border-bottom: 1px solid $border !important;
-    padding: 20px 24px;
+.login-form {
+  .form-title {
     text-align: center;
-  }
-
-  h2 {
-    text-align: center;
-    color: $success;
-    margin: 0;
-    font-size: 24px;
+    color: $text-primary;
+    margin: 0 0 28px;
+    font-size: 22px;
     font-weight: 600;
-  }
-
-  :deep(.el-form-item__label) {
-    color: $text-secondary;
   }
 
   :deep(.el-input__wrapper) {
     background-color: $background;
     box-shadow: 0 0 0 1px $border inset;
+    border-radius: $border-radius;
   }
 
   :deep(.el-input__inner) {
     color: $text-primary;
   }
 
-  .register-link {
+  :deep(.el-button--primary) {
+    background-color: $primary;
+    border-color: $primary;
+
+    &:hover {
+      background-color: $primary-dark;
+      border-color: $primary-dark;
+    }
+  }
+
+  .form-link {
     text-align: center;
     color: $text-secondary;
     font-size: 14px;
+    margin-top: 8px;
 
     a {
       color: $primary;

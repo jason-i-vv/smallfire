@@ -76,12 +76,6 @@
         <el-option label="⭐⭐" :value="2" />
         <el-option label="⭐⭐⭐" :value="3" />
       </el-select>
-
-      <el-select v-model="filters.status" placeholder="状态" clearable style="width: 120px">
-        <el-option label="待确认" value="pending" />
-        <el-option label="已确认" value="confirmed" />
-        <el-option label="已触发" value="triggered" />
-      </el-select>
     </div>
 
     <!-- 信号表格 -->
@@ -152,18 +146,9 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="180">
+      <el-table-column label="操作" width="80">
         <template #default="{ row }">
           <el-button size="small" link type="primary" @click="handleView(row)">查看</el-button>
-          <el-button
-            v-if="row.status === 'pending'"
-            type="primary"
-            size="small"
-            link
-            @click="handleTrack(row)"
-          >
-            跟踪
-          </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -183,7 +168,6 @@
 <script setup>
 import { ref, reactive, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { signalApi } from '@/api/signals'
 import { symbolApi } from '@/api/symbols'
 import { formatTime, formatPrice } from '@/utils/formatters'
@@ -216,7 +200,7 @@ const sourceSignalTypeMap = {
   'box': ['box_breakout', 'box_breakdown'],
   'trend': ['trend_retracement', 'trend_reversal'],
   'key_level': ['resistance_break', 'support_break'],
-  'volume': ['volume_price_rise', 'volume_price_fall', 'price_surge', 'volume_surge'],
+  'volume': ['volume_price_rise', 'volume_price_fall', 'price_surge', 'price_surge_up', 'price_surge_down', 'volume_surge'],
   'wick': ['upper_wick_reversal', 'lower_wick_reversal', 'fake_breakout_upper', 'fake_breakout_lower'],
   'candlestick': ['engulfing_bullish', 'engulfing_bearish', 'momentum_bullish', 'momentum_bearish', 'morning_star', 'evening_star']
 }
@@ -232,7 +216,8 @@ const allSignalTypeOptions = [
   { label: '量价齐升', value: 'volume_price_rise', count: 0 },
   { label: '量价齐跌', value: 'volume_price_fall', count: 0 },
   { label: '量能放大', value: 'volume_surge', count: 0 },
-  { label: '价格飙升', value: 'price_surge', count: 0 },
+  { label: '价格急涨', value: 'price_surge_up', count: 0 },
+  { label: '价格急跌', value: 'price_surge_down', count: 0 },
   { label: '上引线反转', value: 'upper_wick_reversal', count: 0 },
   { label: '下引线反转', value: 'lower_wick_reversal', count: 0 },
   { label: '假突破上引', value: 'fake_breakout_upper', count: 0 },
@@ -268,8 +253,7 @@ const filters = reactive({
   sourceType: '', // 策略类型
   signalType: '', // 默认全部
   direction: '',
-  strength: null,
-  status: 'pending'
+  strength: null
 })
 
 const symbolOptions = ref([])
@@ -374,8 +358,7 @@ const fetchSignals = async () => {
       strength: Math.floor(Math.random() * 3) + 1,
       price: 3000 + i * 100,
       stop_loss_price: 2950 + i * 100,
-      target_price: 3200 + i * 100,
-      status: 'pending'
+      target_price: 3200 + i * 100
     }))
     pagination.total = 50
   }
@@ -411,16 +394,6 @@ const handleView = (signal) => {
   })
 }
 
-const handleTrack = async (signal) => {
-  try {
-    await signalApi.track(signal.id)
-    ElMessage.success('已添加到跟踪')
-    fetchSignals()
-  } catch (error) {
-    ElMessage.error('添加失败')
-  }
-}
-
 const getSourceTypeName = (type) => {
   const names = {
     box: '箱体',
@@ -446,7 +419,9 @@ const getSignalTypeName = (type) => {
     support_break: '支撑跌破',
     // 量价信号
     volume_surge: '量能放大',
-    price_surge: '价格飙升',
+    price_surge: '价格异动',
+    price_surge_up: '价格急涨',
+    price_surge_down: '价格急跌',
     volume_price_fall: '量价齐跌',
     volume_price_rise: '量价齐升',
     // 上下引线信号
