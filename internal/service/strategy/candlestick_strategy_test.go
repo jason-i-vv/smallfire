@@ -13,10 +13,11 @@ func candlestickCfg() config.CandlestickStrategyConfig {
 	return config.CandlestickStrategyConfig{
 		Enabled:          true,
 		ATRPeriod:        14,
-		BodyATRThreshold: 0.5,
+		BodyATRThreshold: 1.0,
 		MomentumMinCount: 3,
 		StarBodyATRMax:   0.3,
 		StarShadowRatio:  1.0,
+		StarMidpointMin:  0.005,
 		RequireTrend:     false, // 测试时关闭趋势过滤
 		SignalCooldown:   60,
 		CheckInterval:    300,
@@ -312,7 +313,7 @@ func TestMomentum_FourConsecutive(t *testing.T) {
 	cfg := config.CandlestickStrategyConfig{
 		Enabled:          true,
 		ATRPeriod:        14,
-		BodyATRThreshold: 0.5,
+		BodyATRThreshold: 1.0,
 		MomentumMinCount: 3,
 		RequireTrend:     false,
 	}
@@ -495,6 +496,30 @@ func TestStar_FirstBodyTooSmall(t *testing.T) {
 // ========================================
 // 边界条件测试
 // ========================================
+
+func TestStar_MarginalMidpointPenetration(t *testing.T) {
+	cfg := candlestickCfg()
+	s := NewCandlestickStrategy(cfg, mockDeps()).(*CandlestickStrategy)
+
+	bg := generateBackgroundKlines(20, 100)
+	bt := baseTime()
+
+	// 大阳线 (Open=100, Close=105, body=5)，中点=102.5
+	first := makeCandleKline(bt, 100, 106, 99.5, 105)
+	// 小实体星形
+	star := makeCandleKline(bt.Add(15*time.Minute), 105, 105.5, 104.5, 104.8)
+	// 大阴线 (Open=104.8, Close=102.4, body=2.4)，收盘102.4 vs 中点102.5
+	// 穿透比例 = (102.5-102.4)/105 = 0.00095 = 0.095% < 0.5%，应该被过滤
+	third := makeCandleKline(bt.Add(30*time.Minute), 104.8, 105, 101, 102.4)
+	klines := append(bg, first, star, third)
+
+	signals, _ := s.Analyze(1, "BTCUSDT", "15m", klines)
+	for _, sig := range signals {
+		if sig.SignalType == models.SignalTypeEveningStar {
+			t.Error("should not produce evening_star when midpoint penetration is marginal (< 0.5%)")
+		}
+	}
+}
 
 func TestAnalyze_InsufficientKlines(t *testing.T) {
 	cfg := candlestickCfg()

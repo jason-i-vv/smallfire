@@ -192,11 +192,6 @@ func (r *Runner) analyzeSymbol(symbol *repository.TrackedSymbol) {
 
 		// 运行所有策略
 		for _, strategy := range r.factory.ListStrategies() {
-			r.logger.Debug("运行策略",
-				zap.String("strategy", strategy.Name()),
-				zap.String("symbol", symbol.Code),
-				zap.String("period", period),
-				zap.Int("klines", len(klines)))
 			signals, err := strategy.Analyze(symbol.ID, symbol.Code, period, klines)
 			if err != nil {
 				r.logger.Error("策略分析失败",
@@ -210,6 +205,7 @@ func (r *Runner) analyzeSymbol(symbol *repository.TrackedSymbol) {
 			for i := range signals {
 				signal := &signals[i]
 				signal.SymbolID = symbol.ID
+				signal.SymbolCode = symbol.Code
 
 				if r.shouldCreateSignal(signal) {
 					if err := r.signalRepo.Create(signal); err != nil {
@@ -248,21 +244,12 @@ func (r *Runner) getSymbolPeriods(marketCode string) []string {
 }
 
 // shouldCreateSignal 判断是否应该创建信号（去重）
+// 基于 K 线时间去重：同一 symbol + period + signal_type + kline_time 已存在则跳过
 func (r *Runner) shouldCreateSignal(signal *models.Signal) bool {
-	// 检查相同类型的信号是否在短时间内已存在
-	existingSignals, err := r.signalRepo.GetBySymbol(signal.SymbolID)
+	exists, err := r.signalRepo.ExistsDuplicate(signal.SymbolID, signal.SignalType, signal.Period, signal.KlineTime)
 	if err != nil {
+		r.logger.Warn("查询重复信号失败", zap.Error(err))
 		return true
 	}
-
-	// 检查最近1小时内是否有相同类型的信号
-	cutoffTime := time.Now().Add(-1 * time.Hour)
-	for _, existing := range existingSignals {
-		if existing.SignalType == signal.SignalType &&
-			existing.CreatedAt.After(cutoffTime) {
-			return false
-		}
-	}
-
-	return true
+	return !exists
 }
