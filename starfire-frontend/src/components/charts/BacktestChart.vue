@@ -1,5 +1,34 @@
 <template>
   <div class="backtest-chart-wrapper">
+    <!-- 交易图例 -->
+    <div class="trade-legend" v-if="trades && trades.length > 0">
+      <span class="legend-title">交易区间:</span>
+      <span class="legend-item">
+        <span class="legend-band" style="background:rgba(0,200,83,0.2);border:1px solid rgba(0,200,83,0.6)"></span>
+        盈利
+      </span>
+      <span class="legend-item">
+        <span class="legend-band" style="background:rgba(239,83,80,0.2);border:1px solid rgba(239,83,80,0.6)"></span>
+        亏损
+      </span>
+      <span class="legend-item">
+        <span class="legend-dot" style="background:#00E676"></span>
+        做多开仓
+      </span>
+      <span class="legend-item">
+        <span class="legend-dot" style="background:#FF5252"></span>
+        做空开仓
+      </span>
+      <span class="legend-item">
+        <span class="legend-dot" style="background:#00C853;border-radius:2px;width:8px;height:8px"></span>
+        盈利平仓
+      </span>
+      <span class="legend-item">
+        <span class="legend-dot" style="background:#EF5350;border-radius:50%"></span>
+        亏损平仓
+      </span>
+    </div>
+
     <!-- 信号图例 -->
     <div class="signal-legend" v-if="signalTypeLegend.length > 0">
       <span class="legend-item" v-for="entry in signalTypeLegend" :key="entry.type">
@@ -38,6 +67,7 @@ const props = defineProps({
   startTime: { type: String, required: true },
   endTime: { type: String, required: true },
   signals: { type: Array, default: () => [] },
+  trades: { type: Array, default: () => [] },
   chartHeight: { type: Number, default: 450 }
 })
 
@@ -336,9 +366,10 @@ const updateKlineData = (klines) => {
 // ─── 信号标记 ────────────────────────────────────────────────────
 
 const setSignalMarkers = () => {
-  if (!candlestickSeries || !props.signals || props.signals.length === 0) return
+  if (!candlestickSeries) return
 
-  const markers = props.signals.map(signal => {
+  // 收集信号标记
+  const signalMarkers = (props.signals || []).map(signal => {
     const time = normalizeTimestamp(signal.kline_time || signal.time || signal.created_at)
     const alignedTime = alignTimeToPeriod(time, props.period)
     const signalType = signal.signal_type || ''
@@ -351,14 +382,61 @@ const setSignalMarkers = () => {
       position: config.position,
       color: config.color,
       shape: config.shape,
-      text: getSignalTypeName(signalType)
+      text: getSignalTypeName(signalType),
+      _isTrade: false
     }
   }).filter(Boolean)
 
-  // 按 time 排序（lightweight-charts 要求）
-  markers.sort((a, b) => a.time - b.time)
+  // 收集交易标记
+  const tradeMarkers = (props.trades || []).filter(t => t.entry_time).flatMap(trade => {
+    const result = []
 
-  candlestickSeries.setMarkers(markers)
+    // 入场标记
+    const entryTime = alignTimeToPeriod(normalizeTimestamp(trade.entry_time), props.period)
+    result.push({
+      time: entryTime,
+      position: trade.direction === 'long' ? 'belowBar' : 'aboveBar',
+      color: trade.direction === 'long' ? '#00E676' : '#FF5252',
+      shape: trade.direction === 'long' ? 'arrowUp' : 'arrowDown',
+      text: trade.direction === 'long' ? '买' : '卖',
+      size: 2,
+      _isTrade: true
+    })
+
+    // 出场标记
+    if (trade.exit_time) {
+      const exitTime = alignTimeToPeriod(normalizeTimestamp(trade.exit_time), props.period)
+      const isProfit = trade.pnl >= 0
+      result.push({
+        time: exitTime,
+        position: trade.direction === 'long' ? 'aboveBar' : 'belowBar',
+        color: isProfit ? '#00C853' : '#EF5350',
+        shape: isProfit ? 'square' : 'circle',
+        text: (isProfit ? '+' : '') + (trade.pnl?.toFixed(0) || '0'),
+        size: 1,
+        _isTrade: true
+      })
+    }
+
+    return result
+  })
+
+  // 合并并按 time 排序，同一时间点优先保留交易标记
+  const allMarkers = [...signalMarkers, ...tradeMarkers]
+    .sort((a, b) => a.time - b.time || (b._isTrade ? 1 : 0) - (a._isTrade ? 1 : 0))
+
+  // 去除 _isTrade 内部标记属性
+  const cleanMarkers = allMarkers.map(({ _isTrade, ...rest }) => rest)
+
+  // lightweight-charts 要求同一时间点不能有多个标记（取第一个）
+  const dedupedMarkers = []
+  for (const m of cleanMarkers) {
+    if (dedupedMarkers.length === 0 || dedupedMarkers[dedupedMarkers.length - 1].time !== m.time) {
+      dedupedMarkers.push(m)
+    }
+  }
+
+  candlestickSeries.setMarkers(dedupedMarkers)
 }
 
 const getSignalTypeName = (type) => {
@@ -440,17 +518,86 @@ const drawOverlay = () => {
 
   const tx = (t) => chart.timeScale().timeToCoordinate(t)
 
-  // 绘制每个引线信号的竖线标记
+  // 1. 先绘制交易持仓色带（底层）
+  drawTradeBands(tx, W, H)
+
+  // 2. 再绘制信号竖线标记（上层）
   for (const sig of overlaySignals) {
     const bx = tx(sig.time)
     if (bx == null) continue
     const style = SIGNAL_OVERLAY_STYLES[sig.type]
     if (!style) continue
 
-    // 绘制竖线（穿过 K 线区域的 80%）
     _dl(overlayCtx, bx, 0, bx, H * 0.8, style.lineColor, 1.5)
-    // 顶部圆点
     _dd(overlayCtx, bx, 12, 4, style.dotColor)
+  }
+}
+
+// 绘制交易持仓区间色带
+const drawTradeBands = (tx, W, H) => {
+  if (!props.trades || props.trades.length === 0) return
+
+  for (const trade of props.trades) {
+    if (!trade.entry_time) continue
+
+    const entryTime = alignTimeToPeriod(normalizeTimestamp(trade.entry_time), props.period)
+    if (!trade.exit_time) continue
+
+    const exitTime = alignTimeToPeriod(normalizeTimestamp(trade.exit_time), props.period)
+
+    const entryX = tx(entryTime)
+    const exitX = tx(exitTime)
+
+    // 跳过完全不在视窗内的交易
+    if (entryX == null && exitX == null) continue
+
+    const x0 = Math.max(entryX ?? 0, 0)
+    const x1 = Math.min(exitX ?? W, W)
+    const bandHeight = H * 0.82
+
+    const isProfit = trade.pnl >= 0
+    const fillColor = isProfit ? 'rgba(0, 200, 83, 0.12)' : 'rgba(239, 83, 80, 0.12)'
+    const lineColor = trade.direction === 'long'
+      ? 'rgba(0, 230, 118, 0.6)'
+      : 'rgba(255, 82, 82, 0.6)'
+
+    // 绘制持仓区间色带
+    overlayCtx.save()
+    overlayCtx.fillStyle = fillColor
+    overlayCtx.fillRect(x0, 0, x1 - x0, bandHeight)
+
+    // 绘制入场竖线（虚线）
+    if (entryX != null && entryX >= 0) {
+      _dl(overlayCtx, entryX, 0, entryX, bandHeight, lineColor, 1.5, [4, 3])
+    }
+
+    // 绘制出场竖线
+    if (exitX != null && exitX >= 0) {
+      const exitLineColor = isProfit ? 'rgba(0, 200, 131, 0.8)' : 'rgba(239, 83, 80, 0.8)'
+      _dl(overlayCtx, exitX, 0, exitX, bandHeight, exitLineColor, 1.5, [4, 3])
+    }
+
+    // 在出场位置绘制盈亏金额
+    if (exitX != null && exitX >= 0 && exitX < W) {
+      const pnlText = trade.pnl >= 0
+        ? `+${trade.pnl.toFixed(0)}`
+        : trade.pnl.toFixed(0)
+      overlayCtx.font = 'bold 11px monospace'
+      overlayCtx.fillStyle = isProfit ? '#00C853' : '#EF5350'
+      // 背景色提高可读性
+      const textWidth = overlayCtx.measureText(pnlText).width
+      overlayCtx.fillStyle = isProfit ? 'rgba(0, 200, 83, 0.85)' : 'rgba(239, 83, 80, 0.85)'
+      const textX = Math.min(exitX + 4, W - textWidth - 8)
+      const textY = trade.direction === 'long' ? 30 : 14
+      // 文字背景
+      overlayCtx.fillRect(textX - 2, textY - 11, textWidth + 4, 14)
+      // 文字
+      overlayCtx.fillStyle = '#FFFFFF'
+      overlayCtx.textAlign = 'left'
+      overlayCtx.fillText(pnlText, textX, textY)
+    }
+
+    overlayCtx.restore()
   }
 }
 
@@ -490,6 +637,37 @@ onUnmounted(() => {
   width: 100%;
   margin: -20px;
   margin-top: -12px;
+
+  .trade-legend {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 6px 16px;
+    margin-bottom: 8px;
+    background: #161B22;
+    border-radius: 6px;
+    border: 1px solid #30363D;
+    font-size: 12px;
+    color: #8B949E;
+
+    .legend-title {
+      color: #C9D1D9;
+      font-weight: 500;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-band {
+      display: inline-block;
+      width: 24px;
+      height: 12px;
+      border-radius: 2px;
+    }
+  }
 
   .signal-legend {
     display: flex;

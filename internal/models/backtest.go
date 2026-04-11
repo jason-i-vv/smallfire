@@ -4,17 +4,19 @@ import "time"
 
 // BacktestRequest 回测请求
 type BacktestRequest struct {
-	SymbolCode     string  `json:"symbol_code" binding:"required"`     // 标的代码
-	MarketCode     string  `json:"market_code" binding:"required"`    // 市场代码
-	Period         string  `json:"period" binding:"required"`          // 周期: 15m, 1h, 1d
-	StrategyType   string  `json:"strategy_type" binding:"required"`    // 策略类型: box, trend, key_level, volume_price
-	StartTime      string  `json:"start_time" binding:"required"`      // 开始时间 (UTC+8): 2024-01-01 00:00:00
-	EndTime        string  `json:"end_time" binding:"required"`        // 结束时间 (UTC+8): 2024-12-31 23:59:59
-	InitialCapital float64 `json:"initial_capital"`                    // 初始资金，默认 100000
-	PositionSize   float64 `json:"position_size"`                    // 单笔仓位比例，默认 0.1
-	StopLossPct    float64 `json:"stop_loss_pct"`                    // 止损比例，默认 0.02
-	TakeProfitPct  float64 `json:"take_profit_pct"`                  // 止盈比例，默认 0.05
-	EnableTrade    bool    `json:"enable_trade"`                     // 是否执行交易，默认 false
+	SymbolCode         string  `json:"symbol_code" binding:"required"`     // 标的代码
+	MarketCode         string  `json:"market_code" binding:"required"`    // 市场代码
+	Period             string  `json:"period" binding:"required"`          // 周期: 15m, 1h, 1d
+	StrategyType       string  `json:"strategy_type" binding:"required"`    // 策略类型: box, trend, key_level, volume_price
+	StartTime          string  `json:"start_time" binding:"required"`      // 开始时间 (UTC+8): 2024-01-01 00:00:00
+	EndTime            string  `json:"end_time" binding:"required"`        // 结束时间 (UTC+8): 2024-12-31 23:59:59
+	InitialCapital     float64 `json:"initial_capital"`                    // 初始资金，默认 100000
+	PositionSize       float64 `json:"position_size"`                    // 单笔仓位比例，默认 0.1
+	StopLossPct        float64 `json:"stop_loss_pct"`                    // 止损比例，默认 0.02
+	TakeProfitPct      float64 `json:"take_profit_pct"`                  // 止盈比例，默认 0.05
+	TrailingStopPct    float64 `json:"trailing_stop_pct"`                 // 移动止损比例，0=不启用，默认 0
+	TrailingActivatePct float64 `json:"trailing_activate_pct"`            // 移动止损激活比例，默认 0
+	EnableTrade        bool    `json:"enable_trade"`                     // 是否执行交易，默认 false
 }
 
 // BacktestResponse 回测响应
@@ -79,20 +81,22 @@ type BacktestStats struct {
 
 // BacktestTrade 回测交易记录
 type BacktestTrade struct {
-	ID             int        `json:"id"`              // 交易ID
-	SignalID       int        `json:"signal_id"`       // 信号ID
-	EntryTime      time.Time  `json:"entry_time"`      // 入场时间
-	ExitTime       *time.Time `json:"exit_time"`       // 出场时间
-	Direction      string     `json:"direction"`      // 方向: long, short
-	EntryPrice     float64    `json:"entry_price"`     // 入场价格
-	ExitPrice      float64    `json:"exit_price"`      // 出场价格
-	Quantity       float64    `json:"quantity"`         // 数量
-	PnL            float64    `json:"pnl"`              // 盈亏
-	PnLPercent     float64    `json:"pnl_percent"`     // 盈亏比例
-	Fees           float64    `json:"fees"`             // 手续费
-	ExitReason     string     `json:"exit_reason"`     // 出场原因: stop_loss, take_profit, trailing_stop
-	HoldHours      float64    `json:"hold_hours"`      // 持仓时长(小时)
-	CumPnL         float64    `json:"cum_pnl"`         // 累计盈亏
+	ID                    int        `json:"id"`                       // 交易ID
+	SignalID              int        `json:"signal_id"`                // 信号ID
+	EntryTime             time.Time  `json:"entry_time"`               // 入场时间
+	ExitTime              *time.Time `json:"exit_time"`                // 出场时间
+	Direction             string     `json:"direction"`                // 方向: long, short
+	EntryPrice            float64    `json:"entry_price"`              // 入场价格
+	ExitPrice             float64    `json:"exit_price"`               // 出场价格
+	Quantity              float64    `json:"quantity"`                  // 数量
+	PnL                   float64    `json:"pnl"`                       // 盈亏
+	PnLPercent            float64    `json:"pnl_percent"`              // 盈亏比例
+	Fees                  float64    `json:"fees"`                      // 手续费
+	ExitReason            string     `json:"exit_reason"`              // 出场原因: stop_loss, take_profit, trailing_stop, end_of_backtest
+	HoldHours             float64    `json:"hold_hours"`               // 持仓时长(小时)
+	CumPnL                float64    `json:"cum_pnl"`                  // 累计盈亏
+	TrailingStopActivated bool       `json:"trailing_stop_activated"`  // 是否激活了移动止损
+	MaxFavorableExcursion float64   `json:"max_favorable_excursion"`  // 最大有利幅度(MFE)
 }
 
 // EquityPoint 权益曲线数据点

@@ -141,6 +141,36 @@
                 />
                 <span class="slider-label">{{ form.take_profit_pct }}%</span>
               </el-form-item>
+
+              <!-- 移动止损 -->
+              <el-form-item label="移动止损">
+                <el-switch v-model="form.trailing_stop_enabled" />
+                <span class="switch-hint">{{ form.trailing_stop_enabled ? '已启用移动止损' : '不使用移动止损' }}</span>
+              </el-form-item>
+
+              <template v-if="form.trailing_stop_enabled">
+                <el-form-item label="止损距离">
+                  <el-slider
+                    v-model="form.trailing_stop_pct"
+                    :min="0.5"
+                    :max="5"
+                    :step="0.5"
+                    :format-tooltip="val => val + '%'"
+                  />
+                  <span class="slider-label">{{ form.trailing_stop_pct }}%</span>
+                </el-form-item>
+
+                <el-form-item label="激活距离">
+                  <el-slider
+                    v-model="form.trailing_activate_pct"
+                    :min="0.5"
+                    :max="10"
+                    :step="0.5"
+                    :format-tooltip="val => val + '%'"
+                  />
+                  <span class="slider-label">{{ form.trailing_activate_pct }}%</span>
+                </el-form-item>
+              </template>
             </template>
           </el-form>
         </el-card>
@@ -219,7 +249,10 @@
             <div class="card-header">
               <span>信号列表</span>
               <div class="card-header-actions">
-                <span class="trade-count">共 {{ result.signals?.length || 0 }} 个信号</span>
+                <span class="trade-count">
+                  共 {{ result.signals?.length || 0 }} 个信号
+                  <template v-if="result.trades?.length > 0"> / {{ result.trades.length }} 笔交易</template>
+                </span>
                 <el-button-group v-if="supportsChartMode" size="small">
                   <el-button :type="signalViewMode === 'chart' ? 'primary' : ''" @click="signalViewMode = 'chart'">
                     <el-icon><Histogram /></el-icon> 图表
@@ -232,17 +265,18 @@
             </div>
           </template>
 
-          <!-- 图表模式：内嵌K线图表，标记所有引线信号 -->
+          <!-- 图表模式：内嵌K线图表，标记所有引线信号和交易记录 -->
           <BacktestChart
-            v-if="signalViewMode === 'chart' && supportsChartMode && currentSymbolId && result.signals?.length > 0"
+            v-if="signalViewMode === 'chart' && supportsChartMode && currentSymbolId && (result.signals?.length > 0 || result.trades?.length > 0)"
             :symbol-id="currentSymbolId"
             :period="form.period"
             :start-time="result.request.start_time"
             :end-time="result.request.end_time"
-            :signals="result.signals"
+            :signals="result.signals || []"
+            :trades="result.trades || []"
           />
-          <div v-else-if="signalViewMode === 'chart' && supportsChartMode && (!result.signals || result.signals.length === 0)" class="chart-empty">
-            暂无信号数据
+          <div v-else-if="signalViewMode === 'chart' && supportsChartMode && (!result.signals || result.signals.length === 0) && (!result.trades || result.trades.length === 0)" class="chart-empty">
+            暂无信号和交易数据
           </div>
 
           <!-- 列表模式：表格 -->
@@ -381,57 +415,136 @@
           <template #header>
             <div class="card-header">
               <span>交易记录</span>
-              <span class="trade-count">共 {{ result.trades.length }} 笔</span>
+              <div class="card-header-actions">
+                <span class="trade-count">共 {{ result.trades.length }} 笔</span>
+                <el-button link size="small" @click="showTradeAnalysis = !showTradeAnalysis">
+                  {{ showTradeAnalysis ? '收起分析' : '展开分析' }}
+                </el-button>
+              </div>
             </div>
           </template>
-          <el-table :data="result.trades" stripe style="width: 100%" max-height="400" @row-click="(row) => viewChart('trade', row)">
-            <el-table-column prop="id" label="#" width="60" />
-            <el-table-column label="时间" width="160">
+
+          <!-- 交易分析面板 -->
+          <div v-if="showTradeAnalysis" class="trade-analysis-panel">
+            <el-row :gutter="16">
+              <el-col :span="6">
+                <div class="analysis-item">
+                  <div class="analysis-label">多头胜率</div>
+                  <div class="analysis-value">{{ tradeAnalysis.longWinRate }}</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="analysis-item">
+                  <div class="analysis-label">空头胜率</div>
+                  <div class="analysis-value">{{ tradeAnalysis.shortWinRate }}</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="analysis-item">
+                  <div class="analysis-label">平均持仓</div>
+                  <div class="analysis-value">{{ tradeAnalysis.avgHoldHours }}h</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="analysis-item">
+                  <div class="analysis-label">最大连胜/连亏</div>
+                  <div class="analysis-value">
+                    <span class="text-success">{{ tradeAnalysis.maxWinStreak }}</span> /
+                    <span class="text-danger">{{ tradeAnalysis.maxLoseStreak }}</span>
+                  </div>
+                </div>
+              </el-col>
+            </el-row>
+            <el-row :gutter="16" style="margin-top: 12px">
+              <el-col :span="6">
+                <div class="analysis-item">
+                  <div class="analysis-label">最佳交易</div>
+                  <div class="analysis-value text-success">{{ formatPnL(tradeAnalysis.bestTrade) }}</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="analysis-item">
+                  <div class="analysis-label">最差交易</div>
+                  <div class="analysis-value text-danger">{{ formatPnL(tradeAnalysis.worstTrade) }}</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="analysis-item">
+                  <div class="analysis-label">平均盈利</div>
+                  <div class="analysis-value text-success">{{ formatPnL(tradeAnalysis.avgWin) }}</div>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="analysis-item">
+                  <div class="analysis-label">平均亏损</div>
+                  <div class="analysis-value text-danger">{{ formatPnL(tradeAnalysis.avgLoss) }}</div>
+                </div>
+              </el-col>
+            </el-row>
+          </div>
+
+          <el-table
+            :data="result.trades"
+            stripe
+            style="width: 100%"
+            max-height="400"
+            :row-class-name="tradeRowClassName"
+            @row-click="(row) => viewChart('trade', row)"
+          >
+            <el-table-column prop="id" label="#" width="50" />
+            <el-table-column label="入场时间" width="150">
               <template #default="{ row }">
                 {{ formatTime(row.entry_time) }}
               </template>
             </el-table-column>
-            <el-table-column prop="direction" label="方向" width="80">
+            <el-table-column prop="direction" label="方向" width="70">
               <template #default="{ row }">
                 <el-tag :type="row.direction === 'long' ? 'success' : 'danger'" size="small">
-                  {{ row.direction === 'long' ? '做多' : '做空' }}
+                  {{ row.direction === 'long' ? '多' : '空' }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="entry_price" label="入场价" width="120">
+            <el-table-column prop="entry_price" label="入场价" width="110">
               <template #default="{ row }">
                 {{ formatNumber(row.entry_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="exit_price" label="出场价" width="120">
+            <el-table-column prop="exit_price" label="出场价" width="110">
               <template #default="{ row }">
                 {{ formatNumber(row.exit_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="hold_hours" label="持仓(小时)" width="100">
+            <el-table-column prop="pnl_percent" label="收益率" width="90">
               <template #default="{ row }">
-                {{ row.hold_hours?.toFixed(1) || 0 }}h
+                <span :class="row.pnl_percent >= 0 ? 'text-success' : 'text-danger'">
+                  {{ (row.pnl_percent * 100).toFixed(2) }}%
+                </span>
               </template>
             </el-table-column>
-            <el-table-column prop="pnl" label="盈亏" width="120">
+            <el-table-column prop="pnl" label="盈亏" width="110">
               <template #default="{ row }">
                 <span :class="row.pnl >= 0 ? 'text-success' : 'text-danger'">
                   {{ formatPnL(row.pnl) }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="exit_reason" label="出场原因" width="100">
+            <el-table-column prop="cum_pnl" label="累计盈亏" width="110">
+              <template #default="{ row }">
+                <span :class="row.cum_pnl >= 0 ? 'text-success' : 'text-danger'">
+                  {{ formatPnL(row.cum_pnl) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="hold_hours" label="持仓" width="80">
+              <template #default="{ row }">
+                {{ row.hold_hours?.toFixed(1) || 0 }}h
+              </template>
+            </el-table-column>
+            <el-table-column prop="exit_reason" label="出场" width="80">
               <template #default="{ row }">
                 <el-tag size="small" :type="getExitReasonType(row.exit_reason)">
                   {{ getExitReasonLabel(row.exit_reason) }}
                 </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="80" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" :icon="View" link @click.stop="viewChart('trade', row)">
-                  图表
-                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -480,6 +593,7 @@ const result = ref(null)
 const symbols = ref([])
 const strategies = ref([])
 const signalViewMode = ref('chart')  // 'chart' | 'list'
+const showTradeAnalysis = ref(false)
 
 // 表单数据
 const form = ref({
@@ -493,7 +607,10 @@ const form = ref({
   initial_capital: 100000,
   position_size_pct: 10,
   stop_loss_pct: 2,
-  take_profit_pct: 5
+  take_profit_pct: 5,
+  trailing_stop_enabled: false,
+  trailing_stop_pct: 1.5,
+  trailing_activate_pct: 2
 })
 
 // 计算属性
@@ -513,7 +630,8 @@ const equityData = computed(() => {
 
 const isWickStrategy = computed(() => form.value.strategy_type === 'wick')
 const isVolumeStrategy = computed(() => form.value.strategy_type === 'volume_price')
-const supportsChartMode = computed(() => isWickStrategy.value || isVolumeStrategy.value)
+const hasTrades = computed(() => result.value?.trades?.length > 0)
+const supportsChartMode = computed(() => isWickStrategy.value || isVolumeStrategy.value || hasTrades.value)
 
 const currentSymbolId = computed(() => {
   const found = symbols.value.find(s => s.symbol_code === form.value.symbol_code)
@@ -527,9 +645,58 @@ const currentSymbolName = computed(() => {
   return found?.symbol_name ? `${code} ${found.symbol_name}` : code
 })
 
+// 交易分析数据
+const tradeAnalysis = computed(() => {
+  const trades = result.value?.trades || []
+  if (trades.length === 0) return {}
+
+  const longs = trades.filter(t => t.direction === 'long')
+  const shorts = trades.filter(t => t.direction === 'short')
+  const longWins = longs.filter(t => t.pnl > 0).length
+  const shortWins = shorts.filter(t => t.pnl > 0).length
+  const wins = trades.filter(t => t.pnl > 0)
+  const losses = trades.filter(t => t.pnl < 0)
+
+  const totalHoldHours = trades.reduce((sum, t) => sum + (t.hold_hours || 0), 0)
+
+  let maxWinStreak = 0, maxLoseStreak = 0, winStreak = 0, loseStreak = 0
+  for (const t of trades) {
+    if (t.pnl > 0) { winStreak++; loseStreak = 0 }
+    else if (t.pnl < 0) { loseStreak++; winStreak = 0 }
+    maxWinStreak = Math.max(maxWinStreak, winStreak)
+    maxLoseStreak = Math.max(maxLoseStreak, loseStreak)
+  }
+
+  return {
+    longWinRate: longs.length > 0 ? `${(longWins / longs.length * 100).toFixed(1)}%` : '-',
+    shortWinRate: shorts.length > 0 ? `${(shortWins / shorts.length * 100).toFixed(1)}%` : '-',
+    avgHoldHours: trades.length > 0 ? (totalHoldHours / trades.length).toFixed(1) : '0',
+    bestTrade: wins.length > 0 ? Math.max(...wins.map(t => t.pnl)) : 0,
+    worstTrade: losses.length > 0 ? Math.min(...losses.map(t => t.pnl)) : 0,
+    maxWinStreak,
+    maxLoseStreak,
+    avgWin: wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0,
+    avgLoss: losses.length > 0 ? losses.reduce((s, t) => s + t.pnl, 0) / losses.length : 0
+  }
+})
+
+// 交易表格行样式
+const tradeRowClassName = ({ row }) => {
+  if (row.pnl > 0) return 'trade-profit-row'
+  if (row.pnl < 0) return 'trade-loss-row'
+  return ''
+}
+
 // 切换策略时自动重置视图模式
 watch(() => form.value.strategy_type, (newType) => {
   signalViewMode.value = (newType === 'wick' || newType === 'volume_price') ? 'chart' : 'list'
+})
+
+// 当有交易记录时自动切换到图表模式
+watch(hasTrades, (val) => {
+  if (val && !isWickStrategy.value && !isVolumeStrategy.value) {
+    signalViewMode.value = 'chart'
+  }
 })
 
 // 策略标签映射
@@ -706,7 +873,9 @@ const runBacktest = async () => {
       initial_capital: form.value.initial_capital,
       position_size: form.value.position_size_pct / 100,
       stop_loss_pct: form.value.stop_loss_pct / 100,
-      take_profit_pct: form.value.take_profit_pct / 100
+      take_profit_pct: form.value.take_profit_pct / 100,
+      trailing_stop_pct: form.value.trailing_stop_enabled ? form.value.trailing_stop_pct / 100 : 0,
+      trailing_activate_pct: form.value.trailing_stop_enabled ? form.value.trailing_activate_pct / 100 : 0
     }
 
     const res = await backtestApi.runBacktest(requestData)
@@ -800,6 +969,7 @@ const getExitReasonType = (reason) => {
   const map = {
     'stop_loss': 'danger',
     'take_profit': 'success',
+    'trailing_stop': 'warning',
     'end_of_backtest': 'info'
   }
   return map[reason] || 'info'
@@ -1058,6 +1228,50 @@ onMounted(() => {
   .text-danger {
     color: $danger;
     font-weight: 500;
+  }
+
+  .trade-analysis-panel {
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    background: #0D1117;
+    border-radius: 6px;
+    border: 1px solid #30363D;
+
+    .analysis-item {
+      text-align: center;
+      padding: 8px 4px;
+
+      .analysis-label {
+        font-size: 12px;
+        color: #8B949E;
+        margin-bottom: 4px;
+      }
+
+      .analysis-value {
+        font-size: 16px;
+        font-weight: 600;
+        color: #C9D1D9;
+        font-family: 'Menlo', 'Monaco', monospace;
+      }
+    }
+  }
+
+  :deep(.trade-profit-row) {
+    td {
+      background: rgba(0, 200, 83, 0.05) !important;
+    }
+    &:hover > td {
+      background: rgba(0, 200, 83, 0.1) !important;
+    }
+  }
+
+  :deep(.trade-loss-row) {
+    td {
+      background: rgba(239, 83, 80, 0.05) !important;
+    }
+    &:hover > td {
+      background: rgba(239, 83, 80, 0.1) !important;
+    }
   }
 
   .chart-empty {

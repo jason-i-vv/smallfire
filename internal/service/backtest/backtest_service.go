@@ -1573,6 +1573,8 @@ func (s *BacktestService) runBacktestLoop(
 
 	// 持仓状态
 	var currentPosition *models.BacktestTrade
+	// 移动止损状态
+	var trailing trailingStopState
 
 	// 遍历K线
 	windowSize := 200 // 用于策略分析的窗口大小
@@ -1601,34 +1603,57 @@ func (s *BacktestService) runBacktestLoop(
 		if req.EnableTrade {
 			// 如果有持仓，检查止损止盈
 			if currentPosition != nil {
-				// 检查止损
-				stopLossPrice := s.calculateStopLossPrice(currentPosition.EntryPrice, currentPosition.Direction, req.StopLossPct)
-				// 检查止盈
-				takeProfitPrice := s.calculateTakeProfitPrice(currentPosition.EntryPrice, currentPosition.Direction, req.TakeProfitPct)
+				// 更新最大有利幅度(MFE)
+				s.updateMFE(currentPosition, currentPrice)
 
 				shouldClose := false
 				exitReason := ""
 				exitPrice := currentPrice
 
-				if currentPosition.Direction == models.DirectionLong {
-					if currentPrice <= stopLossPrice {
+				// 1. 检查移动止损（优先级最高）
+				if req.TrailingStopPct > 0 {
+					trailingTriggered := s.updateTrailingStop(&trailing, currentPosition.EntryPrice, currentPrice, currentPosition.Direction, req.TrailingStopPct, req.TrailingActivatePct)
+					if trailingTriggered {
 						shouldClose = true
-						exitReason = models.ExitReasonStopLoss
-						exitPrice = stopLossPrice
-					} else if currentPrice >= takeProfitPrice {
-						shouldClose = true
-						exitReason = models.ExitReasonTakeProfit
-						exitPrice = takeProfitPrice
+						exitReason = models.ExitReasonTrailingStop
+						exitPrice = trailing.currentStop
+						currentPosition.TrailingStopActivated = trailing.isActivated
 					}
-				} else { // short
-					if currentPrice >= stopLossPrice {
-						shouldClose = true
-						exitReason = models.ExitReasonStopLoss
-						exitPrice = stopLossPrice
-					} else if currentPrice <= takeProfitPrice {
-						shouldClose = true
-						exitReason = models.ExitReasonTakeProfit
-						exitPrice = takeProfitPrice
+				}
+
+				// 2. 检查固定止损
+				if !shouldClose {
+					stopLossPrice := s.calculateStopLossPrice(currentPosition.EntryPrice, currentPosition.Direction, req.StopLossPct)
+					if currentPosition.Direction == models.DirectionLong {
+						if currentPrice <= stopLossPrice {
+							shouldClose = true
+							exitReason = models.ExitReasonStopLoss
+							exitPrice = stopLossPrice
+						}
+					} else {
+						if currentPrice >= stopLossPrice {
+							shouldClose = true
+							exitReason = models.ExitReasonStopLoss
+							exitPrice = stopLossPrice
+						}
+					}
+				}
+
+				// 3. 检查止盈
+				if !shouldClose {
+					takeProfitPrice := s.calculateTakeProfitPrice(currentPosition.EntryPrice, currentPosition.Direction, req.TakeProfitPct)
+					if currentPosition.Direction == models.DirectionLong {
+						if currentPrice >= takeProfitPrice {
+							shouldClose = true
+							exitReason = models.ExitReasonTakeProfit
+							exitPrice = takeProfitPrice
+						}
+					} else {
+						if currentPrice <= takeProfitPrice {
+							shouldClose = true
+							exitReason = models.ExitReasonTakeProfit
+							exitPrice = takeProfitPrice
+						}
 					}
 				}
 
@@ -1637,11 +1662,17 @@ func (s *BacktestService) runBacktestLoop(
 					currentPosition.ExitTime = &currentKline.OpenTime
 					currentPosition.ExitPrice = exitPrice
 					currentPosition.ExitReason = exitReason
+					if trailing.isActivated {
+						currentPosition.TrailingStopActivated = true
+					}
 
 					// 计算盈亏
 					s.calculateTradePnL(currentPosition, req)
 
-						reversed := false
+					// 重置移动止损状态
+					trailing = trailingStopState{}
+
+					reversed := false
 					// 检查是否有新信号可以反向开仓
 					for _, sig := range newSignals {
 						if sig.Direction != currentPosition.Direction && currentPosition.ExitTime != nil {
@@ -1649,7 +1680,6 @@ func (s *BacktestService) runBacktestLoop(
 							sigPtr := &sig
 							currentPosition = s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
 							reversed = true
-							break
 							break
 						}
 					}
@@ -1666,7 +1696,9 @@ func (s *BacktestService) runBacktestLoop(
 					if sig.Status == models.SignalStatusPending {
 						sigPtr := &sig
 						currentPosition = s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
-						break // 每次只开一个仓位
+												// 重置移动止损状态
+						trailing = trailingStopState{}
+break // 每次只开一个仓位
 					}
 				}
 			}
@@ -1750,6 +1782,85 @@ func (s *BacktestService) calculateTakeProfitPrice(entryPrice float64, direction
 		return entryPrice * (1 + takeProfitPct)
 	}
 	return entryPrice * (1 - takeProfitPct)
+}
+
+// trailingStopState 回测中的移动止损状态
+type trailingStopState struct {
+	isActivated  bool
+	highestPrice float64 // 激活后的最高价（多头）
+	lowestPrice  float64 // 激活后的最低价（空头）
+	currentStop  float64 // 当前移动止损价
+}
+
+// updateTrailingStop 更新移动止损状态，返回是否触发
+func (s *BacktestService) updateTrailingStop(state *trailingStopState, entryPrice, currentPrice float64, direction string, trailingPct, activatePct float64) bool {
+	activationPrice := entryPrice
+	if activatePct > 0 {
+		if direction == models.DirectionLong {
+			activationPrice = entryPrice * (1 + activatePct)
+		} else {
+			activationPrice = entryPrice * (1 - activatePct)
+		}
+	}
+
+	if direction == models.DirectionLong {
+		if !state.isActivated && currentPrice >= activationPrice {
+			state.isActivated = true
+			state.highestPrice = currentPrice
+			state.currentStop = currentPrice * (1 - trailingPct)
+		}
+		if state.isActivated {
+			if currentPrice > state.highestPrice {
+				state.highestPrice = currentPrice
+				newStop := currentPrice * (1 - trailingPct)
+				if newStop > state.currentStop {
+					state.currentStop = newStop
+				}
+			}
+			if currentPrice <= state.currentStop {
+				return true
+			}
+		}
+	} else {
+		if !state.isActivated && currentPrice <= activationPrice {
+			state.isActivated = true
+			state.lowestPrice = currentPrice
+			state.currentStop = currentPrice * (1 + trailingPct)
+		}
+		if state.isActivated {
+			if currentPrice < state.lowestPrice {
+				state.lowestPrice = currentPrice
+				newStop := currentPrice * (1 + trailingPct)
+				if newStop < state.currentStop {
+					state.currentStop = newStop
+				}
+			}
+			if currentPrice >= state.currentStop {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// updateMFE 更新最大有利幅度
+func (s *BacktestService) updateMFE(trade *models.BacktestTrade, currentPrice float64) {
+	if trade.Direction == models.DirectionLong {
+		if currentPrice > trade.EntryPrice {
+			mfe := (currentPrice - trade.EntryPrice) / trade.EntryPrice
+			if mfe > trade.MaxFavorableExcursion {
+				trade.MaxFavorableExcursion = mfe
+			}
+		}
+	} else {
+		if currentPrice < trade.EntryPrice {
+			mfe := (trade.EntryPrice - currentPrice) / trade.EntryPrice
+			if mfe > trade.MaxFavorableExcursion {
+				trade.MaxFavorableExcursion = mfe
+			}
+		}
+	}
 }
 
 // calculateTradePnL 计算交易盈亏
