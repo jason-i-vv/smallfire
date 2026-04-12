@@ -52,6 +52,26 @@ func (f *Factory) GetStrategy(name string) (Strategy, bool) {
 	return s, ok
 }
 
+// NewStrategy 创建全新的策略实例（用于回测场景，避免单例状态污染）
+func (f *Factory) NewStrategy(name string) (Strategy, bool) {
+	switch name {
+	case "box":
+		return NewBoxStrategy(f.config.Box, f.deps), true
+	case "trend":
+		return NewTrendStrategy(f.config.Trend, f.deps), true
+	case "key_level":
+		return NewKeyLevelStrategy(f.config.KeyLevel, f.deps), true
+	case "volume_price":
+		return NewVolumePriceStrategy(f.config.VolumePrice, f.deps), true
+	case "wick":
+		return NewWickStrategy(f.config.Wick, f.deps), true
+	case "candlestick":
+		return NewCandlestickStrategy(f.config.Candlestick, f.deps), true
+	default:
+		return nil, false
+	}
+}
+
 func (f *Factory) ListStrategies() []Strategy {
 	var list []Strategy
 	for _, s := range f.strategies {

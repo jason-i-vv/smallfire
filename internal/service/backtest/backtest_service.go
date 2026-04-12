@@ -139,7 +139,7 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 	sortedKlines = s.emaCalc.Calculate(sortedKlines)
 
 	// 5. 获取策略
-	selectedStrategy, ok := s.strategyFac.GetStrategy(req.StrategyType)
+	selectedStrategy, ok := s.strategyFac.NewStrategy(req.StrategyType)
 	if !ok {
 		return nil, fmt.Errorf("策略类型不存在: %s", req.StrategyType)
 	}
@@ -148,10 +148,10 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 	analyzer := newStrategyAnalyzer(selectedStrategy, req.StrategyType, s.config)
 
 	// 7. 运行回测
-	trades, signals, boxes, trends := s.runBacktestLoop(req, symbol, sortedKlines, analyzer)
+	trades, signals, boxes, trends, loopMaxDD, loopMaxDDPct := s.runBacktestLoop(req, symbol, sortedKlines, analyzer)
 
 	// 8. 计算统计数据
-	stats := s.calculateStats(req, trades)
+	stats := s.calculateStats(req, trades, loopMaxDD, loopMaxDDPct)
 
 	// 9. 生成权益曲线
 	equityCurve := s.generateEquityCurve(req, trades)
@@ -165,7 +165,21 @@ func (s *BacktestService) RunBacktest(req *models.BacktestRequest) (*models.Back
 		verification = VerifySignals(signals, sortedKlines, req.StrategyType, s.config.Strategies.Candlestick)
 	}
 
-	// 11. 构建响应
+	// 11. 确保 nil slice 序列化为 JSON [] 而非 null
+	if trades == nil {
+		trades = []*models.BacktestTrade{}
+	}
+	if signals == nil {
+		signals = []*models.Signal{}
+	}
+	if boxes == nil {
+		boxes = []*models.Box{}
+	}
+	if trends == nil {
+		trends = []*models.Trend{}
+	}
+
+	// 12. 构建响应
 	response := &models.BacktestResponse{
 		Request:     req,
 		Statistics:  stats,
@@ -1153,15 +1167,18 @@ type keyLevelStrategyAnalyzer struct {
 	breakDistance  float64      // 突破阈值(%)
 	minBreakoutAge int          // 价位最小成熟期(K线数)
 	iteration      int          // 当前迭代次数（每次 Analyze 调用递增）
+	lastBreakIter  int          // 上次产生突破信号的迭代次数（用于冷却）
+	breakCooldown  int          // 突破信号冷却期（K线数）
 }
 
+// LevelInfo 关键价位信息
 type LevelInfo struct {
-	Price           float64   // 价位
-	Time            time.Time // 形成时间
-	Broken          bool      // 是否已突破
-	TouchCount      int       // 被触及次数（价格在价位附近波动但未突破的K线数）
-	createdAtIter   int       // 创建时的迭代次数，用于计算真实年龄
-	lastTouchIter  int       // 最后一次被触及的迭代次数
+	Price         float64   // 价位
+	Time          time.Time // 形成时间
+	Broken        bool      // 是否已突破
+	TouchCount    int       // 被触及次数（价格在价位附近波动但未突破的K线数）
+	createdAtIter int       // 创建时的迭代次数，用于计算真实年龄
+	lastTouchIter int       // 最后一次被触及的迭代次数
 }
 
 // keyLevelSwingPoint 波峰波谷（关键位策略专用）
@@ -1183,7 +1200,7 @@ func newKeyLevelStrategyAnalyzer(delegate strategy.Strategy, keyLevelCfg config.
 	}
 	minAge := keyLevelCfg.MinBreakoutAge
 	if minAge <= 0 {
-		minAge = 5
+		minAge = 10
 	}
 	return &keyLevelStrategyAnalyzer{
 		delegate:       delegate,
@@ -1192,6 +1209,7 @@ func newKeyLevelStrategyAnalyzer(delegate strategy.Strategy, keyLevelCfg config.
 		lookbackKlines: lookback,
 		breakDistance:  breakDistance,
 		minBreakoutAge: minAge,
+		breakCooldown:  10, // 突破后5根K线内不再产生新突破信号
 	}
 }
 
@@ -1244,6 +1262,11 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 	// 统计触及：只检查最新一根K线，避免跨窗口重复计数
 	a.countTouchSingle(a.resistances, latestKline, "resistance")
 	a.countTouchSingle(a.supports, latestKline, "support")
+
+	// 突破信号冷却：如果上次突破距今不足 breakCooldown 根K线，跳过本轮
+	if a.lastBreakIter > 0 && (a.iteration - a.lastBreakIter) < a.breakCooldown {
+		return nil, nil
+	}
 
 	// 检查阻力位突破（向上）
 	var closestResistance *LevelInfo
@@ -1342,6 +1365,11 @@ func (a *keyLevelStrategyAnalyzer) Analyze(symbolID int, symbolCode, period stri
 	// 同一K线同时产生做多和做空信号时，选择突破距离更大的一方
 	signals = resolveConflictingSignals(signals)
 
+	// 更新冷却时间
+	if len(signals) > 0 {
+		a.lastBreakIter = a.iteration
+	}
+
 	return signals, nil
 }
 
@@ -1436,14 +1464,23 @@ func (a *keyLevelStrategyAnalyzer) countTouchSingle(levels []*LevelInfo, kline m
 
 // calculateStrength 计算信号强度（基于触及次数，与实盘策略一致）
 func (a *keyLevelStrategyAnalyzer) calculateStrength(level *LevelInfo) int {
-	strength := level.TouchCount
-	if strength > 5 {
-		strength = 5
+	klinesAway := a.iteration - level.createdAtIter
+
+	// 综合评分：触及次数(权重1) + 形成时间(权重0.5，每10根K线加1)
+	score := float64(level.TouchCount) + float64(klinesAway)/10.0
+
+	switch {
+	case score >= 8:
+		return 5
+	case score >= 5:
+		return 4
+	case score >= 3:
+		return 3
+	case score >= 1.5:
+		return 2
+	default:
+		return 1
 	}
-	if strength < 1 {
-		strength = 1
-	}
-	return strength
 }
 
 // detectKeyLevelSwingPoints 检测波峰波谷（关键位策略专用）
@@ -1565,7 +1602,7 @@ func (s *BacktestService) runBacktestLoop(
 	symbol *models.Symbol,
 	klines []models.Kline,
 	analyzer strategyAnalyzer,
-) ([]*models.BacktestTrade, []*models.Signal, []*models.Box, []*models.Trend) {
+) ([]*models.BacktestTrade, []*models.Signal, []*models.Box, []*models.Trend, float64, float64) {
 	var trades []*models.BacktestTrade
 	var signals []*models.Signal
 	var boxes []*models.Box
@@ -1575,6 +1612,12 @@ func (s *BacktestService) runBacktestLoop(
 	var currentPosition *models.BacktestTrade
 	// 移动止损状态
 	var trailing trailingStopState
+
+	// 权益跟踪（用于计算最大回撤）
+	currentEquity := req.InitialCapital
+	peakEquity := req.InitialCapital
+	var maxDrawdown, maxDrawdownPct float64
+	var cumulativePnL float64 // 已实现盈亏累计
 
 	// 遍历K线
 	windowSize := 200 // 用于策略分析的窗口大小
@@ -1590,13 +1633,41 @@ func (s *BacktestService) runBacktestLoop(
 		currentKline := klines[i+windowSize-1] // 窗口中最新的K线
 		currentPrice := currentKline.ClosePrice
 
+		// 更新权益和最大回撤（仅启用交易时）
+			if req.EnableTrade {
+				unrealizedPnL := 0.0
+				if currentPosition != nil {
+					if currentPosition.Direction == models.DirectionLong {
+						unrealizedPnL = (currentPrice - currentPosition.EntryPrice) * currentPosition.Quantity
+					} else {
+						unrealizedPnL = (currentPosition.EntryPrice - currentPrice) * currentPosition.Quantity
+					}
+				}
+				currentEquity = req.InitialCapital + cumulativePnL + unrealizedPnL
+				if currentEquity > peakEquity {
+					peakEquity = currentEquity
+				}
+				dd := peakEquity - currentEquity
+				if dd > maxDrawdown {
+					maxDrawdown = dd
+					maxDrawdownPct = dd / peakEquity
+				}
+			}
+
 		// 当前分析窗口 - 包含从 i 到 i+windowSize-1 的K线（从旧到新）
 		analysisWindow := klines[i : i+windowSize]
 
 		// 运行策略分析
 		newSignals, _ := analyzer.Analyze(symbol.ID, symbol.SymbolCode, req.Period, analysisWindow)
+			var filteredNewSignals []*models.Signal
 		for idx := range newSignals {
-			signals = append(signals, &newSignals[idx])
+			sig := &newSignals[idx]
+			// key_level 策略：过滤 strength < 3 的低质量信号
+			if sig.SourceType == "key_level" && sig.Strength < 3 {
+				continue
+			}
+			filteredNewSignals = append(filteredNewSignals, sig)
+			signals = append(signals, sig)
 		}
 
 		// 只在启用交易时执行交易逻辑
@@ -1668,16 +1739,17 @@ func (s *BacktestService) runBacktestLoop(
 
 					// 计算盈亏
 					s.calculateTradePnL(currentPosition, req)
+					cumulativePnL += currentPosition.PnL
 
 					// 重置移动止损状态
 					trailing = trailingStopState{}
 
 					reversed := false
 					// 检查是否有新信号可以反向开仓
-					for _, sig := range newSignals {
+					for _, sig := range filteredNewSignals {
 						if sig.Direction != currentPosition.Direction && currentPosition.ExitTime != nil {
 							// 反向开仓
-							sigPtr := &sig
+							sigPtr := sig
 							currentPosition = s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
 							reversed = true
 							break
@@ -1692,9 +1764,9 @@ func (s *BacktestService) runBacktestLoop(
 
 			// 如果没有持仓，检查开仓信号
 			if currentPosition == nil {
-				for _, sig := range newSignals {
+				for _, sig := range filteredNewSignals {
 					if sig.Status == models.SignalStatusPending {
-						sigPtr := &sig
+						sigPtr := sig
 						currentPosition = s.openNewPosition(req, sigPtr, currentKline, &trades, &signals)
 												// 重置移动止损状态
 						trailing = trailingStopState{}
@@ -1730,7 +1802,7 @@ break // 每次只开一个仓位
 	boxes = analyzer.GetBoxes()
 	trends = analyzer.GetTrends()
 
-	return trades, signals, boxes, trends
+	return trades, signals, boxes, trends, maxDrawdown, maxDrawdownPct
 }
 
 // openNewPosition 开新仓位，返回新建的交易记录
@@ -1884,7 +1956,7 @@ func (s *BacktestService) calculateTradePnL(trade *models.BacktestTrade, req *mo
 }
 
 // calculateStats 计算统计数据
-func (s *BacktestService) calculateStats(req *models.BacktestRequest, trades []*models.BacktestTrade) *models.BacktestStats {
+func (s *BacktestService) calculateStats(req *models.BacktestRequest, trades []*models.BacktestTrade, loopMaxDD, loopMaxDDPct float64) *models.BacktestStats {
 	stats := &models.BacktestStats{
 		TotalTrades:  len(trades),
 		FinalCapital: req.InitialCapital,
@@ -1896,9 +1968,6 @@ func (s *BacktestService) calculateStats(req *models.BacktestRequest, trades []*
 
 	var totalWin, totalLoss float64
 	var cumulativePnL float64
-	var peakCapital float64 = req.InitialCapital
-	var maxDrawdown float64
-	var maxDrawdownPct float64
 
 	// 用于夏普比率计算
 	var returns []float64
@@ -1915,21 +1984,10 @@ func (s *BacktestService) calculateStats(req *models.BacktestRequest, trades []*
 			totalLoss += math.Abs(trade.PnL)
 		}
 
-		// 计算当前资金和回撤
-		currentCapital := req.InitialCapital + cumulativePnL
-		if currentCapital > peakCapital {
-			peakCapital = currentCapital
-		}
-		drawdown := peakCapital - currentCapital
-		if drawdown > maxDrawdown {
-			maxDrawdown = drawdown
-			maxDrawdownPct = drawdown / peakCapital
-		}
-
 		// 计算收益率
 		returns = append(returns, trade.PnLPercent)
 
-		stats.FinalCapital = currentCapital
+		stats.FinalCapital = req.InitialCapital + cumulativePnL
 	}
 
 	stats.TotalPnL = cumulativePnL
@@ -1948,17 +2006,17 @@ func (s *BacktestService) calculateStats(req *models.BacktestRequest, trades []*
 		stats.WinRate = float64(stats.WinTrades) / float64(stats.TotalTrades)
 	}
 
-	// 计算盈亏比
-	if stats.LoseTrades > 0 && stats.AvgLoss > 0 {
-		stats.ProfitFactor = stats.AvgWin / stats.AvgLoss
+	// 计算盈亏比（总盈利 / 总亏损）
+	if stats.LoseTrades > 0 && totalLoss > 0 {
+		stats.ProfitFactor = totalWin / totalLoss
 	}
 
 	// 计算期望值
 	stats.Expectancy = stats.WinRate*stats.AvgWin - (1-stats.WinRate)*stats.AvgLoss
 
-	// 计算最大回撤
-	stats.MaxDrawdown = maxDrawdown
-	stats.MaxDrawdownPct = maxDrawdownPct
+	// 使用 runBacktestLoop 中逐K线计算的最大回撤（包含浮盈亏）
+	stats.MaxDrawdown = loopMaxDD
+	stats.MaxDrawdownPct = loopMaxDDPct
 
 	// 计算夏普比率 (简化版)
 	if len(returns) > 1 {

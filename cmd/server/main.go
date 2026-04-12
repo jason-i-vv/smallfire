@@ -266,7 +266,7 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 
 		// 需要认证的路由
 	authenticated := apiV1.Group("")
-		authenticated.Use(middleware.AuthMiddleware(cfg.JWT.Secret, userRepo))
+			authenticated.Use(middleware.AuthMiddleware(cfg.JWT.Secret, userRepo))
 		{
 			// 认证相关
 			authenticated.GET("/auth/me", authHandler.Me)

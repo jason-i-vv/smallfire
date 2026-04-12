@@ -383,7 +383,7 @@ func (s *CandlestickStrategy) newSignal(signalType, direction, desc string, stre
 		Price:       kline.ClosePrice,
 		Period:      period,
 		Description: desc,
-		Status:      models.SignalStatusActive,
+		Status:      models.SignalStatusPending,
 		KlineTime:   ptrTime(kline.CloseTime),
 	}
 

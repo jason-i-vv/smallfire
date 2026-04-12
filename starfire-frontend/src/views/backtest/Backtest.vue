@@ -213,7 +213,7 @@
             <el-col :span="6">
               <div class="stat-card">
                 <div class="stat-label">盈亏比</div>
-                <div class="stat-value rate">{{ result.statistics.profit_factor.toFixed(2) }}:1</div>
+                <div class="stat-value rate">{{ result.statistics.lose_trades > 0 ? result.statistics.profit_factor.toFixed(2) + ':1' : 'N/A' }}</div>
               </div>
             </el-col>
             <el-col :span="6">
@@ -411,7 +411,7 @@
         </el-card>
 
         <!-- 交易记录（启用交易时显示） -->
-        <el-card v-if="result && result.trades && result.trades.length > 0" class="result-card">
+        <el-card v-if="result && form.enable_trade && hasTrades" class="result-card">
           <template #header>
             <div class="card-header">
               <span>交易记录</span>
@@ -548,6 +548,11 @@
               </template>
             </el-table-column>
           </el-table>
+        </el-card>
+
+        <!-- 启用了交易但没有产生交易记录 -->
+        <el-card v-else-if="result && form.enable_trade && !hasTrades" class="result-card">
+          <el-empty description="该时间段未产生交易信号" :image-size="80" />
         </el-card>
 
         <!-- 回测信息 -->

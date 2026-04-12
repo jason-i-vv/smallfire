@@ -187,15 +187,9 @@ func (s *WickStrategy) detectWickType(kline models.Kline) WickType {
 
 // checkReversalSignal 检查是否生成反转信号
 func (s *WickStrategy) checkReversalSignal(symbolID int, kline models.Kline, wickType WickType, trend TrendInfo, lookbackKlines []models.Kline) *models.Signal {
-	// 1. 检查趋势匹配
-	if s.config.RequireTrend {
-		if wickType == WickTypeUpper && trend.Type != models.TrendTypeBullish {
-			return nil // 上引线只在多头趋势中有效
-		}
-		if wickType == WickTypeLower && trend.Type != models.TrendTypeBearish {
-			return nil // 下引线只在空头趋势中有效
-		}
-	}
+	// 1. 趋势不再硬性过滤信号生成，改为在 calculateStrength 中影响强度
+	// 原逻辑：趋势不匹配时直接返回nil，导致牛市中只有做空信号
+	// 新逻辑：趋势不匹配的信号强度降低，但仍可产生
 
 	// 2. 检测假突破
 	fakeBreakout := s.detectFakeBreakout(kline, wickType, lookbackKlines)
@@ -359,8 +353,20 @@ func (s *WickStrategy) calculateBreakoutThreshold(klines []models.Kline) float64
 func (s *WickStrategy) calculateStrength(kline models.Kline, wickType WickType, trend TrendInfo, fakeBreakout *FakeBreakoutInfo, nearLevel string, lookbackKlines []models.Kline) int {
 	baseStrength := 2 // 基础强度
 
-	// 1. 趋势强度加成
-	baseStrength += trend.Strength - 1
+	// 1. 趋势一致性加成/惩罚
+	// 趋势方向与引线反转方向一致时加成，不一致时降低强度
+	trendMatch := false
+	if wickType == WickTypeUpper && trend.Type == models.TrendTypeBullish {
+		trendMatch = true
+	}
+	if wickType == WickTypeLower && trend.Type == models.TrendTypeBearish {
+		trendMatch = true
+	}
+	if trendMatch {
+		baseStrength += trend.Strength - 1 // 趋势一致时根据趋势强度加成
+	} else {
+		baseStrength -= 1 // 趋势不一致时降低强度（仍可产生信号）
+	}
 
 	// 2. 假突破加成
 	if fakeBreakout != nil && fakeBreakout.Failed {
