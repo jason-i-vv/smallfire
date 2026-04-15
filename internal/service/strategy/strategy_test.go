@@ -411,7 +411,12 @@ func TestWickStrategy_RequireTrend_BlockedWithoutTrend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(signals) != 0 {
-		t.Errorf("expected 0 signals when trend is sideways (RequireTrend=true), got %d", len(signals))
+	// 新逻辑：趋势不匹配不再硬性阻止信号，改为降低强度
+	// sideways 时仍会产生信号，但强度较低
+	if len(signals) != 1 {
+		t.Errorf("expected 1 signal when trend is sideways (strength reduced), got %d", len(signals))
+	}
+	if len(signals) > 0 && signals[0].Strength > 2 {
+		t.Errorf("expected strength <= 2 when trend doesn't match, got %d", signals[0].Strength)
 	}
 }
