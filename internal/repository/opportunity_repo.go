@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/smallfire/starfire/internal/database"
 	"github.com/smallfire/starfire/internal/models"
@@ -153,7 +152,9 @@ func (r *OpportunityRepoPG) List(status string, page, size int) ([]*models.Tradi
 	}
 
 	offset := (page - 1) * size
-	listQuery += fmt.Sprintf(` ORDER BY created_at DESC LIMIT %d OFFSET %d`, size, offset)
+	argIdx := len(args) + 1
+	listQuery += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
+	args = append(args, size, offset)
 
 	items, err := r.queryList(listQuery, args...)
 	return items, total, err
@@ -220,61 +221,38 @@ func (r *SignalTypeStatsRepoPG) GetBySignal(signalType, direction, period string
 }
 
 func (r *SignalTypeStatsRepoPG) UpdateStats(signalType, direction, period string, symbolID *int, won bool, returnPct float64) error {
-	stat, _ := r.GetBySignal(signalType, direction, period, symbolID)
+	query := `INSERT INTO signal_type_stats
+		(signal_type, direction, period, symbol_id, total_trades, win_count, loss_count,
+		 win_rate, avg_return, profit_factor, last_trade_at)
+		VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, NOW())
+		ON CONFLICT (signal_type, direction, period, symbol_id) DO UPDATE SET
+			total_trades = signal_type_stats.total_trades + 1,
+			win_count = signal_type_stats.win_count + $5,
+			loss_count = signal_type_stats.loss_count + $6,
+			win_rate = (signal_type_stats.win_count + $5)::float / (signal_type_stats.total_trades + 1),
+			avg_return = (signal_type_stats.avg_return * signal_type_stats.total_trades + $8) / (signal_type_stats.total_trades + 1),
+			profit_factor = CASE WHEN signal_type_stats.loss_count + $6 > 0 AND signal_type_stats.avg_return > 0 THEN signal_type_stats.avg_return ELSE signal_type_stats.profit_factor END,
+			last_trade_at = NOW(),
+			updated_at = NOW()`
 
-	if stat == nil {
-		winCount := 0
-		lossCount := 0
-		if won {
-			winCount = 1
-		} else {
-			lossCount = 1
-		}
-		winRate := 0.0
-		if won {
-			winRate = 1.0
-		}
-		profitFactor := 0.0
-		if won && returnPct > 0 {
-			profitFactor = returnPct
-		}
-
-		query := `INSERT INTO signal_type_stats
-			(signal_type, direction, period, symbol_id, total_trades, win_count, loss_count,
-			 win_rate, avg_return, profit_factor, last_trade_at)
-			VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, NOW())`
-
-		_, err := r.db.Exec(context.Background(), query, signalType, direction, period, symbolID,
-			winCount, lossCount, winRate, returnPct, profitFactor)
-		return err
-	}
-
-	stat.TotalTrades++
+	winCount := 0
+	lossCount := 0
 	if won {
-		stat.WinCount++
+		winCount = 1
 	} else {
-		stat.LossCount++
+		lossCount = 1
 	}
-	stat.WinRate = float64(stat.WinCount) / float64(stat.TotalTrades)
-	stat.AvgReturn = (stat.AvgReturn*float64(stat.TotalTrades-1) + returnPct) / float64(stat.TotalTrades)
-
-	if stat.LossCount > 0 && stat.AvgReturn > 0 {
-		stat.ProfitFactor = stat.AvgReturn
+	winRate := 0.0
+	if won {
+		winRate = 1.0
 	}
-	now := time.Now()
-	stat.LastTradeAt = &now
+	profitFactor := 0.0
+	if won && returnPct > 0 {
+		profitFactor = returnPct
+	}
 
-	query := `UPDATE signal_type_stats SET
-		total_trades = $2, win_count = $3, loss_count = $4,
-		win_rate = $5, avg_return = $6, profit_factor = $7,
-		last_trade_at = $8, updated_at = NOW()
-		WHERE id = $1`
-
-	_, err := r.db.Exec(context.Background(), query, stat.ID,
-		stat.TotalTrades, stat.WinCount, stat.LossCount,
-		stat.WinRate, stat.AvgReturn, stat.ProfitFactor,
-		stat.LastTradeAt,
-	)
+	_, err := r.db.Exec(context.Background(), query, signalType, direction, period, symbolID,
+		winCount, lossCount, winRate, returnPct, profitFactor)
 	return err
 }
 

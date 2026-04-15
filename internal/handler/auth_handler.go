@@ -100,11 +100,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		// JWT 未启用时中间件不会设置 user_id，返回默认匿名用户
+		// JWT 未启用时中间件不会设置 user_id，返回默认匿名用户（受限角色）
 		HandleSuccess(c, gin.H{
 			"id":       0,
 			"username": "anonymous",
-			"role":     "admin",
+			"role":     "viewer",
 			"nickname": "匿名用户",
 		})
 		return

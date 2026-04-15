@@ -352,11 +352,23 @@ func parseAIResponse(response string) (*AIJudgmentResult, error) {
 	if result.Reasoning == "" {
 		result.Reasoning = "分析完成"
 	}
+	if len(result.Reasoning) > 2000 {
+		result.Reasoning = result.Reasoning[:2000]
+	}
 	if result.KeyFactors == nil {
 		result.KeyFactors = []string{}
 	}
+	if len(result.KeyFactors) > 20 {
+		result.KeyFactors = result.KeyFactors[:20]
+	}
 	if result.RiskWarnings == nil {
 		result.RiskWarnings = []string{}
+	}
+	if len(result.RiskWarnings) > 20 {
+		result.RiskWarnings = result.RiskWarnings[:20]
+	}
+	if len(result.StrategySuggestion) > 1000 {
+		result.StrategySuggestion = result.StrategySuggestion[:1000]
 	}
 
 	return &result, nil

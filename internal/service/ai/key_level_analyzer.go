@@ -295,28 +295,41 @@ func parseAIKeyLevelResponseV2(response string) (*models.AIKeyLevelResultV2, err
 	}
 
 	// 验证和清理
+	maxEntries := 10 // 限制最大条目数，防止 LLM 返回过多数据
 	validResistances := make([]models.KeyLevelEntry, 0, len(result.Resistances))
 	for _, entry := range result.Resistances {
-		if entry.Price <= 0 {
+		if len(validResistances) >= maxEntries {
+			break
+		}
+		if entry.Price <= 0 || entry.Price > 1e9 { // 价格范围合理性
 			continue
 		}
 		if entry.Strength != models.LevelStrengthStrong &&
 			entry.Strength != models.LevelStrengthMid &&
 			entry.Strength != models.LevelStrengthWeak {
 			entry.Strength = models.LevelStrengthMid
+		}
+		if len(entry.Reason) > 500 { // 限制原因长度
+			entry.Reason = entry.Reason[:500]
 		}
 		validResistances = append(validResistances, entry)
 	}
 
 	validSupports := make([]models.KeyLevelEntry, 0, len(result.Supports))
 	for _, entry := range result.Supports {
-		if entry.Price <= 0 {
+		if len(validSupports) >= maxEntries {
+			break
+		}
+		if entry.Price <= 0 || entry.Price > 1e9 {
 			continue
 		}
 		if entry.Strength != models.LevelStrengthStrong &&
 			entry.Strength != models.LevelStrengthMid &&
 			entry.Strength != models.LevelStrengthWeak {
 			entry.Strength = models.LevelStrengthMid
+		}
+		if len(entry.Reason) > 500 {
+			entry.Reason = entry.Reason[:500]
 		}
 		validSupports = append(validSupports, entry)
 	}

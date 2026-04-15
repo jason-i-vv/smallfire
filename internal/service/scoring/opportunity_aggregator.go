@@ -3,6 +3,7 @@ package scoring
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/smallfire/starfire/internal/models"
@@ -48,6 +49,7 @@ type OpportunityAggregator struct {
 	minScoreToCreate   int
 	expireAfterNoNew   time.Duration
 	logger             *zap.Logger
+	mu                 sync.Mutex // 防止并发 find-or-create 竞态
 }
 
 // NewOpportunityAggregator 创建聚合器
@@ -95,6 +97,9 @@ func (a *OpportunityAggregator) invokeHandlers(opp *models.TradingOpportunity) {
 }
 // 在策略运行器每次产生新信号后调用
 func (a *OpportunityAggregator) AggregateSignals(newSignals []*models.Signal) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	// 按币对+方向分组
 	grouped := make(map[string][]*models.Signal)
 	for _, sig := range newSignals {
@@ -380,8 +385,8 @@ func (a *OpportunityAggregator) updateOpportunity(opp *models.TradingOpportunity
 		opp.ConfluenceDirections = append(opp.ConfluenceDirections, sig.SignalType+":"+sig.Direction)
 	}
 
-	// 重新评分
-	result := a.scorer.ScoreOpportunity(append(opp.Signals, newSignals...), ctx)
+	// 重新评分（opp.Signals 不从 DB 加载，只用 newSignals 评分）
+	result := a.scorer.ScoreOpportunity(newSignals, ctx)
 	opp.Score = result.TotalScore
 
 	// 更新最后信号时间
