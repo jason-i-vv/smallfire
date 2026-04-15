@@ -13,9 +13,15 @@ export const formatTime = (timestamp) => {
 }
 
 // 格式化价格
-export const formatPrice = (price, decimalPlaces = 2) => {
+export const formatPrice = (price) => {
   if (price === null || price === undefined) return '--'
-  return Number(price).toFixed(decimalPlaces)
+  const num = Number(price)
+  if (isNaN(num)) return '--'
+  // 根据价格大小自动决定小数位数
+  if (num >= 1000) return num.toFixed(2)
+  if (num >= 1) return num.toFixed(4)
+  if (num >= 0.01) return num.toFixed(6)
+  return num.toFixed(8)
 }
 
 // 格式化盈亏

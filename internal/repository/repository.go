@@ -114,8 +114,18 @@ type KeyLevelRepo interface {
 	GetActive(symbolID int, period string) ([]*models.KeyLevel, error)
 	FindActive(symbolID int, period string, levelSubtype string) (*models.KeyLevel, error)
 	GetBySymbol(symbolID int) ([]*models.KeyLevel, error)
+	GetActiveBySource(symbolID int, period string, source string) ([]*models.KeyLevel, error)
+	ExpireBySource(symbolID int, period string, source string) error
 	Create(level *models.KeyLevel) error
 	Update(level *models.KeyLevel) error
+}
+
+// KeyLevelV2Repo 关键价位V2数据访问接口（按symbol+period存储，upsert覆盖）
+type KeyLevelV2Repo interface {
+	// Upsert 插入或更新关键价位（覆盖）
+	Upsert(symbolID int, period string, resistances, supports []models.KeyLevelEntry) error
+	// GetBySymbolPeriod 获取指定币对+周期的关键价位
+	GetBySymbolPeriod(symbolID int, period string) (*models.KeyLevelsV2, error)
 }
 
 // StrategyRepo 策略数据访问接口
@@ -159,6 +169,25 @@ type UserRepo interface {
 	UpdateIsActive(id int, isActive bool) error
 	List() ([]*models.User, error)
 	ExistsByUsername(username string) (bool, error)
+}
+
+// SignalTypeStatsRepo 信号类型统计数据访问接口
+type SignalTypeStatsRepo interface {
+	GetBySignal(signalType, direction, period string, symbolID *int) (*models.SignalTypeStat, error)
+	UpdateStats(signalType, direction, period string, symbolID *int, won bool, returnPct float64) error
+	GetAll() ([]*models.SignalTypeStat, error)
+}
+
+// OpportunityRepo 交易机会数据访问接口
+type OpportunityRepo interface {
+	Create(opp *models.TradingOpportunity) error
+	Update(opp *models.TradingOpportunity) error
+	GetByID(id int) (*models.TradingOpportunity, error)
+	GetActive() ([]*models.TradingOpportunity, error)
+	GetActiveBySymbol(symbolID int) ([]*models.TradingOpportunity, error)
+	GetActiveBySymbolAndDirection(symbolID int, direction string) (*models.TradingOpportunity, error)
+	ExpireBySymbol(symbolID int, excludeID int) error
+	List(status string, page, size int) ([]*models.TradingOpportunity, int, error)
 }
 
 

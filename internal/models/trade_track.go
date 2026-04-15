@@ -3,9 +3,10 @@ package models
 import "time"
 
 type TradeTrack struct {
-	ID         int    `json:"id" db:"id"`
-	SignalID   int    `json:"signal_id" db:"signal_id"`
-	SymbolID   int    `json:"symbol_id" db:"symbol_id"`
+	ID         int     `json:"id" db:"id"`
+	SignalID      *int    `json:"signal_id,omitempty" db:"signal_id"`       // 模拟交易时为 NULL
+	OpportunityID *int    `json:"opportunity_id,omitempty" db:"opportunity_id"` // 关联交易机会（AI 分析来源）
+	SymbolID      int     `json:"symbol_id" db:"symbol_id"`
 	SymbolCode string `json:"symbol_code" db:"-"` // 关联字段，不从数据库读取
 
 	// 入场信息

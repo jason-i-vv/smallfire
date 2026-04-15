@@ -29,6 +29,7 @@
             <el-icon><TrendCharts /></el-icon>
             <span>信号中心</span>
           </template>
+          <el-menu-item index="/opportunities">交易机会</el-menu-item>
           <el-menu-item index="/signals">信号列表</el-menu-item>
         </el-sub-menu>
 
@@ -37,6 +38,7 @@
             <el-icon><Box /></el-icon>
             <span>市场分析</span>
           </template>
+          <el-menu-item index="/market">行情总览</el-menu-item>
           <el-menu-item index="/boxes">箱体列表</el-menu-item>
           <el-menu-item index="/tracking">趋势标的</el-menu-item>
         </el-sub-menu>
@@ -64,6 +66,11 @@
           <el-icon><DataAnalysis /></el-icon>
           <template #title>策略回测</template>
         </el-menu-item>
+
+        <el-menu-item index="/ai-management">
+          <el-icon><Cpu /></el-icon>
+          <template #title>AI 管理</template>
+        </el-menu-item>
       </el-menu>
     </nav>
 
@@ -89,7 +96,8 @@ import {
   Lightning,
   DArrowLeft,
   DArrowRight,
-  DataAnalysis
+  DataAnalysis,
+  Cpu
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -103,7 +111,7 @@ const activeMenu = computed(() => {
   // 匹配根路径
   if (path === '/') return '/'
   // 匹配其他路径
-  const matchPath = ['/signals', '/boxes', '/tracking', '/positions', '/trades', '/statistics', '/settings', '/backtest', '/users']
+  const matchPath = ['/opportunities', '/signals', '/market', '/boxes', '/tracking', '/positions', '/trades', '/statistics', '/settings', '/backtest', '/ai-management', '/users']
   for (const p of matchPath) {
     if (path.startsWith(p)) return path
   }

@@ -1,1 +1,0 @@
-import{x as t}from"./index-DGf241bW.js";const o={positions:()=>t.get("/trades/positions"),closePosition:(s,e)=>t.post(`/trades/${s}/close`,e),history:s=>t.get("/trades/history",{params:s}),closed:s=>t.get("/trades/closed",{params:s}),stats:s=>t.get("/trades/stats",{params:s}),signalAnalysis:()=>t.get("/trades/signal-analysis"),detail:s=>t.get(`/trades/${s}`)};export{o as t};

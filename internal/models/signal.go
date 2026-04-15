@@ -37,14 +37,21 @@ type Signal struct {
 	StopLossPrice    *float64   `json:"stop_loss_price,omitempty" db:"stop_loss_price"`
 	Period           string     `json:"period" db:"period"`
 	SignalData       *JSONB     `json:"signal_data,omitempty" db:"signal_data"`
-	Description      string     `json:"description" db:"description"` // 信号描述
+	Description      string     `json:"description" db:"description"`
 	Status           string     `json:"status" db:"status"`
 	ConfirmedAt      *time.Time `json:"confirmed_at,omitempty" db:"confirmed_at"`
 	ExpiredAt        *time.Time `json:"expired_at,omitempty" db:"expired_at"`
 	TriggeredAt      *time.Time `json:"triggered_at,omitempty" db:"triggered_at"`
 	NotificationSent bool       `json:"notification_sent" db:"notification_sent"`
 	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
-	KlineTime        *time.Time `json:"kline_time,omitempty" db:"kline_time"` // K线时间（信号产生的K线时间）
+	KlineTime        *time.Time `json:"kline_time,omitempty" db:"kline_time"`
+	// 评分相关
+	Score           int        `json:"score" db:"score"`
+	ScoreDetails    *JSONB     `json:"score_details,omitempty" db:"score_details"`
+	ValidUntil      *time.Time `json:"valid_until,omitempty" db:"valid_until"`
+	ConfluenceInfo  *JSONB     `json:"confluence_info,omitempty" db:"confluence_info"`
+	// 关联的交易机会
+	OpportunityID   *int       `json:"opportunity_id,omitempty" db:"-"`
 }
 
 // SignalQuery 信号查询参数
@@ -103,4 +110,5 @@ const (
 	SignalStatusTriggered = "triggered"
 	SignalStatusExpired   = "expired"
 	SignalStatusCancelled = "cancelled"
+	SignalStatusAbsorbed  = "absorbed" // 被交易机会吸收
 )

@@ -15,10 +15,11 @@ import (
 
 // Manager 通知管理器
 type Manager struct {
-	notifiers    map[string]Notifier
-	summarySvc   *SummaryService
-	notifyRepo   repository.NotificationRepo
-	batcher      *SignalBatcher
+	notifiers       map[string]Notifier
+	summarySvc      *SummaryService
+	notifyRepo      repository.NotificationRepo
+	batcher         *SignalBatcher
+	oppBatcher      *OpportunityBatcher
 }
 
 func NewManager(notifiers []Notifier, summarySvc *SummaryService, notifyRepo repository.NotificationRepo) *Manager {
@@ -35,11 +36,15 @@ func NewManager(notifiers []Notifier, summarySvc *SummaryService, notifyRepo rep
 	m.batcher = NewSignalBatcher(m, 3*time.Second, 50)
 	m.batcher.Start()
 
+	m.oppBatcher = NewOpportunityBatcher(m, 5*time.Second, 20)
+	m.oppBatcher.Start()
+
 	return m
 }
 
 // Stop 停止管理器（含批处理器）
 func (m *Manager) Stop() {
+	m.oppBatcher.Stop()
 	m.batcher.Stop()
 }
 
@@ -58,6 +63,21 @@ func (m *Manager) SendToAll(content *NotifyContent) {
 func (m *Manager) SendSignal(signal *models.Signal) error {
 	m.batcher.Add(signal)
 	return nil
+}
+
+// SendOpportunity 发送交易机会通知（走批处理，合并为汇总消息）
+func (m *Manager) SendOpportunity(opp *models.TradingOpportunity) error {
+	m.oppBatcher.Add(opp)
+	return nil
+}
+
+// sendOpportunityImmediate 立即发送单条交易机会通知（批处理器内部调用）
+func (m *Manager) sendOpportunityImmediate(opp *models.TradingOpportunity) {
+	for _, notifier := range m.notifiers {
+		if err := notifier.SendOpportunityNotification(opp); err != nil {
+			utils.Error("send opportunity notification failed", zap.Error(err))
+		}
+	}
 }
 
 // sendSignalImmediate 立即发送单条信号通知（批处理器内部调用）

@@ -274,6 +274,7 @@
             :end-time="result.request.end_time"
             :signals="result.signals || []"
             :trades="result.trades || []"
+            :strategy-type="form.strategy_type"
           />
           <div v-else-if="signalViewMode === 'chart' && supportsChartMode && (!result.signals || result.signals.length === 0) && (!result.trades || result.trades.length === 0)" class="chart-empty">
             暂无信号和交易数据
@@ -635,8 +636,9 @@ const equityData = computed(() => {
 
 const isWickStrategy = computed(() => form.value.strategy_type === 'wick')
 const isVolumeStrategy = computed(() => form.value.strategy_type === 'volume_price')
+const isTrendStrategy = computed(() => form.value.strategy_type === 'trend')
 const hasTrades = computed(() => result.value?.trades?.length > 0)
-const supportsChartMode = computed(() => isWickStrategy.value || isVolumeStrategy.value || hasTrades.value)
+const supportsChartMode = computed(() => isWickStrategy.value || isVolumeStrategy.value || isTrendStrategy.value || hasTrades.value)
 
 const currentSymbolId = computed(() => {
   const found = symbols.value.find(s => s.symbol_code === form.value.symbol_code)
@@ -694,7 +696,7 @@ const tradeRowClassName = ({ row }) => {
 
 // 切换策略时自动重置视图模式
 watch(() => form.value.strategy_type, (newType) => {
-  signalViewMode.value = (newType === 'wick' || newType === 'volume_price') ? 'chart' : 'list'
+  signalViewMode.value = (newType === 'wick' || newType === 'volume_price' || newType === 'trend') ? 'chart' : 'list'
 })
 
 // 当有交易记录时自动切换到图表模式
@@ -707,7 +709,7 @@ watch(hasTrades, (val) => {
 // 策略标签映射
 const strategyLabels = {
   'box': '箱体突破',
-  'trend': '趋势跟踪',
+  'trend': '趋势回撤',
   'key_level': '关键价位',
   'volume_price': '量价分析',
   'wick': '引线策略',

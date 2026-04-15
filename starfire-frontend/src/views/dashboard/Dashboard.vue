@@ -98,9 +98,24 @@ const fetchData = async () => {
 
     if (statsRes.data?.summary) {
       stats.value = statsRes.data.summary
+    } else if (statsRes.data) {
+      // 新 API 直接返回 TradeStatistics 对象
+      const d = statsRes.data
+      stats.value = {
+        totalPnL: d.total_pnl || 0,
+        winRate: d.win_rate != null ? (d.win_rate * 100).toFixed(1) : '--',
+        profitFactor: d.profit_factor ? d.profit_factor.toFixed(2) : '--',
+        maxDrawdown: d.max_drawdown_pct != null ? (d.max_drawdown_pct * 100).toFixed(1) : '--'
+      }
     }
     if (equityRes.data?.equity_curve) {
       equityData.value = equityRes.data.equity_curve
+    } else if (Array.isArray(equityRes.data)) {
+      // 新 API 直接返回 [{time, equity}] 数组
+      equityData.value = equityRes.data.map(d => ({
+        timestamp: d.time * 1000,
+        equity: d.equity
+      }))
     }
     if (positionsRes.data) {
       positions.value = Array.isArray(positionsRes.data) ? positionsRes.data : []

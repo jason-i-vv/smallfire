@@ -36,6 +36,7 @@ feishu:
 
 # JWT配置
 jwt:
+  enabled: false                  # 是否启用认证（开发时可关闭）
   secret: "${JWT_SECRET}"
   expires: "24h"
 
@@ -52,14 +53,14 @@ markets:
     fetch_interval: 60    # 抓取间隔（秒）
     max_concurrent_sync: 10 # 最大并发同步数
   a_stock:
-    enabled: true
+    enabled: false
     symbols_limit: 200
     hot_days: 30
     periods: ["1d"]
     fetch_interval: 300
     max_concurrent_sync: 5
   us_stock:
-    enabled: true
+    enabled: false
     symbols_limit: 200
     hot_days: 30
     periods: ["1d"]
@@ -97,9 +98,9 @@ strategies:
     check_interval: 60
   key_level:
     enabled: true
-    lookback_klines: 50
-    level_distance: 0.2
-    min_breakout_age: 5
+    lookback_klines: 200               # 回溯K线数（扩大以捕获中长期价位）
+    level_distance: 0.5                 # 突破阈值(%)（从0.2调高，减少假突破）
+    min_breakout_age: 5                 # 价位最小成熟期(K线数)
     check_interval: 60
   volume_price:
     enabled: true
@@ -136,7 +137,7 @@ strategies:
 
 # 交易配置
 trading:
-  enabled: false
+  enabled: true
   initial_capital: 100000              # 初始资金: 100000
   position_size: 0.1                   # 单笔仓位比例: 0.1
   stop_loss_percent: 0.02              # 止损比例: 0.02
@@ -155,8 +156,48 @@ trading:
   # 信号有效期
   signal_expire_minutes: 60            # 信号过期分钟数: 60
 
+  # 自动交易（模拟）
+  auto_trade_enabled: true             # 自动交易开关
+  auto_trade_score_threshold: 60       # 自动交易最低评分
+  paper_trading: true                  # 模拟交易模式
+  fixed_trade_amount: 1000             # 每笔固定交易金额（USDT）
+
 # 实时监测配置
 monitoring:
   price_check_interval: 1              # 价格检查间隔(秒)
   max_concurrent_monitors: 1000       # 最大并发监测数
   cleanup_interval: 300                 # 清理间隔(秒)
+
+# AI 大模型配置
+ai:
+  enabled: true                        # 是否启用 AI 增强判定
+  provider: "openai"                    # 服务商: openai, anthropic, custom
+  base_url: "https://api.minimaxi.com/v1" # API 基础地址（可替换为兼容 API）
+  api_key: "${AI_API_KEY}"             # API Key，建议通过环境变量设置
+  model: "MiniMax-M2.7-highspeed"                 # 模型名称
+  max_tokens: 2000                       # 最大输出 token
+  temperature: 0.3                      # 温度（越低越确定）
+
+  # AI 判定触发条件
+  judge:
+    score_min: 65                       # 公式评分下限（>= 此值才触发）
+    score_max: 79                       # 公式评分上限（<= 此值才触发）
+    max_daily_calls: 5000                 # 每日最大调用次数
+    cooldown_minutes: 30                # 同一标的冷却时间（分钟）
+    auto_analyze: true                  # 交易机会产生时自动进行 AI 分析
+
+  # 每日市场简报
+  briefing:
+    enabled: false                      # 是否启用每日简报
+    time: "08:00"                       # 简报生成时间（UTC+8）
+    max_tokens: 800                     # 简报最大 token
+
+  # AI 关键价位识别
+  key_level:
+    enabled: false                      # 关闭AI关键价位，改用算法
+    interval_minutes: 240               # 分析间隔（分钟，4小时一次）
+    max_daily_calls: 500                # 每日最大调用次数
+    cooldown_minutes: 60                # 同一标的冷却时间（分钟）
+    kline_count: 200                    # 输入K线数量
+    max_levels_per_side: 5              # 每侧最多价位数（支撑5+阻力5）
+    request_interval: 3                 # API调用间隔（秒），避免限流

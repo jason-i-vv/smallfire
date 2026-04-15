@@ -30,7 +30,22 @@
     </div>
 
     <!-- 信号图例 -->
-    <div class="signal-legend" v-if="signalTypeLegend.length > 0">
+    <div class="signal-legend" v-if="signalTypeLegend.length > 0 || strategyType === 'trend'">
+      <!-- EMA均线图例 -->
+      <template v-if="strategyType === 'trend'">
+        <span class="legend-item">
+          <span class="legend-line" style="background:rgba(66,165,245,0.8)"></span>
+          EMA30
+        </span>
+        <span class="legend-item">
+          <span class="legend-line" style="background:rgba(255,167,38,0.8)"></span>
+          EMA60
+        </span>
+        <span class="legend-item">
+          <span class="legend-line" style="background:rgba(171,71,188,0.8)"></span>
+          EMA90
+        </span>
+      </template>
       <span class="legend-item" v-for="entry in signalTypeLegend" :key="entry.type">
         <span class="legend-dot" :style="{ background: entry.color }"></span>
         {{ entry.label }} ({{ entry.count }})
@@ -60,6 +75,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { createChart, CrosshairMode } from 'lightweight-charts'
 import { klineApi } from '@/api/klines'
+import { formatPrice } from '@/utils/formatters'
 
 const props = defineProps({
   symbolId: { type: Number, required: true },
@@ -68,6 +84,7 @@ const props = defineProps({
   endTime: { type: String, required: true },
   signals: { type: Array, default: () => [] },
   trades: { type: Array, default: () => [] },
+  strategyType: { type: String, default: '' },
   chartHeight: { type: Number, default: 450 }
 })
 
@@ -79,6 +96,9 @@ const errorMsg = ref('')
 let chart = null
 let candlestickSeries = null
 let volumeSeries = null
+let emaShortSeries = null
+let emaMediumSeries = null
+let emaLongSeries = null
 let overlayCtx = null
 let overlaySignals = []
 
@@ -101,7 +121,9 @@ const SIGNAL_MARKER_CONFIG = {
   'momentum_bullish':     { color: '#00E676', shape: 'arrowUp',   position: 'belowBar' },
   'momentum_bearish':     { color: '#FF1744', shape: 'arrowDown', position: 'aboveBar' },
   'morning_star':         { color: '#651FFF', shape: 'arrowUp',   position: 'belowBar' },
-  'evening_star':         { color: '#D500F9', shape: 'arrowDown', position: 'aboveBar' }
+  'evening_star':         { color: '#D500F9', shape: 'arrowDown', position: 'aboveBar' },
+  // 趋势回撤信号
+  'trend_retracement':    { color: '#00BFA5', shape: 'circle',    position: 'belowBar' }
 }
 
 const SIGNAL_OVERLAY_STYLES = {
@@ -121,7 +143,9 @@ const SIGNAL_OVERLAY_STYLES = {
   'momentum_bullish':     { lineColor: 'rgba(0,230,118,0.5)',    dotColor: '#00E676' },
   'momentum_bearish':     { lineColor: 'rgba(255,23,68,0.5)',    dotColor: '#FF1744' },
   'morning_star':         { lineColor: 'rgba(101,31,255,0.5)',   dotColor: '#651FFF' },
-  'evening_star':         { lineColor: 'rgba(213,0,249,0.5)',    dotColor: '#D500F9' }
+  'evening_star':         { lineColor: 'rgba(213,0,249,0.5)',    dotColor: '#D500F9' },
+  // 趋势回撤信号
+  'trend_retracement':    { lineColor: 'rgba(0,191,165,0.6)',     dotColor: '#00BFA5' }
 }
 
 // 信号图例
@@ -143,7 +167,8 @@ const signalTypeLegend = computed(() => {
     { type: 'momentum_bullish', label: '连阳动量', color: '#00E676' },
     { type: 'momentum_bearish', label: '连阴动量', color: '#FF1744' },
     { type: 'morning_star', label: '早晨之星', color: '#651FFF' },
-    { type: 'evening_star', label: '黄昏之星', color: '#D500F9' }
+    { type: 'evening_star', label: '黄昏之星', color: '#D500F9' },
+    { type: 'trend_retracement', label: '趋势回撤', color: '#00BFA5' }
   ]
   return typeConfig
     .map(cfg => ({
@@ -180,6 +205,24 @@ const normalizeTimestamp = (time) => {
   }
   const ts = new Date(time).getTime()
   return isNaN(ts) ? Math.floor(Date.now() / 1000) : Math.floor(ts / 1000)
+}
+
+// ─── EMA 计算（前端兜底，API数据无EMA时使用） ────────────────────
+
+const calcEMA = (closes, times, period) => {
+  if (closes.length < period) return []
+  const multiplier = 2 / (period + 1)
+  const result = []
+  // 初始 SMA
+  let sum = 0
+  for (let i = 0; i < period; i++) sum += closes[i]
+  let ema = sum / period
+  result.push({ time: times[period - 1], value: ema })
+  for (let i = period; i < closes.length; i++) {
+    ema = (closes[i] - ema) * multiplier + ema
+    result.push({ time: times[i], value: ema })
+  }
+  return result
 }
 
 // 对齐到周期起点
@@ -256,7 +299,11 @@ const initChart = () => {
     borderUpColor: '#26A69A',
     borderDownColor: '#EF5350',
     wickUpColor: '#26A69A',
-    wickDownColor: '#EF5350'
+    wickDownColor: '#EF5350',
+    priceFormat: {
+      type: 'custom',
+      formatter: (price) => formatPrice(price)
+    }
   })
 
   volumeSeries = chart.addHistogramSeries({
@@ -267,6 +314,31 @@ const initChart = () => {
   volumeSeries.priceScale().applyOptions({
     scaleMargins: { top: 0.8, bottom: 0 }
   })
+
+  // EMA均线系列（仅趋势策略时显示）
+  if (props.strategyType === 'trend') {
+    emaShortSeries = chart.addLineSeries({
+      color: 'rgba(66,165,245,0.8)',
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      title: 'EMA30'
+    })
+    emaMediumSeries = chart.addLineSeries({
+      color: 'rgba(255,167,38,0.8)',
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      title: 'EMA60'
+    })
+    emaLongSeries = chart.addLineSeries({
+      color: 'rgba(171,71,188,0.8)',
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      title: 'EMA90'
+    })
+  }
 
   // 初始化 overlay
   initOverlay()
@@ -349,6 +421,33 @@ const updateKlineData = (klines) => {
 
   candlestickSeries.setData(candleData)
   volumeSeries.setData(volumeData)
+
+  // 设置EMA均线数据（趋势策略时）
+  if (props.strategyType === 'trend') {
+    // 优先使用API返回的EMA值，如果没有则前端自行计算
+    const closes = klines.map(k => parseFloat(k.close || k.close_price || 0))
+    const times = klines.map(k => k._normalizedTime)
+    const hasEMAFromAPI = klines.some(k => k.ema_short != null)
+
+    let emaShortData, emaMediumData, emaLongData
+    if (hasEMAFromAPI) {
+      emaShortData = []
+      emaMediumData = []
+      emaLongData = []
+      for (let i = 0; i < klines.length; i++) {
+        if (klines[i].ema_short != null) emaShortData.push({ time: times[i], value: parseFloat(klines[i].ema_short) })
+        if (klines[i].ema_medium != null) emaMediumData.push({ time: times[i], value: parseFloat(klines[i].ema_medium) })
+        if (klines[i].ema_long != null) emaLongData.push({ time: times[i], value: parseFloat(klines[i].ema_long) })
+      }
+    } else {
+      emaShortData = calcEMA(closes, times, 30)
+      emaMediumData = calcEMA(closes, times, 60)
+      emaLongData = calcEMA(closes, times, 90)
+    }
+    if (emaShortSeries && emaShortData.length) emaShortSeries.setData(emaShortData)
+    if (emaMediumSeries && emaMediumData.length) emaMediumSeries.setData(emaMediumData)
+    if (emaLongSeries && emaLongData.length) emaLongSeries.setData(emaLongData)
+  }
 
   // 设置信号标记
   setSignalMarkers()
@@ -456,7 +555,8 @@ const getSignalTypeName = (type) => {
     momentum_bullish: '连阳动量',
     momentum_bearish: '连阴动量',
     morning_star: '早晨之星',
-    evening_star: '黄昏之星'
+    evening_star: '黄昏之星',
+    trend_retracement: '趋势回撤'
   }
   return names[type] || type || ''
 }
@@ -486,7 +586,8 @@ const buildOverlaySignals = () => {
     'upper_wick_reversal', 'fake_breakout_upper', 'lower_wick_reversal', 'fake_breakout_lower',
     'price_surge', 'price_surge_up', 'price_surge_down', 'volume_surge', 'volume_price_rise', 'volume_price_fall',
     'engulfing_bullish', 'engulfing_bearish', 'momentum_bullish', 'momentum_bearish',
-    'morning_star', 'evening_star'
+    'morning_star', 'evening_star',
+    'trend_retracement'
   ]
   overlaySignals = props.signals
     .filter(s => supportedTypes.includes(s.signal_type))
@@ -628,6 +729,9 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   overlayCtx = null
   overlaySignals = []
+  emaShortSeries = null
+  emaMediumSeries = null
+  emaLongSeries = null
   if (chart) chart.remove()
 })
 </script>
@@ -691,6 +795,13 @@ onUnmounted(() => {
       width: 10px;
       height: 10px;
       border-radius: 50%;
+    }
+
+    .legend-line {
+      display: inline-block;
+      width: 20px;
+      height: 2px;
+      border-radius: 1px;
     }
   }
 

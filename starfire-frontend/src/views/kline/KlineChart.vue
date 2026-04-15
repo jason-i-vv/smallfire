@@ -3,6 +3,26 @@
     <!-- 图表头部 -->
     <div class="chart-header">
       <el-button :icon="ArrowLeft" @click="handleBack" size="small">返回</el-button>
+      <!-- 标的选择器 -->
+      <el-select
+        v-model="selectedSymbolCode"
+        filterable
+        remote
+        reserve-keyword
+        placeholder="搜索标的"
+        :remote-method="handleSymbolSearch"
+        :loading="symbolSearching"
+        @change="handleSymbolChange"
+        size="small"
+        class="symbol-selector"
+      >
+        <el-option
+          v-for="item in symbolOptions"
+          :key="item.id"
+          :label="item.symbol_code"
+          :value="item.symbol_code"
+        />
+      </el-select>
       <span class="symbol-name">{{ symbolCode }}</span>
       <span class="current-price" :class="priceClass">
         {{ formatPrice(currentPrice) }}
@@ -14,13 +34,22 @@
 
     <!-- 状态信息栏 -->
     <div class="chart-info-bar">
-      <span class="info-item">
-        <el-icon><Clock /></el-icon>
-        周期: {{ period }}
-      </span>
+      <!-- 周期切换按钮 -->
+      <el-radio-group v-model="period" size="small" class="period-switch">
+        <el-radio-button label="15m" />
+        <el-radio-button label="1h" />
+        <el-radio-button label="1d" />
+      </el-radio-group>
       <span class="info-item">
         <el-icon><DataLine /></el-icon>
         K线数: {{ klineCount }}
+      </span>
+      <!-- 趋势状态 -->
+      <span class="info-item" v-if="trendStatus">
+        <el-tag :type="trendStatus.type" size="small" effect="dark">
+          {{ trendStatus.label }}
+        </el-tag>
+        <span v-if="trendStatus.strength" class="trend-str">强度: {{ trendStatus.strength }}</span>
       </span>
       <span class="info-item" v-if="currentSignal">
         <el-icon><Lightning /></el-icon>
@@ -31,6 +60,58 @@
         <el-icon><TrendCharts /></el-icon>
         {{ getSignalDescription(currentSignal) }}
       </span>
+    </div>
+
+    <!-- 交易机会信息栏 -->
+    <div class="opportunity-info-bar" v-if="opportunityData">
+      <div class="opp-main">
+        <span class="opp-score" :style="{ background: getScoreBg(opportunityData.score) }">
+          {{ opportunityData.score }}分
+        </span>
+        <span class="opp-direction" :class="opportunityData.direction">
+          {{ opportunityData.direction === 'long' ? '做多 ▲' : '做空 ▼' }}
+        </span>
+        <span class="opp-count">{{ opportunityData.signal_count }} 个信号</span>
+        <span class="opp-period" v-if="opportunityData.period">{{ opportunityData.period }}</span>
+      </div>
+      <div class="opp-strategies" v-if="getMergedStrategies(opportunityData.confluence_directions).length">
+        <span
+          v-for="(s, idx) in getMergedStrategies(opportunityData.confluence_directions)"
+          :key="idx"
+          class="strategy-tag"
+          :class="s.direction === 'long' ? 'tag-long' : 'tag-short'"
+        >
+          {{ s.label }}<template v-if="s.count > 1"> x{{ s.count }}</template>
+        </span>
+      </div>
+      <div class="opp-prices" v-if="opportunityData.suggested_entry || opportunityData.suggested_stop_loss || opportunityData.suggested_take_profit">
+        <span class="opp-price-item entry" v-if="opportunityData.suggested_entry">
+          入场: {{ formatPrice(opportunityData.suggested_entry) }}
+        </span>
+        <span class="opp-price-item stop" v-if="opportunityData.suggested_stop_loss">
+          止损: {{ formatPrice(opportunityData.suggested_stop_loss) }}
+        </span>
+        <span class="opp-price-item profit" v-if="opportunityData.suggested_take_profit">
+          目标: {{ formatPrice(opportunityData.suggested_take_profit) }}
+        </span>
+      </div>
+      <div class="opp-ai" v-if="opportunityData.ai_judgment">
+        <span class="ai-badge">AI</span>
+        <span class="ai-text">{{ opportunityData.ai_judgment.reasoning }}</span>
+        <el-button size="small" @click="showAIResult" class="ai-view-btn">
+          查看详情
+        </el-button>
+      </div>
+      <div class="opp-ai-actions" v-else-if="opportunityData">
+        <el-button
+          size="small"
+          type="primary"
+          :loading="klineAnalyzing"
+          @click="handleKlineAIAnalysis"
+        >
+          AI 分析
+        </el-button>
+      </div>
     </div>
 
     <!-- 关键价位图例：仅在关键价位模式下显示 -->
@@ -57,8 +138,8 @@
       </span>
     </div>
 
-    <!-- EMA 均线图例：仅在趋势信号模式下显示 -->
-    <div class="level-legend" v-if="isTrendSource">
+    <!-- EMA 均线图例 -->
+    <div class="level-legend">
       <span class="legend-item">
         <span class="legend-color" style="background:#FFD740"></span>
         EMA短
@@ -78,6 +159,13 @@
       <div class="chart-container" ref="chartContainer"></div>
       <canvas ref="overlayCanvas" style="position:absolute;top:0;left:0;pointer-events:none;z-index:2"></canvas>
     </div>
+
+    <!-- AI 分析结果对话框 -->
+    <AIAnalysisDialog
+      v-model:visible="klineAiDialogVisible"
+      :result="klineAiResult"
+      :opportunity="opportunityData"
+    />
   </div>
 </template>
 
@@ -89,8 +177,11 @@ import { klineApi } from '@/api/klines'
 import { signalApi } from '@/api/signals'
 import { keyLevelApi } from '@/api/key_levels'
 import { symbolApi } from '@/api/symbols'
+import { opportunityApi } from '@/api/opportunities'
+import { trendApi } from '@/api/trends'
 import { formatPrice, formatNumber } from '@/utils/formatters'
 import { ArrowLeft, Clock, DataLine, Lightning, TrendCharts } from '@element-plus/icons-vue'
+import AIAnalysisDialog from '@/components/common/AIAnalysisDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,6 +189,8 @@ const router = useRouter()
 const symbolCode = ref(route.params.symbol || route.query.symbol || 'BTCUSDT')
 const symbolId = ref(route.query.symbolId ? parseInt(route.query.symbolId) : null)
 const signalId = ref(route.query.signalId ? parseInt(route.query.signalId) : null)
+const opportunityId = ref(route.query.opportunityId ? parseInt(route.query.opportunityId) : null)
+const opportunityData = ref(null) // 交易机会详情数据
 
 // 通过 symbolCode 获取 symbolId
 const fetchSymbolIdByCode = async () => {
@@ -172,6 +265,23 @@ if (signalType.value) {
 }
 const keyLevels = ref([]) // 关键价位数据
 
+// 标的选择器
+const selectedSymbolCode = ref(symbolCode.value)
+const symbolOptions = ref([])
+const symbolSearching = ref(false)
+
+// 趋势状态
+const trendInfo = ref(null)
+const trendStatus = computed(() => {
+  if (!trendInfo.value) return null
+  const t = trendInfo.value.trend_type
+  return {
+    label: t === 'bullish' ? '看多 ▲' : t === 'bearish' ? '看空 ▼' : '震荡 ──',
+    type: t === 'bullish' ? 'success' : t === 'bearish' ? 'danger' : 'info',
+    strength: trendInfo.value.strength
+  }
+})
+
 let chart = null
 let candlestickSeries = null
 let volumeSeries = null
@@ -205,6 +315,72 @@ const handleBack = () => {
     router.push({ name: 'SignalList' })
   }
 }
+
+// 标的搜索
+const handleSymbolSearch = async (query) => {
+  if (!query) {
+    symbolOptions.value = []
+    return
+  }
+  symbolSearching.value = true
+  try {
+    const res = await symbolApi.resolve(query)
+    if (res.data) {
+      symbolOptions.value = [res.data]
+    } else {
+      symbolOptions.value = []
+    }
+  } catch {
+    symbolOptions.value = []
+  } finally {
+    symbolSearching.value = false
+  }
+}
+
+// 标的切换
+const handleSymbolChange = async (code) => {
+  if (code === symbolCode.value) return
+  try {
+    const res = await symbolApi.resolve(code)
+    if (res.data) {
+      symbolCode.value = res.data.symbol_code
+      symbolId.value = res.data.id
+      // 重置数据
+      currentPrice.value = 0
+      priceChange.value = 0
+      klineCount.value = 0
+      keyLevels.value = []
+      trendInfo.value = null
+      // 重新加载
+      await fetchKlines()
+      fetchTrend()
+    }
+  } catch (e) {
+    console.error('切换标的失败:', e)
+  }
+}
+
+// 获取趋势数据
+const fetchTrend = async () => {
+  if (!symbolId.value) return
+  try {
+    const res = await trendApi.listBySymbol(symbolId.value, { period: period.value })
+    if (res.data) {
+      trendInfo.value = res.data
+    }
+  } catch (e) {
+    console.error('获取趋势失败:', e)
+  }
+}
+
+// 周期切换
+watch(period, async () => {
+  if (!symbolId.value) return
+  keyLevels.value = []
+  trendInfo.value = null
+  await fetchKlines()
+  fetchTrend()
+})
 
 // 获取信号类型名称
 const getSignalTypeName = (type) => {
@@ -305,7 +481,11 @@ const initChart = () => {
     borderUpColor: '#26A69A',
     borderDownColor: '#EF5350',
     wickUpColor: '#26A69A',
-    wickDownColor: '#EF5350'
+    wickDownColor: '#EF5350',
+    priceFormat: {
+      type: 'custom',
+      formatter: (price) => formatPrice(price)
+    }
   })
 
   // 成交量系列
@@ -574,30 +754,22 @@ const updateKlineData = (klines) => {
 
   chart?.timeScale().fitContent()
 
-  // 填充 EMA 均线数据
-  const trendTypes = ['trend', 'trend_retracement', 'trend_reversal']
-  if (trendTypes.includes(sourceType.value)) {
-    const emaShortData = []
-    const emaMediumData = []
-    const emaLongData = []
-    for (const k of klines) {
-      const time = normalizeTimestamp(k.time || k.open_time)
-      const es = parseFloat(k.ema_short)
-      const em = parseFloat(k.ema_medium)
-      const el = parseFloat(k.ema_long)
-      if (!isNaN(es) && es > 0) emaShortData.push({ time, value: es })
-      if (!isNaN(em) && em > 0) emaMediumData.push({ time, value: em })
-      if (!isNaN(el) && el > 0) emaLongData.push({ time, value: el })
-    }
-    if (emaShortSeries) emaShortSeries.setData(emaShortData)
-    if (emaMediumSeries) emaMediumSeries.setData(emaMediumData)
-    if (emaLongSeries) emaLongSeries.setData(emaLongData)
-  } else {
-    // 非趋势信号，清空 EMA 线
-    if (emaShortSeries) emaShortSeries.setData([])
-    if (emaMediumSeries) emaMediumSeries.setData([])
-    if (emaLongSeries) emaLongSeries.setData([])
+  // 填充 EMA 均线数据（只要有数据就绘制）
+  const emaShortData = []
+  const emaMediumData = []
+  const emaLongData = []
+  for (const k of klines) {
+    const time = normalizeTimestamp(k.time || k.open_time)
+    const es = parseFloat(k.ema_short)
+    const em = parseFloat(k.ema_medium)
+    const el = parseFloat(k.ema_long)
+    if (!isNaN(es) && es > 0) emaShortData.push({ time, value: es })
+    if (!isNaN(em) && em > 0) emaMediumData.push({ time, value: em })
+    if (!isNaN(el) && el > 0) emaLongData.push({ time, value: el })
   }
+  if (emaShortSeries) emaShortSeries.setData(emaShortData)
+  if (emaMediumSeries) emaMediumSeries.setData(emaMediumData)
+  if (emaLongSeries) emaLongSeries.setData(emaLongData)
 
   // 构建 overlay 信号数据（不含箱体，箱体由 drawBoxRect 处理）
   const allSignals = []
@@ -627,8 +799,8 @@ const updateKlineData = (klines) => {
     // 关键价位信号：绘制价位线
     fetchKeyLevels()
   } else {
-    // 其他回测模式（signal/trade/trend）：只显示信号/交易标记，不显示阻力位/支撑位
-    // 滚动到信号时间点
+    // 其他模式：始终获取并显示支撑阻力
+    fetchKeyLevels()
     if (signalTime.value) {
       scrollToTime(signalTime.value)
     }
@@ -637,10 +809,184 @@ const updateKlineData = (klines) => {
   // 处理回测传递的数据
   handleBacktestData(klines)
 
+  // 处理交易机会数据
+  if (opportunityData.value) {
+    drawOpportunityPriceLines()
+  }
+
   // 最后触发重绘，确保所有 overlay 都绘制完成
   requestAnimationFrame(drawOverlay)
   setTimeout(drawOverlay, 300)
 }
+
+// ─── 交易机会相关 ──────────────────────────────────────────────────────────
+
+// 信号类型名称映射（与 OpportunityList 一致）
+const signalNameMap = {
+  box_breakout: '箱体突破', box_breakdown: '箱体跌破',
+  trend_retracement: '趋势回撤', trend_reversal: '趋势反转',
+  resistance_break: '阻力位突破', support_break: '支撑位跌破',
+  volume_surge: '量能放大', price_surge_up: '价格急涨', price_surge_down: '价格急跌',
+  volume_price_rise: '量价齐升', volume_price_fall: '量价齐跌',
+  upper_wick_reversal: '上引线反转', lower_wick_reversal: '下引线反转',
+  fake_breakout_upper: '假突破上引', fake_breakout_lower: '假突破下引',
+  engulfing_bullish: '阳包阴吞没', engulfing_bearish: '阴包阳吞没',
+  momentum_bullish: '连阳动量', momentum_bearish: '连阴动量',
+  morning_star: '早晨之星', evening_star: '黄昏之星'
+}
+
+// 合并策略标签（与 OpportunityList 一致）
+const getMergedStrategies = (directions) => {
+  if (!directions || !directions.length) return []
+  const countMap = {}
+  for (const dir of directions) {
+    const colonIdx = dir.lastIndexOf(':')
+    const signalType = dir.substring(0, colonIdx)
+    const direction = dir.substring(colonIdx + 1)
+    const key = `${signalType}:${direction}`
+    if (!countMap[key]) countMap[key] = { signalType, direction, count: 0 }
+    countMap[key].count++
+  }
+  return Object.values(countMap).map(item => ({
+    label: signalNameMap[item.signalType] || item.signalType,
+    count: item.count,
+    direction: item.direction
+  }))
+}
+
+// 评分背景色
+const getScoreBg = (score) => {
+  if (score >= 70) return 'linear-gradient(135deg, #00C853 0%, #69F0AE 100%)'
+  if (score >= 55) return 'linear-gradient(135deg, #42A5F5 0%, #80D8FF 100%)'
+  if (score >= 45) return 'linear-gradient(135deg, #FF9800 0%, #FFD54F 100%)'
+  return 'linear-gradient(135deg, #EF5350 0%, #FF8A80 100%)'
+}
+
+// 获取交易机会详情并处理
+const fetchOpportunityData = async () => {
+  if (!opportunityId.value) return
+
+  try {
+    const res = await opportunityApi.detail(opportunityId.value)
+    if (res.data) {
+      opportunityData.value = res.data
+      const opp = res.data
+
+      // 设置信号时间（用于K线数据范围和滚动定位）
+      if (opp.last_signal_at) {
+        signalTime.value = normalizeTimestamp(opp.last_signal_at)
+      } else if (opp.first_signal_at) {
+        signalTime.value = normalizeTimestamp(opp.first_signal_at)
+      }
+
+      // 设置方向
+      direction.value = opp.direction
+
+      // 构造 currentSignal 用于信息栏显示
+      const strategyNames = getMergedStrategies(opp.confluence_directions)
+      currentSignal.value = {
+        signal_type: strategyNames.length > 0 ? opp.confluence_directions[0]?.split(':')[0] : null,
+        direction: opp.direction,
+        price: opp.suggested_entry,
+        description: strategyNames.map(s => s.label).join(' + ') + (opp.signal_count > 1 ? ` (${opp.signal_count}个信号)` : '')
+      }
+
+      console.log('交易机会详情:', opp)
+    }
+  } catch (error) {
+    console.error('获取交易机会详情失败:', error)
+  }
+}
+
+// 在K线图上绘制交易机会的入场/止损/止盈价格线
+const drawOpportunityPriceLines = () => {
+  if (!opportunityData.value || !candlestickSeries) return
+
+  const opp = opportunityData.value
+  const isLong = opp.direction === 'long'
+  const dirColor = isLong ? '#00C853' : '#EF5350'
+
+  // 入场价格线
+  if (opp.suggested_entry) {
+    const entryLine = candlestickSeries.createPriceLine({
+      price: opp.suggested_entry,
+      color: dirColor,
+      lineWidth: 2,
+      lineStyle: 0,
+      axisLabelVisible: true,
+      title: `入场: ${formatPrice(opp.suggested_entry)}`
+    })
+    levelLines.push({ id: 'opp_entry', line: entryLine })
+  }
+
+  // 止损价格线
+  if (opp.suggested_stop_loss) {
+    const stopLine = candlestickSeries.createPriceLine({
+      price: opp.suggested_stop_loss,
+      color: '#EF5350',
+      lineWidth: 1,
+      lineStyle: 2, // 虚线
+      axisLabelVisible: true,
+      title: `止损: ${formatPrice(opp.suggested_stop_loss)}`
+    })
+    levelLines.push({ id: 'opp_stop', line: stopLine })
+  }
+
+  // 止盈目标价格线
+  if (opp.suggested_take_profit) {
+    const tpLine = candlestickSeries.createPriceLine({
+      price: opp.suggested_take_profit,
+      color: '#00C853',
+      lineWidth: 1,
+      lineStyle: 2, // 虚线
+      axisLabelVisible: true,
+      title: `目标: ${formatPrice(opp.suggested_take_profit)}`
+    })
+    levelLines.push({ id: 'opp_tp', line: tpLine })
+  }
+
+  // 信号标记
+  if (signalTime.value) {
+    const alignedTime = alignTimeToPeriod(signalTime.value, period.value)
+    const marker = {
+      time: alignedTime,
+      position: isLong ? 'belowBar' : 'aboveBar',
+      color: dirColor,
+      shape: isLong ? 'arrowUp' : 'arrowDown',
+      text: `${opp.score}分 ${isLong ? '多' : '空'}`
+    }
+    candlestickSeries.setMarkers([marker])
+  }
+}
+
+// K线图 AI 分析相关
+const klineAnalyzing = ref(false)
+const klineAiDialogVisible = ref(false)
+const klineAiResult = ref(null)
+
+const showAIResult = () => {
+  klineAiResult.value = opportunityData.value.ai_judgment
+  klineAiDialogVisible.value = true
+}
+
+const handleKlineAIAnalysis = async () => {
+  if (!opportunityId.value) return
+  klineAnalyzing.value = true
+  try {
+    const res = await opportunityApi.aiAnalysis(opportunityId.value)
+    if (res.data) {
+      opportunityData.value.ai_judgment = res.data
+      klineAiResult.value = res.data
+      klineAiDialogVisible.value = true
+    }
+  } catch (error) {
+    console.error('AI 分析失败:', error)
+  } finally {
+    klineAnalyzing.value = false
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 
 // 处理回测传递的数据
 const handleBacktestData = (klines) => {
@@ -664,7 +1010,7 @@ const handleBacktestData = (klines) => {
         lineWidth: 1,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: `信号价: ${signalPrice.value.toFixed(4)}`
+        title: `信号价: ${formatPrice(signalPrice.value)}`
       })
       levelLines.push({ id: 'signal_price', line: priceLine })
     }
@@ -683,7 +1029,7 @@ const handleBacktestData = (klines) => {
         lineWidth: 2,
         lineStyle: 0,
         axisLabelVisible: true,
-        title: `入场: ${entryPrice.value.toFixed(4)}`
+        title: `入场: ${formatPrice(entryPrice.value)}`
       })
       levelLines.push({ id: 'entry_price', line: entryLine })
 
@@ -696,7 +1042,7 @@ const handleBacktestData = (klines) => {
           lineWidth: 2,
           lineStyle: 0,
           axisLabelVisible: true,
-          title: `出场: ${exitPrice.value.toFixed(4)}`
+          title: `出场: ${formatPrice(exitPrice.value)}`
         })
         levelLines.push({ id: 'exit_price', line: exitLine })
       }
@@ -871,13 +1217,29 @@ const fetchKeyLevels = async () => {
 
   try {
     const res = await keyLevelApi.listBySymbol(symbolId.value, { period: period.value })
-    if (res.data?.list) {
+    if (res.data?.resistances || res.data?.supports) {
+      // V2 格式：resistances + supports → 统一转成前端格式
+      const levels = []
+      let id = 1
+      if (res.data.resistances) {
+        res.data.resistances.forEach(l => {
+          levels.push({ id: id++, level_type: 'resistance', price: l.price, strength: l.strength, reason: l.reason })
+        })
+      }
+      if (res.data.supports) {
+        res.data.supports.forEach(l => {
+          levels.push({ id: id++, level_type: 'support', price: l.price, strength: l.strength, reason: l.reason })
+        })
+      }
+      keyLevels.value = levels
+      drawLevelLines()
+    } else if (res.data?.list) {
+      // 旧格式兼容
       keyLevels.value = res.data.list
       drawLevelLines()
     }
   } catch (error) {
     console.error('Failed to fetch key levels:', error)
-    // 如果获取失败，使用模拟数据
     addMockKeyLevels()
   }
 }
@@ -937,7 +1299,7 @@ const drawLevelLines = () => {
       lineWidth: 1,
       lineStyle: lineStyle,
       axisLabelVisible: true,
-      title: `${level.level_type === 'resistance' ? '阻力' : '支撑'}: ${level.price.toFixed(4)}`,
+      title: `${level.level_type === 'resistance' ? '阻力' : '支撑'}: ${formatPrice(level.price)}`,
     })
 
     levelLines.push({ id: level.id, line: priceLine, data: level })
@@ -1356,6 +1718,9 @@ onMounted(async () => {
   if (route.query.signalId) {
     signalId.value = parseInt(route.query.signalId)
   }
+  if (route.query.opportunityId) {
+    opportunityId.value = parseInt(route.query.opportunityId)
+  }
   if (route.query.period) {
     period.value = route.query.period
   }
@@ -1426,9 +1791,14 @@ onMounted(async () => {
   // 打印所有路由参数用于调试
   console.log('Route params:', route.query)
 
+  // 如果有交易机会ID，先获取机会详情再加载K线
+  if (opportunityId.value) {
+    await fetchOpportunityData()
+  }
+
   fetchKlines()
   fetchSignals()
-  // 关键价位只在无明确来源类型时自动加载（updateKlineData内部会按需调用）
+  fetchTrend()
 
   window.addEventListener('resize', handleResize)
 })
@@ -1503,8 +1873,22 @@ const clearEMALines = () => {
   .chart-header {
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 16px;
     margin-bottom: 16px;
+  }
+
+  .symbol-selector {
+    width: 180px;
+  }
+
+  .period-switch {
+    margin-right: 12px;
+  }
+
+  .trend-str {
+    margin-left: 6px;
+    color: $text-secondary;
+    font-size: 12px;
   }
 
   .symbol-name {
@@ -1561,8 +1945,121 @@ const clearEMALines = () => {
     border-radius: 4px;
   }
 
+  // 交易机会信息栏
+  .opportunity-info-bar {
+    margin-bottom: 16px;
+    padding: 12px 16px;
+    background: $surface;
+    border-radius: $border-radius;
+    border: 1px solid $border;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    .opp-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+
+      .opp-score {
+        padding: 3px 10px;
+        border-radius: 4px;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .opp-direction {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        &.long { background: rgba($success, 0.1); color: $success; }
+        &.short { background: rgba($danger, 0.1); color: $danger; }
+      }
+
+      .opp-count {
+        font-size: 12px;
+        color: $text-tertiary;
+      }
+
+      .opp-period {
+        font-size: 11px;
+        padding: 2px 6px;
+        background: rgba($info, 0.1);
+        color: $info;
+        border-radius: 4px;
+      }
+    }
+
+    .opp-strategies {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+
+      .strategy-tag {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        &.tag-long { background: rgba($success, 0.08); color: $success; }
+        &.tag-short { background: rgba($danger, 0.08); color: $danger; }
+      }
+    }
+
+    .opp-prices {
+      display: flex;
+      gap: 20px;
+
+      .opp-price-item {
+        font-size: 12px;
+        font-weight: 600;
+        &.entry { color: $primary; }
+        &.stop { color: $danger; }
+        &.profit { color: $success; }
+      }
+    }
+
+    .opp-ai {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .ai-badge {
+        padding: 1px 6px;
+        background: linear-gradient(135deg, #7C4DFF, #448AFF);
+        color: #fff;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .ai-text {
+        font-size: 12px;
+        color: $text-secondary;
+        flex: 1;
+      }
+
+      .ai-view-btn {
+        padding: 2px 8px;
+        font-size: 11px;
+      }
+    }
+
+    .opp-ai-actions {
+      display: flex;
+      gap: 8px;
+
+      :deep(.el-button) {
+        padding: 4px 10px;
+        font-size: 11px;
+      }
+    }
+  }
+
   // 关键价位图例
   .level-legend {
+
     display: flex;
     align-items: center;
     gap: 20px;

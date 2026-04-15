@@ -20,5 +20,26 @@ export const tradeApi = {
   signalAnalysis: () => api.get('/trades/signal-analysis'),
 
   // 交易详情
-  detail: (id) => api.get(`/trades/${id}`)
+  detail: (id) => api.get(`/trades/${id}`),
+
+  // 权益曲线
+  equity: (params) => api.get('/trades/equity-curve', { params }),
+
+  // 标的分析
+  symbolAnalysis: (params) => api.get('/trades/symbol-analysis', { params }),
+
+  // 方向分析
+  directionAnalysis: (params) => api.get('/trades/direction-analysis', { params }),
+
+  // 出场原因分析
+  exitReasonAnalysis: (params) => api.get('/trades/exit-reason-analysis', { params }),
+
+  // 周期盈亏
+  periodPnL: (params) => api.get('/trades/period-pnl', { params }),
+
+  // 盈亏分布
+  pnlDistribution: (params) => api.get('/trades/pnl-distribution', { params }),
+
+  // 详细信号分析
+  signalAnalysisDetail: (params) => api.get('/trades/signal-analysis-detail', { params })
 }

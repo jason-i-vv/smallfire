@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -158,6 +159,8 @@ func (f *FeishuNotifier) getTemplateByType(msgType string) string {
 	switch msgType {
 	case "signal":
 		return "purple"
+	case "opportunity":
+		return "turquoise"
 	case "trade":
 		return "green"
 	case "alert":
@@ -188,6 +191,52 @@ func (f *FeishuNotifier) SendSignalNotification(signal *models.Signal) error {
 		Type:    models.NotifyTypeSignal,
 		Message: fmt.Sprintf("📊 **周期**: %s\n📈 **方向**: %s\n⭐ **强度**: %s\n💰 **信号价格**: %.4f",
 			signal.Period, direction, strength, signal.Price),
+	}
+
+	return f.Send(content)
+}
+
+func (f *FeishuNotifier) SendOpportunityNotification(opp *models.TradingOpportunity) error {
+	direction := "做多"
+	emoji := "🟢"
+	if opp.Direction == "short" {
+		direction = "做空"
+		emoji = "🔴"
+	}
+
+	market := getMarketLabel(opp.SymbolCode)
+
+	// 构建共识信号列表
+	confluenceStr := ""
+	for _, cd := range opp.ConfluenceDirections {
+		parts := strings.SplitN(cd, ":", 2)
+		if len(parts) == 2 {
+			signalName := getSignalTypeName(parts[0])
+			confluenceStr += fmt.Sprintf("  - %s\n", signalName)
+		}
+	}
+
+	message := fmt.Sprintf("📊 **周期**: %s\n📈 **方向**: %s\n💯 **评分**: %d/100\n📋 **信号数**: %d\n",
+		opp.Period, direction, opp.Score, opp.SignalCount)
+
+	if opp.SuggestedEntry != nil {
+		message += fmt.Sprintf("💰 **建议入场**: %.4f\n", *opp.SuggestedEntry)
+	}
+	if opp.SuggestedStopLoss != nil {
+		message += fmt.Sprintf("🛡 **建议止损**: %.4f\n", *opp.SuggestedStopLoss)
+	}
+	if opp.SuggestedTakeProfit != nil {
+		message += fmt.Sprintf("🎯 **建议止盈**: %.4f\n", *opp.SuggestedTakeProfit)
+	}
+
+	if confluenceStr != "" {
+		message += fmt.Sprintf("\n🔗 **共识信号**:\n%s", confluenceStr)
+	}
+
+	content := &NotifyContent{
+		Title:   fmt.Sprintf("%s %s 交易机会 %s", emoji, market, opp.SymbolCode),
+		Type:    "opportunity",
+		Message: message,
 	}
 
 	return f.Send(content)

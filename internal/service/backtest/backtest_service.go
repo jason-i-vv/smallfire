@@ -1061,13 +1061,13 @@ func newTrendStrategyAnalyzer(delegate strategy.Strategy) *trendStrategyAnalyzer
 }
 
 func (a *trendStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string, klines []models.Kline) ([]models.Signal, error) {
+	// 直接使用delegate分析（TrendStrategy已是无状态的，直接从K线计算回撤）
 	signals, err := a.delegate.Analyze(symbolID, symbolCode, period, klines)
 	if err != nil {
 		return signals, err
 	}
 
-	// 回测中只保留趋势回撤信号，过滤掉趋势反转等非回撤信号
-	// 实盘只需识别趋势并在回撤到均线时发出信号
+	// 只保留趋势回撤信号
 	var filtered []models.Signal
 	for _, sig := range signals {
 		if sig.SignalType == models.SignalTypeTrendRetracement {
@@ -1075,7 +1075,7 @@ func (a *trendStrategyAnalyzer) Analyze(symbolID int, symbolCode, period string,
 		}
 	}
 
-	// 只在趋势类型或强度变化时记录
+	// 记录趋势变化（用于图表展示趋势区间）
 	a.recordTrendChange(symbolID, period, klines)
 
 	return filtered, nil
@@ -2126,7 +2126,7 @@ func (s *BacktestService) GetSupportedStrategies() []map[string]string {
 		name         string
 	}{
 		{"box", "箱体突破"},
-		{"trend", "趋势跟踪"},
+		{"trend", "趋势回撤"},
 		{"key_level", "关键价位"},
 		{"volume_price", "量价分析"},
 		{"wick", "引线策略"},

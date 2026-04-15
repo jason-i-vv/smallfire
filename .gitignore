@@ -4,3 +4,5 @@ postgres_data
 .gstack/
 .claude/skills/gstack/
 .vite/
+starfire-frontend/dist/
+server

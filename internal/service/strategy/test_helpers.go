@@ -9,48 +9,52 @@ import (
 // mockDeps 创建一个空的 mock 依赖，所有 repo 方法都是 no-op
 func mockDeps() Dependency {
 	return Dependency{
-		SignalRepo: &mockSignalRepo{},
+		SignalRepo:  &mockSignalRepo{},
 		BoxRepo:    &mockBoxRepo{},
 		TrendRepo:  &mockTrendRepo{},
 		LevelRepo:  &mockLevelRepo{},
 		KlineRepo:  &mockKlineRepo{},
 		Notifier:   &mockNotifier{},
+		LevelV2Repo: &mockLevelV2Repo{},
 	}
 }
 
 // mockDepsWithBox 创建带有已有活跃箱体的 mock 依赖
 func mockDepsWithBox(box *models.Box) Dependency {
 	return Dependency{
-		SignalRepo: &mockSignalRepo{},
+		SignalRepo:  &mockSignalRepo{},
 		BoxRepo:    &mockBoxRepo{activeBox: box},
 		TrendRepo:  &mockTrendRepo{},
 		LevelRepo:  &mockLevelRepo{},
 		KlineRepo:  &mockKlineRepo{},
 		Notifier:   &mockNotifier{},
+		LevelV2Repo: &mockLevelV2Repo{},
 	}
 }
 
 // mockDepsWithTrend 创建带有活跃趋势的 mock 依赖
 func mockDepsWithTrend(t *models.Trend) Dependency {
 	return Dependency{
-		SignalRepo: &mockSignalRepo{},
+		SignalRepo:  &mockSignalRepo{},
 		BoxRepo:    &mockBoxRepo{},
 		TrendRepo:  &mockTrendRepo{activeTrend: t},
 		LevelRepo:  &mockLevelRepo{},
 		KlineRepo:  &mockKlineRepo{},
 		Notifier:   &mockNotifier{},
+		LevelV2Repo: &mockLevelV2Repo{},
 	}
 }
 
 // mockDepsWithLevels 创建带有活跃关键位的 mock 依赖
 func mockDepsWithLevels(levels []*models.KeyLevel) Dependency {
 	return Dependency{
-		SignalRepo: &mockSignalRepo{},
+		SignalRepo:  &mockSignalRepo{},
 		BoxRepo:    &mockBoxRepo{},
 		TrendRepo:  &mockTrendRepo{},
 		LevelRepo:  &mockLevelRepo{activeLevels: levels},
 		KlineRepo:  &mockKlineRepo{},
 		Notifier:   &mockNotifier{},
+		LevelV2Repo: &mockLevelV2Repo{},
 	}
 }
 
@@ -60,6 +64,7 @@ type mockTrendRepo struct{ activeTrend *models.Trend }
 type mockLevelRepo struct{ activeLevels []*models.KeyLevel }
 type mockKlineRepo struct{}
 type mockNotifier struct{}
+type mockLevelV2Repo struct{ activeV2Levels *models.KeyLevelsV2 }
 
 func (m *mockSignalRepo) Create(s *models.Signal) error                                           { return nil }
 func (m *mockSignalRepo) GetBySymbol(id int) ([]*models.Signal, error)                           { return nil, nil }
@@ -74,12 +79,15 @@ func (m *mockTrendRepo) Create(t *models.Trend) error                           
 func (m *mockTrendRepo) Update(t *models.Trend) error                                             { return nil }
 func (m *mockTrendRepo) GetByBatchID(batchID string) ([]*models.Trend, error)                     { return nil, nil }
 func (m *mockLevelRepo) GetActive(id int, period string) ([]*models.KeyLevel, error)              { return m.activeLevels, nil }
+func (m *mockLevelRepo) GetActiveBySource(id int, period string, source string) ([]*models.KeyLevel, error) { return m.activeLevels, nil }
 func (m *mockLevelRepo) FindActive(id int, period, subtype string) (*models.KeyLevel, error)      { return nil, nil }
 func (m *mockLevelRepo) Create(l *models.KeyLevel) error                                          { return nil }
 func (m *mockLevelRepo) Update(l *models.KeyLevel) error                                          { return nil }
 func (m *mockKlineRepo) GetLatestN(id int, period string, limit int) ([]models.Kline, error)      { return nil, nil }
 func (m *mockKlineRepo) GetLatest(id int64, period string) (*models.Kline, error)                 { return nil, nil }
 func (m *mockNotifier) SendSignal(s *models.Signal) error                                         { return nil }
+func (m *mockLevelV2Repo) Upsert(symbolID int, period string, resistances, supports []models.KeyLevelEntry) error { return nil }
+func (m *mockLevelV2Repo) GetBySymbolPeriod(symbolID int, period string) (*models.KeyLevelsV2, error) { return m.activeV2Levels, nil }
 
 // makeKline 创建测试用 K 线
 func makeKline(openTime time.Time, open, high, low, close, volume float64) models.Kline {

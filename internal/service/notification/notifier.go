@@ -18,6 +18,9 @@ type Notifier interface {
 	// SendSignalNotification 发送信号通知
 	SendSignalNotification(signal *models.Signal) error
 
+	// SendOpportunityNotification 发送交易机会通知
+	SendOpportunityNotification(opp *models.TradingOpportunity) error
+
 	// SendTradeOpenedNotification 发送开仓通知
 	SendTradeOpenedNotification(track *models.TradeTrack) error
 

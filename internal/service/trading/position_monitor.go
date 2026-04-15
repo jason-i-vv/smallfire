@@ -56,7 +56,7 @@ func (m *PositionMonitor) Stop() {
 }
 
 func (m *PositionMonitor) monitorLoop() {
-	ticker := time.NewTicker(time.Second) // 每秒检查
+	ticker := time.NewTicker(30 * time.Second) // 每30秒检查
 	defer ticker.Stop()
 
 	for {

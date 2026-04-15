@@ -14,6 +14,9 @@ type KeyLevel struct {
 	BrokenPrice     *float64   `json:"broken_price,omitempty" db:"broken_price"`
 	BrokenDirection *string    `json:"broken_direction,omitempty" db:"broken_direction"`
 	KlinesCount     int        `json:"klines_count" db:"klines_count"`
+	Source          string     `json:"source" db:"source"`                         // "algorithm" | "ai"
+	Strength        int        `json:"strength" db:"strength"`                     // AI: 1-10, 算法: 从touch count派生
+	AIReason        string     `json:"ai_reason,omitempty" db:"ai_reason"`          // AI的识别理由
 	ValidUntil      *time.Time `json:"valid_until,omitempty" db:"valid_until"`
 	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
@@ -30,4 +33,7 @@ const (
 
 	LevelBreakDirectionUp   = "up"
 	LevelBreakDirectionDown = "down"
+
+	LevelSourceAlgorithm = "algorithm"
+	LevelSourceAI        = "ai"
 )

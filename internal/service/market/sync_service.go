@@ -21,6 +21,7 @@ type SyncService struct {
 	klineRepo  repository.KlineRepo
 	symbolRepo repository.SymbolRepo
 	emaCalc    *ema.EMACalculator
+	hooks      []SyncHook
 	stopCh     chan struct{}
 	wg         sync.WaitGroup
 	logger     *zap.Logger
@@ -38,6 +39,27 @@ func NewSyncService(factory *Factory, klineRepo repository.KlineRepo,
 		emaCalc:    emaCalc,
 		logger:     logger,
 		config:     cfg,
+	}
+}
+
+// AddHook 注册 K 线同步完成后的回调钩子
+func (s *SyncService) AddHook(hook SyncHook) {
+	s.hooks = append(s.hooks, hook)
+}
+
+// invokeHooks 触发所有同步钩子
+func (s *SyncService) invokeHooks(symbolID int, symbolCode, marketCode, period string) {
+	for _, h := range s.hooks {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Error("sync hook panic",
+						zap.String("symbol", symbolCode),
+						zap.Any("recover", r))
+				}
+			}()
+			h.OnKlinesSynced(symbolID, symbolCode, marketCode, period)
+		}()
 	}
 }
 
@@ -421,6 +443,9 @@ func (s *SyncService) syncSymbolKlines(symbol *models.Symbol, fetcher Fetcher, p
 		s.logger.Error("批量创建K线记录失败", zap.Error(err))
 		return err
 	}
+
+	// 触发同步钩子（立即策略分析）
+	s.invokeHooks(symbol.ID, symbol.SymbolCode, fetcher.MarketCode(), period)
 
 	return nil
 }

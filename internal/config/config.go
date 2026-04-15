@@ -42,6 +42,7 @@ type FeishuConfig struct {
 }
 
 type JWTConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
 	Secret  string `mapstructure:"secret"`
 	Expires string `mapstructure:"expires"`
 }
@@ -195,12 +196,59 @@ type TradingConfig struct {
 
 	// 信号有效期
 	SignalExpireMinutes int `mapstructure:"signal_expire_minutes"` // 信号过期分钟数: 60
+
+	// 自动交易
+	AutoTradeEnabled        bool    `mapstructure:"auto_trade_enabled"`         // 自动交易开关
+	AutoTradeScoreThreshold int     `mapstructure:"auto_trade_score_threshold"` // 自动交易最低评分
+	PaperTrading            bool    `mapstructure:"paper_trading"`              // 模拟交易模式
+	FixedTradeAmount        float64 `mapstructure:"fixed_trade_amount"`          // 模拟交易每笔固定金额
 }
 
 type MonitoringConfig struct {
 	PriceCheckInterval  int `mapstructure:"price_check_interval"`  // 价格检查间隔(秒)
 	MaxConcurrentMonitors int `mapstructure:"max_concurrent_monitors"` // 最大并发监测数
 	CleanupInterval     int `mapstructure:"cleanup_interval"`      // 清理间隔(秒)
+}
+
+// AIConfig AI 大模型配置
+type AIConfig struct {
+	Enabled     bool   `mapstructure:"enabled"`
+	Provider    string `mapstructure:"provider"`     // openai, anthropic, custom
+	BaseURL     string `mapstructure:"base_url"`      // API 基础地址
+	APIKey      string `mapstructure:"api_key"`       // API Key
+	Model       string `mapstructure:"model"`         // 模型名称
+	MaxTokens   int    `mapstructure:"max_tokens"`    // 最大输出 token
+	Temperature float64 `mapstructure:"temperature"` // 温度
+	Judge       AIJudgeConfig    `mapstructure:"judge"`
+	Briefing    AIBriefingConfig `mapstructure:"briefing"`
+	KeyLevel    AIKeyLevelConfig `mapstructure:"key_level"`
+}
+
+// AIJudgeConfig AI 判定触发条件
+type AIJudgeConfig struct {
+	ScoreMin        int  `mapstructure:"score_min"`         // 公式评分下限
+	ScoreMax        int  `mapstructure:"score_max"`         // 公式评分上限
+	MaxDailyCalls   int  `mapstructure:"max_daily_calls"`   // 每日最大调用次数
+	CooldownMinutes int  `mapstructure:"cooldown_minutes"`  // 同一标的冷却时间
+	AutoAnalyze     bool `mapstructure:"auto_analyze"`      // 是否自动分析每个交易机会
+}
+
+// AIBriefingConfig 每日市场简报配置
+type AIBriefingConfig struct {
+	Enabled   bool   `mapstructure:"enabled"`
+	Time      string `mapstructure:"time"`       // 简报生成时间（UTC+8）
+	MaxTokens int    `mapstructure:"max_tokens"` // 简报最大 token
+}
+
+// AIKeyLevelConfig AI 关键价位识别配置
+type AIKeyLevelConfig struct {
+	Enabled          bool `mapstructure:"enabled"`             // 是否启用AI关键价位识别
+	IntervalMinutes  int  `mapstructure:"interval_minutes"`    // 分析间隔(分钟)
+	MaxDailyCalls    int  `mapstructure:"max_daily_calls"`     // 每日最大调用次数
+	CooldownMinutes  int  `mapstructure:"cooldown_minutes"`    // 同一标的冷却时间(分钟)
+	KlineCount       int  `mapstructure:"kline_count"`         // 输入K线数量
+	MaxLevelsPerSide int  `mapstructure:"max_levels_per_side"` // 每侧最多价位数
+	RequestInterval  int  `mapstructure:"request_interval"`    // API调用间隔(秒)
 }
 
 type Config struct {
@@ -214,6 +262,7 @@ type Config struct {
 	Trading    TradingConfig    `mapstructure:"trading"`
 	EMA        EMAConfig        `mapstructure:"ema"`
 	Monitoring MonitoringConfig `mapstructure:"monitoring"`
+	AI         AIConfig         `mapstructure:"ai"`
 }
 
 func (c DatabaseConfig) DSN() string {
@@ -237,6 +286,7 @@ func Load(configPath string) (*Config, error) {
 	viper.BindEnv("database.host", "DB_HOST")
 	viper.BindEnv("database.password", "DB_PASSWORD")
 	viper.BindEnv("jwt.secret", "JWT_SECRET")
+	viper.BindEnv("ai.api_key", "AI_API_KEY")
 
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err

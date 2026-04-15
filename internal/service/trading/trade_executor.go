@@ -74,7 +74,7 @@ func (e *TradeExecutor) OpenPosition(signal *models.Signal, currentPrice float64
 	// 4. 创建交易跟踪
 	now := time.Now()
 	track := &models.TradeTrack{
-		SignalID:            signal.ID,
+		SignalID:            &signal.ID,
 		SymbolID:            signal.SymbolID,
 		Direction:           signal.Direction,
 		EntryPrice:          &entryPrice,
@@ -200,4 +200,9 @@ func (e *TradeExecutor) GetTrailingStopStrategy() *TrailingStopStrategy {
 // GetRiskManager 获取风控管理器
 func (e *TradeExecutor) GetRiskManager() *RiskManager {
 	return e.riskManager
+}
+
+// SetNotifier 设置通知器
+func (e *TradeExecutor) SetNotifier(notifier Notifier) {
+	e.notifier = notifier
 }

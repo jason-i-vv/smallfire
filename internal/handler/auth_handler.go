@@ -100,7 +100,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		HandleError(c, http.StatusUnauthorized, errors.New("未认证"))
+		// JWT 未启用时中间件不会设置 user_id，返回默认匿名用户
+		HandleSuccess(c, gin.H{
+			"id":       0,
+			"username": "anonymous",
+			"role":     "admin",
+			"nickname": "匿名用户",
+		})
 		return
 	}
 
@@ -118,7 +124,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		HandleError(c, http.StatusUnauthorized, errors.New("未认证"))
+		HandleError(c, http.StatusBadRequest, errors.New("认证未启用，无法修改密码"))
 		return
 	}
 

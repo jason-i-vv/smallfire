@@ -15,7 +15,7 @@ type Runner struct {
 	klineRepo     repository.KlineRepo
 	symbolRepo    repository.SymbolRepo
 	signalRepo    repository.SignalRepo
-	notifier      DependencyNotifier
+	aggregator    OpportunityAggregator
 	interval      time.Duration
 	maxConcurrent int
 	stopCh        chan struct{}
@@ -23,15 +23,14 @@ type Runner struct {
 	logger        *zap.Logger
 }
 
-// DependencyNotifier 信号通知接口
-type DependencyNotifier interface {
-	SendSignal(signal *models.Signal) error
+// OpportunityAggregator 交易机会聚合接口
+type OpportunityAggregator interface {
+	AggregateSignals(signals []*models.Signal) error
 }
 
 // NewRunner 创建策略运行器
 func NewRunner(factory *Factory, klineRepo repository.KlineRepo,
 	symbolRepo repository.SymbolRepo, signalRepo repository.SignalRepo,
-	notifier DependencyNotifier,
 	interval time.Duration, maxConcurrent int, logger *zap.Logger) *Runner {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 20
@@ -41,11 +40,16 @@ func NewRunner(factory *Factory, klineRepo repository.KlineRepo,
 		klineRepo:     klineRepo,
 		symbolRepo:    symbolRepo,
 		signalRepo:    signalRepo,
-		notifier:      notifier,
+		aggregator:    nil, // 聚合器可选，通过 SetAggregator 设置
 		interval:      interval,
 		maxConcurrent: maxConcurrent,
 		logger:        logger,
 	}
+}
+
+// SetAggregator 设置交易机会聚合器
+func (r *Runner) SetAggregator(aggregator OpportunityAggregator) {
+	r.aggregator = aggregator
 }
 
 func (r *Runner) Start() {
@@ -148,6 +152,21 @@ func (r *Runner) analyzeAllSymbols() {
 }
 
 // analyzeSymbol 分析单个标的所有周期和策略
+// AnalyzeSymbol 分析单个标的（导出，供外部钩子调用）
+func (r *Runner) AnalyzeSymbol(symbolID int, symbolCode, marketCode string) {
+	symbol := &repository.TrackedSymbol{
+		ID:         symbolID,
+		Code:       symbolCode,
+		MarketCode: marketCode,
+	}
+	r.analyzeSymbol(symbol)
+}
+
+// OnKlinesSynced 实现 market.SyncHook 接口，K 线同步完成后立即触发策略分析
+func (r *Runner) OnKlinesSynced(symbolID int, symbolCode, marketCode, period string) {
+	go r.AnalyzeSymbol(symbolID, symbolCode, marketCode)
+}
+
 func (r *Runner) analyzeSymbol(symbol *repository.TrackedSymbol) {
 	for _, period := range r.getSymbolPeriods(symbol.MarketCode) {
 		// 获取最新K线
@@ -190,7 +209,8 @@ func (r *Runner) analyzeSymbol(symbol *repository.TrackedSymbol) {
 			}
 		}
 
-		// 运行所有策略
+		// 运行所有策略，收集所有新信号
+		var allNewSignals []*models.Signal
 		for _, strategy := range r.factory.ListStrategies() {
 			signals, err := strategy.Analyze(symbol.ID, symbol.Code, period, klines)
 			if err != nil {
@@ -213,16 +233,17 @@ func (r *Runner) analyzeSymbol(symbol *repository.TrackedSymbol) {
 						continue
 					}
 
-					// 发送飞书通知
-					if r.notifier != nil {
-						if err := r.notifier.SendSignal(signal); err != nil {
-							r.logger.Error("发送信号通知失败",
-								zap.String("signal_type", signal.SignalType),
-								zap.String("symbol", signal.SymbolCode),
-								zap.Error(err))
-						}
-					}
+					allNewSignals = append(allNewSignals, signal)
 				}
+			}
+		}
+
+		// 聚合信号到交易机会
+		if r.aggregator != nil && len(allNewSignals) > 0 {
+			if err := r.aggregator.AggregateSignals(allNewSignals); err != nil {
+				r.logger.Error("聚合交易机会失败",
+					zap.String("symbol", symbol.Code),
+					zap.Error(err))
 			}
 		}
 	}

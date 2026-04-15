@@ -50,9 +50,14 @@ type Dependency struct {
 	}
 	LevelRepo interface {
 		GetActive(symbolID int, period string) ([]*models.KeyLevel, error)
+		GetActiveBySource(symbolID int, period string, source string) ([]*models.KeyLevel, error)
 		FindActive(symbolID int, period string, levelSubtype string) (*models.KeyLevel, error)
 		Create(level *models.KeyLevel) error
 		Update(level *models.KeyLevel) error
+	}
+	LevelV2Repo interface {
+		Upsert(symbolID int, period string, resistances, supports []models.KeyLevelEntry) error
+		GetBySymbolPeriod(symbolID int, period string) (*models.KeyLevelsV2, error)
 	}
 	KlineRepo interface {
 		GetLatestN(symbolID int, period string, limit int) ([]models.Kline, error)

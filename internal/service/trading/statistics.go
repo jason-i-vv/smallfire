@@ -3,6 +3,7 @@ package trading
 import (
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/smallfire/starfire/internal/config"
@@ -14,14 +15,16 @@ import (
 type StatisticsService struct {
 	trackRepo  repository.TradeTrackRepo
 	signalRepo repository.SignalRepo
+	symbolRepo repository.SymbolRepo
 	config     *config.TradingConfig
 }
 
 // NewStatisticsService 创建统计分析服务实例
-func NewStatisticsService(trackRepo repository.TradeTrackRepo, signalRepo repository.SignalRepo, cfg *config.TradingConfig) *StatisticsService {
+func NewStatisticsService(trackRepo repository.TradeTrackRepo, signalRepo repository.SignalRepo, symbolRepo repository.SymbolRepo, cfg *config.TradingConfig) *StatisticsService {
 	return &StatisticsService{
 		trackRepo:  trackRepo,
 		signalRepo: signalRepo,
+		symbolRepo: symbolRepo,
 		config:     cfg,
 	}
 }
@@ -207,10 +210,68 @@ func (s *StatisticsService) calculateStatistics(tracks []*models.TradeTrack) (*T
 // SignalAnalysis 信号分析统计
 type SignalAnalysis struct {
 	SignalType  string  `json:"signal_type"`
+	SourceType  string  `json:"source_type"`
 	TotalTrades int     `json:"total_trades"`
 	WinTrades   int     `json:"win_trades"`
 	WinRate     float64 `json:"win_rate"`
 	TotalPnL    float64 `json:"total_pnl"`
+}
+
+// EquityCurvePoint 权益曲线点
+type EquityCurvePoint struct {
+	Time   int64   `json:"time"`    // Unix timestamp (seconds)
+	Equity float64 `json:"equity"`
+}
+
+// SymbolAnalysis 按标的分析
+type SymbolAnalysis struct {
+	SymbolID    int     `json:"symbol_id"`
+	SymbolCode  string  `json:"symbol_code"`
+	TotalTrades int     `json:"total_trades"`
+	WinTrades   int     `json:"win_trades"`
+	WinRate     float64 `json:"win_rate"`
+	TotalPnL    float64 `json:"total_pnl"`
+	AvgPnL      float64 `json:"avg_pnl"`
+}
+
+// DirectionAnalysis 按方向分析
+type DirectionAnalysis struct {
+	Direction       string  `json:"direction"`
+	TotalTrades     int     `json:"total_trades"`
+	WinTrades       int     `json:"win_trades"`
+	WinRate         float64 `json:"win_rate"`
+	TotalPnL        float64 `json:"total_pnl"`
+	AvgPnL          float64 `json:"avg_pnl"`
+	AvgHoldingHours float64 `json:"avg_holding_hours"`
+}
+
+// ExitReasonAnalysis 按出场原因分析
+type ExitReasonAnalysis struct {
+	ExitReason  string  `json:"exit_reason"`
+	TotalTrades int     `json:"total_trades"`
+	WinTrades   int     `json:"win_trades"`
+	WinRate     float64 `json:"win_rate"`
+	TotalPnL    float64 `json:"total_pnl"`
+}
+
+// PeriodPnL 按时间周期的盈亏
+type PeriodPnL struct {
+	PeriodStart int64   `json:"period_start"` // Unix seconds
+	PnL         float64 `json:"pnl"`
+	TradeCount  int     `json:"trade_count"`
+}
+
+// PnLDistribution 盈亏分布
+type PnLDistribution struct {
+	Buckets []PnLBucket `json:"buckets"`
+}
+
+// PnLBucket 盈亏分布桶
+type PnLBucket struct {
+	RangeStart float64 `json:"range_start"`
+	RangeEnd   float64 `json:"range_end"`
+	Count      int     `json:"count"`
+	IsWin      bool    `json:"is_win"`
 }
 
 // GetSignalAnalysis 按信号类型分析
@@ -227,6 +288,7 @@ func (s *StatisticsService) GetSignalAnalysis() (map[string]*SignalAnalysis, err
 		if _, ok := analysis[signalType]; !ok {
 			analysis[signalType] = &SignalAnalysis{
 				SignalType: signalType,
+				SourceType: signalType,
 			}
 		}
 
@@ -251,12 +313,357 @@ func (s *StatisticsService) GetSignalAnalysis() (map[string]*SignalAnalysis, err
 }
 
 func (s *StatisticsService) getSignalType(track *models.TradeTrack) string {
-	if s.signalRepo == nil {
+	if s.signalRepo == nil || track.SignalID == nil {
 		return "unknown"
 	}
-	signal, err := s.signalRepo.GetByID(track.SignalID)
+	signal, err := s.signalRepo.GetByID(*track.SignalID)
 	if err != nil || signal == nil {
 		return "unknown"
 	}
 	return signal.SourceType
+}
+
+// GetEquityCurve 获取权益曲线数据
+func (s *StatisticsService) GetEquityCurve(startDate, endDate *time.Time) ([]EquityCurvePoint, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	// 按 ExitTime 排序
+	sort.Slice(tracks, func(i, j int) bool {
+		if tracks[i].ExitTime == nil || tracks[j].ExitTime == nil {
+			return false
+		}
+		return tracks[i].ExitTime.Before(*tracks[j].ExitTime)
+	})
+
+	points := make([]EquityCurvePoint, 0, len(tracks)+1)
+	equity := s.config.InitialCapital
+
+	// 起始点
+	if len(tracks) > 0 && tracks[0].ExitTime != nil {
+		points = append(points, EquityCurvePoint{
+			Time:   tracks[0].ExitTime.Add(-time.Minute).Unix(),
+			Equity: equity,
+		})
+	}
+
+	for _, track := range tracks {
+		if track.PnL != nil {
+			equity += *track.PnL
+		}
+		if track.ExitTime != nil {
+			points = append(points, EquityCurvePoint{
+				Time:   track.ExitTime.Unix(),
+				Equity: equity,
+			})
+		}
+	}
+
+	return points, nil
+}
+
+// GetSymbolAnalysis 按标的统计
+func (s *StatisticsService) GetSymbolAnalysis(startDate, endDate *time.Time) ([]SymbolAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	groups := make(map[int]*SymbolAnalysis)
+
+	for _, track := range tracks {
+		if track.PnL == nil {
+			continue
+		}
+		sid := track.SymbolID
+		if _, ok := groups[sid]; !ok {
+			groups[sid] = &SymbolAnalysis{SymbolID: sid}
+		}
+		g := groups[sid]
+		g.TotalTrades++
+		pnl := *track.PnL
+		g.TotalPnL += pnl
+		if pnl > 0 {
+			g.WinTrades++
+		}
+	}
+
+	// 查找 SymbolCode
+	result := make([]SymbolAnalysis, 0, len(groups))
+	for sid, g := range groups {
+		if s.symbolRepo != nil {
+			sym, err := s.symbolRepo.GetByID(sid)
+			if err == nil && sym != nil {
+				g.SymbolCode = sym.SymbolCode
+			}
+		}
+		if g.TotalTrades > 0 {
+			g.WinRate = float64(g.WinTrades) / float64(g.TotalTrades)
+			g.AvgPnL = g.TotalPnL / float64(g.TotalTrades)
+		}
+		result = append(result, *g)
+	}
+
+	// 按总盈亏降序
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].TotalPnL > result[j].TotalPnL
+	})
+
+	return result, nil
+}
+
+// GetDirectionAnalysis 按方向统计
+func (s *StatisticsService) GetDirectionAnalysis(startDate, endDate *time.Time) (map[string]*DirectionAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	analysis := map[string]*DirectionAnalysis{
+		"long":  {Direction: "long"},
+		"short": {Direction: "short"},
+	}
+
+	for _, track := range tracks {
+		if track.PnL == nil {
+			continue
+		}
+		dir := track.Direction
+		if dir != "long" && dir != "short" {
+			continue
+		}
+		a := analysis[dir]
+		a.TotalTrades++
+		pnl := *track.PnL
+		a.TotalPnL += pnl
+		if pnl > 0 {
+			a.WinTrades++
+		}
+		if track.EntryTime != nil && track.ExitTime != nil {
+			a.AvgHoldingHours += track.ExitTime.Sub(*track.EntryTime).Hours()
+		}
+	}
+
+	for _, a := range analysis {
+		if a.TotalTrades > 0 {
+			a.WinRate = float64(a.WinTrades) / float64(a.TotalTrades)
+			a.AvgPnL = a.TotalPnL / float64(a.TotalTrades)
+			a.AvgHoldingHours /= float64(a.TotalTrades)
+		}
+	}
+
+	return analysis, nil
+}
+
+// GetExitReasonAnalysis 按出场原因统计
+func (s *StatisticsService) GetExitReasonAnalysis(startDate, endDate *time.Time) ([]ExitReasonAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	groups := make(map[string]*ExitReasonAnalysis)
+
+	for _, track := range tracks {
+		if track.PnL == nil {
+			continue
+		}
+		reason := "unknown"
+		if track.ExitReason != nil {
+			reason = *track.ExitReason
+		}
+		if _, ok := groups[reason]; !ok {
+			groups[reason] = &ExitReasonAnalysis{ExitReason: reason}
+		}
+		g := groups[reason]
+		g.TotalTrades++
+		pnl := *track.PnL
+		g.TotalPnL += pnl
+		if pnl > 0 {
+			g.WinTrades++
+		}
+	}
+
+	result := make([]ExitReasonAnalysis, 0, len(groups))
+	for _, g := range groups {
+		if g.TotalTrades > 0 {
+			g.WinRate = float64(g.WinTrades) / float64(g.TotalTrades)
+		}
+		result = append(result, *g)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].TotalTrades > result[j].TotalTrades
+	})
+
+	return result, nil
+}
+
+// GetPeriodPnL 按时间周期统计盈亏
+func (s *StatisticsService) GetPeriodPnL(startDate, endDate *time.Time, period string) ([]PeriodPnL, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	groups := make(map[int64]*PeriodPnL)
+
+	for _, track := range tracks {
+		if track.PnL == nil || track.ExitTime == nil {
+			continue
+		}
+		var periodStart time.Time
+		exitTime := *track.ExitTime
+
+		switch period {
+		case "weekly":
+			weekday := int(exitTime.Weekday())
+			if weekday == 0 {
+				weekday = 7
+			}
+			periodStart = time.Date(exitTime.Year(), exitTime.Month(), exitTime.Day()-weekday+1, 0, 0, 0, 0, exitTime.Location())
+		case "monthly":
+			periodStart = time.Date(exitTime.Year(), exitTime.Month(), 1, 0, 0, 0, 0, exitTime.Location())
+		default: // daily
+			periodStart = time.Date(exitTime.Year(), exitTime.Month(), exitTime.Day(), 0, 0, 0, 0, exitTime.Location())
+		}
+
+		key := periodStart.Unix()
+		if _, ok := groups[key]; !ok {
+			groups[key] = &PeriodPnL{PeriodStart: key}
+		}
+		g := groups[key]
+		g.PnL += *track.PnL
+		g.TradeCount++
+	}
+
+	result := make([]PeriodPnL, 0, len(groups))
+	for _, g := range groups {
+		result = append(result, *g)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].PeriodStart < result[j].PeriodStart
+	})
+
+	return result, nil
+}
+
+// GetPnLDistribution 获取盈亏分布
+func (s *StatisticsService) GetPnLDistribution(startDate, endDate *time.Time) (*PnLDistribution, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	var pnls []float64
+	for _, track := range tracks {
+		if track.PnL != nil {
+			pnls = append(pnls, *track.PnL)
+		}
+	}
+
+	if len(pnls) == 0 {
+		return &PnLDistribution{Buckets: []PnLBucket{}}, nil
+	}
+
+	// 找最大最小值
+	minPnL, maxPnL := pnls[0], pnls[0]
+	for _, p := range pnls {
+		if p < minPnL {
+			minPnL = p
+		}
+		if p > maxPnL {
+			maxPnL = p
+		}
+	}
+
+	// 生成 20 个桶
+	bucketCount := 20
+	rangeSize := (maxPnL - minPnL) / float64(bucketCount)
+	if rangeSize == 0 {
+		rangeSize = 1
+	}
+
+	buckets := make([]PnLBucket, bucketCount)
+	for i := 0; i < bucketCount; i++ {
+		buckets[i] = PnLBucket{
+			RangeStart: minPnL + float64(i)*rangeSize,
+			RangeEnd:   minPnL + float64(i+1)*rangeSize,
+			IsWin:      (minPnL + float64(i)*rangeSize) >= 0,
+		}
+	}
+
+	// 分配 PnL 到桶
+	for _, p := range pnls {
+		idx := int((p - minPnL) / rangeSize)
+		if idx >= bucketCount {
+			idx = bucketCount - 1
+		}
+		if idx < 0 {
+			idx = 0
+		}
+		buckets[idx].Count++
+	}
+
+	// 移除空桶（可选，保留以便前端对齐）
+	return &PnLDistribution{Buckets: buckets}, nil
+}
+
+// GetDetailedSignalAnalysis 按具体信号类型分析
+func (s *StatisticsService) GetDetailedSignalAnalysis(startDate, endDate *time.Time) ([]SignalAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	analysis := make(map[string]*SignalAnalysis)
+
+	for _, track := range tracks {
+		signalType, sourceType := s.getFullSignalInfo(track)
+		key := signalType
+		if _, ok := analysis[key]; !ok {
+			analysis[key] = &SignalAnalysis{
+				SignalType: signalType,
+				SourceType: sourceType,
+			}
+		}
+
+		a := analysis[key]
+		a.TotalTrades++
+		if track.PnL != nil {
+			if *track.PnL > 0 {
+				a.WinTrades++
+			}
+			a.TotalPnL += *track.PnL
+		}
+	}
+
+	result := make([]SignalAnalysis, 0, len(analysis))
+	for _, a := range analysis {
+		if a.TotalTrades > 0 {
+			a.WinRate = float64(a.WinTrades) / float64(a.TotalTrades)
+		}
+		result = append(result, *a)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].TotalPnL > result[j].TotalPnL
+	})
+
+	return result, nil
+}
+
+// getFullSignalInfo 获取信号的完整信息（signal_type + source_type）
+func (s *StatisticsService) getFullSignalInfo(track *models.TradeTrack) (signalType, sourceType string) {
+	if s.signalRepo == nil || track.SignalID == nil {
+		return "unknown", "unknown"
+	}
+	signal, err := s.signalRepo.GetByID(*track.SignalID)
+	if err != nil || signal == nil {
+		return "unknown", "unknown"
+	}
+	return signal.SignalType, signal.SourceType
 }

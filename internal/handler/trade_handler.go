@@ -234,3 +234,111 @@ func (h *TradeHandler) ClosePosition(c *gin.Context) {
 	updated, _ := h.trackRepo.GetByID(id)
 	HandleSuccess(c, updated)
 }
+
+// parseDateRange 解析日期范围参数
+func (h *TradeHandler) parseDateRange(c *gin.Context) (startDate, endDate *time.Time) {
+	startDateStr := c.Query("start_date")
+	endDateStr := c.Query("end_date")
+
+	if startDateStr != "" {
+		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
+			startDate = &t
+		}
+	}
+
+	if endDateStr != "" {
+		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
+			t = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+			endDate = &t
+		}
+	}
+	return
+}
+
+// GetEquityCurve 获取权益曲线
+func (h *TradeHandler) GetEquityCurve(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	data, err := h.statsService.GetEquityCurve(startDate, endDate)
+	if err != nil {
+		h.logger.Error("获取权益曲线失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetSymbolAnalysis 获取标的分析
+func (h *TradeHandler) GetSymbolAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	data, err := h.statsService.GetSymbolAnalysis(startDate, endDate)
+	if err != nil {
+		h.logger.Error("获取标的分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetDirectionAnalysis 获取方向分析
+func (h *TradeHandler) GetDirectionAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	data, err := h.statsService.GetDirectionAnalysis(startDate, endDate)
+	if err != nil {
+		h.logger.Error("获取方向分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetExitReasonAnalysis 获取出场原因分析
+func (h *TradeHandler) GetExitReasonAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	data, err := h.statsService.GetExitReasonAnalysis(startDate, endDate)
+	if err != nil {
+		h.logger.Error("获取出场原因分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetPeriodPnL 获取周期盈亏
+func (h *TradeHandler) GetPeriodPnL(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	period := c.DefaultQuery("period", "daily")
+	if period != "daily" && period != "weekly" && period != "monthly" {
+		period = "daily"
+	}
+	data, err := h.statsService.GetPeriodPnL(startDate, endDate, period)
+	if err != nil {
+		h.logger.Error("获取周期盈亏失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetPnLDistribution 获取盈亏分布
+func (h *TradeHandler) GetPnLDistribution(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	data, err := h.statsService.GetPnLDistribution(startDate, endDate)
+	if err != nil {
+		h.logger.Error("获取盈亏分布失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetDetailedSignalAnalysis 获取详细信号分析
+func (h *TradeHandler) GetDetailedSignalAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	data, err := h.statsService.GetDetailedSignalAnalysis(startDate, endDate)
+	if err != nil {
+		h.logger.Error("获取详细信号分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}

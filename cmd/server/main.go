@@ -23,6 +23,8 @@ import (
 	"github.com/smallfire/starfire/internal/service/monitoring"
 	"github.com/smallfire/starfire/internal/service/notification"
 	"github.com/smallfire/starfire/internal/service/backtest"
+	aiservice "github.com/smallfire/starfire/internal/service/ai"
+	"github.com/smallfire/starfire/internal/service/scoring"
 	"github.com/smallfire/starfire/internal/service/strategy"
 	"github.com/smallfire/starfire/internal/service/trading"
 	"github.com/smallfire/starfire/pkg/utils"
@@ -66,10 +68,15 @@ func main() {
 	boxRepo := repository.NewBoxRepoPG(db)
 	trendRepo := repository.NewTrendRepoPG(db)
 	keyLevelRepo := repository.NewKeyLevelRepoPG(db)
+	keyLevelV2Repo := repository.NewKeyLevelV2RepoPG(db)
 	trackRepo := repository.NewTradeTrackRepoPG(db)
 	monitorRepo := repository.NewMonitorRepoPG(db)
 	notifyRepo := repository.NewNotificationRepoPG(db)
 	userRepo := repository.NewUserRepoPG(db)
+
+	// 初始化评分与交易机会相关 Repository
+	oppRepo := repository.NewOpportunityRepoPG(db)
+	statsRepo := repository.NewSignalTypeStatsRepoPG(db)
 
 	// 初始化认证服务
 	if cfg.JWT.Secret == "" {
@@ -101,7 +108,7 @@ func main() {
 	utils.Info("交易执行器初始化成功")
 
 	// 初始化统计分析服务
-	statsService := trading.NewStatisticsService(trackRepo, signalRepo, &cfg.Trading)
+	statsService := trading.NewStatisticsService(trackRepo, signalRepo, symbolRepo, &cfg.Trading)
 	utils.Info("统计分析服务初始化成功")
 
 	// 初始化通知服务
@@ -133,8 +140,14 @@ func main() {
 
 	// 初始化持仓监控服务
 	positionMonitor := trading.NewPositionMonitor(tradeExecutor, trackRepo, symbolRepo, utils.Logger)
+
+	// 注入价格提供者（基于 K 线最新收盘价）
+	priceProvider := trading.NewKlinePriceProvider(klineRepo)
+	positionMonitor.SetPriceProvider(priceProvider)
+
 	positionMonitor.Start() // 启动持仓监控
 	defer positionMonitor.Stop()
+	utils.Info("持仓监控服务初始化成功（价格源: K线）")
 
 	// 初始化 EMA 计算器
 	emaCalc := ema.NewEMACalculator(cfg.EMA.Periods)
@@ -157,6 +170,7 @@ func main() {
 		BoxRepo:     boxRepo,
 		TrendRepo:   trendRepo,
 		LevelRepo:   keyLevelRepo,
+		LevelV2Repo: keyLevelV2Repo,
 		SignalRepo:  signalRepo,
 		KlineRepo:   klineRepo,
 		Notifier:    notifyManager,
@@ -171,8 +185,65 @@ func main() {
 	if cfg.Strategies.RunnerInterval > 0 {
 		runnerInterval = time.Duration(cfg.Strategies.RunnerInterval) * time.Second
 	}
-	strategyRunner := strategy.NewRunner(strategyFactory, klineRepo, symbolRepo, signalRepo, notifyManager, runnerInterval, cfg.Strategies.MaxConcurrentAnalysis, utils.Logger)
+	strategyRunner := strategy.NewRunner(strategyFactory, klineRepo, symbolRepo, signalRepo, runnerInterval, cfg.Strategies.MaxConcurrentAnalysis, utils.Logger)
 	utils.Info("策略运行器初始化成功")
+
+	// 初始化评分引擎
+	signalScorer := scoring.NewSignalScorer(scoring.DefaultWeights)
+	utils.Info("评分引擎初始化成功")
+
+	// 初始化交易机会聚合器
+	oppAggregator := scoring.NewOpportunityAggregator(oppRepo, signalRepo, statsRepo, signalScorer, scoring.DefaultValidityConfig, notifyManager, utils.Logger)
+	strategyRunner.SetAggregator(oppAggregator)
+	utils.Info("交易机会聚合器初始化成功")
+
+	// 初始化自动交易服务（评分达标自动开仓）
+	autoTrader := trading.NewAutoTrader(&cfg.Trading, trackRepo, signalRepo, klineRepo, utils.Logger)
+	oppAggregator.AddHandler(autoTrader)
+	utils.Info("自动交易服务初始化成功",
+		zap.Bool("enabled", cfg.Trading.AutoTradeEnabled),
+		zap.Int("score_threshold", cfg.Trading.AutoTradeScoreThreshold))
+
+	// 初始化 AI 分析服务
+	var aiClient *aiservice.AIClient
+	var aiAnalyzer *aiservice.OpportunityAnalyzer
+	var cooldownTracker *aiservice.CooldownTracker
+	if cfg.AI.Enabled && cfg.AI.APIKey != "" {
+		aiClient = aiservice.NewAIClient(cfg.AI)
+		cooldownTracker = aiservice.NewCooldownTracker(
+			cfg.AI.Judge.MaxDailyCalls,
+			cfg.AI.Judge.CooldownMinutes,
+		)
+		aiAnalyzer = aiservice.NewOpportunityAnalyzer(
+			aiClient, oppRepo, klineRepo, cfg.AI.Judge, cooldownTracker, utils.Logger,
+		)
+		utils.Info("AI 分析服务初始化成功",
+			zap.String("model", cfg.AI.Model),
+			zap.String("base_url", cfg.AI.BaseURL),
+			zap.Bool("auto_analyze", cfg.AI.Judge.AutoAnalyze),
+		)
+		if cfg.AI.Judge.AutoAnalyze {
+			oppAggregator.AddHandler(aiAnalyzer)
+		}
+
+		// 初始化 AI 关键价位识别器
+		if cfg.AI.KeyLevel.Enabled {
+			aiKeyLevelCooldown := aiservice.NewCooldownTracker(
+				cfg.AI.KeyLevel.MaxDailyCalls,
+				cfg.AI.KeyLevel.CooldownMinutes,
+			)
+			aiKeyLevelAnalyzer := aiservice.NewAIKeyLevelAnalyzer(
+				aiClient, klineRepo, keyLevelV2Repo, klineRepo,
+				cfg.AI.KeyLevel, aiKeyLevelCooldown, utils.Logger,
+			)
+			go aiKeyLevelAnalyzer.Run()
+			defer aiKeyLevelAnalyzer.Stop()
+			utils.Info("AI关键价位识别器启动",
+				zap.Int("interval_minutes", cfg.AI.KeyLevel.IntervalMinutes))
+		}
+	} else {
+		utils.Info("AI 分析服务未启用")
+	}
 
 	// 初始化回测策略工厂（回测：注册所有策略，方便测试）
 	backtestStrategyFactory := strategy.NewFactory(&cfg.Strategies, strategyDeps, utils.Logger, true)
@@ -196,7 +267,8 @@ func main() {
 	strategyRunner.Start()
 	defer strategyRunner.Stop()
 
-	// 启动同步服务
+	// 启动同步服务（K线同步后立即触发策略分析）
+	syncService.AddHook(strategyRunner)
 	syncService.Start()
 	defer syncService.Stop()
 
@@ -232,14 +304,18 @@ func main() {
 	})
 
 	// 初始化 API 处理器
-	marketHandler := handler.NewMarketHandler(marketRepo, utils.Logger)
+	marketHandler := handler.NewMarketHandler(marketRepo, symbolRepo, klineRepo, trendRepo, utils.Logger)
 	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, klineService, utils.Logger)
 	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
+	opportunityHandler := handler.NewOpportunityHandler(oppRepo, signalScorer, aiAnalyzer, cfg.AI, cooldownTracker, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
 	tradeHandler := handler.NewTradeHandler(trackRepo, tradeExecutor, statsService, utils.Logger)
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
 	boxHandler := handler.NewBoxHandler(boxRepo, symbolRepo, utils.Logger)
-	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelRepo, utils.Logger)
+	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelV2Repo, utils.Logger)
+	trendHandler := handler.NewTrendHandler(trendRepo, utils.Logger)
+	aiStatsSvc := aiservice.NewAIStatsService(db)
+	aiStatsHandler := handler.NewAIStatsHandler(aiStatsSvc, utils.Logger)
 authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 	userHandler := handler.NewUserHandler(authsvc, utils.Logger)
 
@@ -251,7 +327,8 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				"code":    0,
 				"message": "success",
 				"data": gin.H{
-					"status": "ok",
+					"status":       "ok",
+					"auth_enabled": cfg.JWT.Enabled,
 				},
 					"timestamp": time.Now().Unix(),
 			})
@@ -266,7 +343,9 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 
 		// 需要认证的路由
 	authenticated := apiV1.Group("")
-			authenticated.Use(middleware.AuthMiddleware(cfg.JWT.Secret, userRepo))
+			if cfg.JWT.Enabled {
+				authenticated.Use(middleware.AuthMiddleware(cfg.JWT.Secret, userRepo))
+			}
 		{
 			// 认证相关
 			authenticated.GET("/auth/me", authHandler.Me)
@@ -277,6 +356,7 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 			{
 				marketsGroup.GET("", marketHandler.GetMarkets)
 				marketsGroup.GET("/:market_code", marketHandler.GetMarket)
+				marketsGroup.GET("/:market_code/overview", marketHandler.GetMarketOverview)
 			}
 
 			// 交易标的 API
@@ -310,6 +390,15 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				symbolSignalsGroup.GET("", signalHandler.GetSymbolSignals)
 			}
 
+			// 交易机会 API
+			opportunitiesGroup := authenticated.Group("/opportunities")
+			{
+				opportunitiesGroup.GET("", opportunityHandler.GetOpportunities)
+				opportunitiesGroup.GET("/active", opportunityHandler.GetActiveOpportunities)
+				opportunitiesGroup.GET("/:id", opportunityHandler.GetOpportunity)
+				opportunitiesGroup.POST("/:id/ai-analysis", opportunityHandler.AIAnalysis)
+			}
+
 			// 策略配置 API
 			strategiesGroup := authenticated.Group("/strategies")
 			{
@@ -341,12 +430,28 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				symbolKeyLevelsGroup.GET("", keyLevelHandler.GetKeyLevelsBySymbol)
 			}
 
+				// 趋势 API
+				symbolTrendsGroup := authenticated.Group("/symbols/:id/trends")
+				{
+					symbolTrendsGroup.GET("", trendHandler.GetTrendsBySymbol)
+				}
+
 			// 回测 API
 			backtestGroup := authenticated.Group("/backtest")
 			{
 				backtestGroup.POST("", backtestHandler.RunBacktest)
 				backtestGroup.GET("/strategies", backtestHandler.GetSupportedStrategies)
 				backtestGroup.GET("/periods", backtestHandler.GetSupportedPeriods)
+			}
+
+			// AI 统计分析 API
+			aiStatsGroup := authenticated.Group("/ai-stats")
+			{
+				aiStatsGroup.GET("/daily", aiStatsHandler.GetDailyCallStats)
+				aiStatsGroup.GET("/overview", aiStatsHandler.GetOverview)
+				aiStatsGroup.GET("/accuracy", aiStatsHandler.GetAccuracyAnalysis)
+				aiStatsGroup.GET("/direction", aiStatsHandler.GetDirectionStats)
+				aiStatsGroup.GET("/confidence", aiStatsHandler.GetConfidenceAnalysis)
 			}
 
 			// 交易跟踪 API
@@ -357,6 +462,13 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				tradesGroup.GET("/closed", tradeHandler.GetClosedPositions)
 				tradesGroup.GET("/stats", tradeHandler.GetTradeStats)
 				tradesGroup.GET("/signal-analysis", tradeHandler.GetSignalAnalysis)
+				tradesGroup.GET("/equity-curve", tradeHandler.GetEquityCurve)
+				tradesGroup.GET("/symbol-analysis", tradeHandler.GetSymbolAnalysis)
+				tradesGroup.GET("/direction-analysis", tradeHandler.GetDirectionAnalysis)
+				tradesGroup.GET("/exit-reason-analysis", tradeHandler.GetExitReasonAnalysis)
+				tradesGroup.GET("/period-pnl", tradeHandler.GetPeriodPnL)
+				tradesGroup.GET("/pnl-distribution", tradeHandler.GetPnLDistribution)
+				tradesGroup.GET("/signal-analysis-detail", tradeHandler.GetDetailedSignalAnalysis)
 				tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
 				tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
 			}
