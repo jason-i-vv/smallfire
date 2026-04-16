@@ -212,22 +212,23 @@ func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time) ([]*mo
 func (r *TradeTrackRepoPG) Create(track *models.TradeTrack) error {
 	query := `
 		INSERT INTO trade_tracks (
-			signal_id, symbol_id, direction, entry_price, entry_time, quantity,
-			position_value, stop_loss_price, stop_loss_percent, take_profit_price,
-			take_profit_percent, trailing_stop_enabled, trailing_stop_active,
-			trailing_stop_price, trailing_activation_pct, fees, status, subscriber_count,
-			created_at, updated_at
+			signal_id, opportunity_id, symbol_id, direction, entry_price, entry_time,
+			quantity, position_value, stop_loss_price, stop_loss_percent,
+			take_profit_price, take_profit_percent, trailing_stop_enabled,
+			trailing_stop_active, trailing_stop_price, trailing_activation_pct,
+			fees, status, subscriber_count, created_at, updated_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW()
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), NOW()
 		) RETURNING id
 	`
 
 	err := r.db.QueryRow(context.Background(), query,
-		track.SignalID, track.SymbolID, track.Direction, track.EntryPrice,
-		track.EntryTime, track.Quantity, track.PositionValue, track.StopLossPrice,
-		track.StopLossPercent, track.TakeProfitPrice, track.TakeProfitPercent,
-		track.TrailingStopEnabled, track.TrailingStopActive, track.TrailingStopPrice,
-		track.TrailingActivationPct, track.Fees, track.Status, track.SubscriberCount,
+		track.SignalID, track.OpportunityID, track.SymbolID, track.Direction,
+		track.EntryPrice, track.EntryTime, track.Quantity, track.PositionValue,
+		track.StopLossPrice, track.StopLossPercent, track.TakeProfitPrice,
+		track.TakeProfitPercent, track.TrailingStopEnabled, track.TrailingStopActive,
+		track.TrailingStopPrice, track.TrailingActivationPct, track.Fees,
+		track.Status, track.SubscriberCount,
 	).Scan(&track.ID)
 	if err != nil {
 		return fmt.Errorf("创建交易跟踪失败: %w", err)
