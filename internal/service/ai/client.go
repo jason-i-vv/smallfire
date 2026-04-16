@@ -57,7 +57,7 @@ func NewAIClient(cfg config.AIConfig) *AIClient {
 		maxTokens:   cfg.MaxTokens,
 		temperature: cfg.Temperature,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 60 * time.Second,
 		},
 	}
 }
@@ -88,8 +88,16 @@ func (c *AIClient) ChatCompletion(ctx context.Context, messages []ChatMessage) (
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
+	// 发送请求
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		// 检查是否是 context 取消
+		if ctx.Err() == context.Canceled {
+			return "", fmt.Errorf("请求被取消: %w", err)
+		}
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("请求超时 (context deadline exceeded): %w", err)
+		}
 		return "", fmt.Errorf("调用 AI API 失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -99,17 +107,22 @@ func (c *AIClient) ChatCompletion(ctx context.Context, messages []ChatMessage) (
 		return "", fmt.Errorf("读取响应失败: %w", err)
 	}
 
+	// 调试日志：记录原始响应
+	if len(body) == 0 {
+		return "", fmt.Errorf("AI API 返回空响应 (status=%d)", resp.StatusCode)
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("AI API 返回错误 (status=%d): %s", resp.StatusCode, string(body))
 	}
 
 	var chatResp chatResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
-		return "", fmt.Errorf("解析响应失败: %w", err)
+		return "", fmt.Errorf("解析响应失败 (raw=%s): %w", string(body), err)
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("AI API 返回空结果")
+		return "", fmt.Errorf("AI API 返回空结果 (raw=%s)", string(body))
 	}
 
 	return chatResp.Choices[0].Message.Content, nil

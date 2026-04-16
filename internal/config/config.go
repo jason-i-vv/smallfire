@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/viper"
@@ -281,13 +282,8 @@ func (j JWTConfig) ExpirationDuration() time.Duration {
 func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
 	viper.SetConfigType("yaml")
-	viper.AutomaticEnv()
 
-	viper.BindEnv("database.host", "DB_HOST")
-	viper.BindEnv("database.password", "DB_PASSWORD")
-	viper.BindEnv("jwt.secret", "JWT_SECRET")
-	viper.BindEnv("ai.api_key", "AI_API_KEY")
-
+	// 先读取配置文件（不调用 AutomaticEnv，避免环境变量覆盖配置文件）
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, err
 	}
@@ -295,6 +291,21 @@ func Load(configPath string) (*Config, error) {
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, err
+	}
+
+	// 环境变量优先级更高（如果设置了非空值）
+	// 尝试获取环境变量值，如果非空则覆盖配置文件
+	if envKey := os.Getenv("AI_API_KEY"); envKey != "" {
+		cfg.AI.APIKey = envKey
+	}
+	if envDBHost := os.Getenv("DB_HOST"); envDBHost != "" {
+		cfg.Database.Host = envDBHost
+	}
+	if envDBPass := os.Getenv("DB_PASSWORD"); envDBPass != "" {
+		cfg.Database.Password = envDBPass
+	}
+	if envJWTSecret := os.Getenv("JWT_SECRET"); envJWTSecret != "" {
+		cfg.JWT.Secret = envJWTSecret
 	}
 
 	return &cfg, nil

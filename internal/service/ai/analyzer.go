@@ -92,7 +92,7 @@ func (a *OpportunityAnalyzer) OnOpportunity(opp *models.TradingOpportunity) {
 
 	// 异步调用，不阻塞主流程
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
 		result, err := a.AnalyzeOpportunity(ctx, opp)

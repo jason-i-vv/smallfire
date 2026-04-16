@@ -52,8 +52,40 @@ func scanTradeTrack(row interface{ Scan(dest ...any) error }) (*models.TradeTrac
 	return &track, nil
 }
 
+// scanTradeTrackWithSymbolCode 扫描包含 symbol_code 的行数据
+func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*models.TradeTrack, string, error) {
+	var track models.TradeTrack
+	var symbolCode string
+	if err := row.Scan(
+		&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
+		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
+		&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
+		&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
+		&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
+		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
+		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
+		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
+		&track.UpdatedAt, &symbolCode,
+	); err != nil {
+		return nil, "", err
+	}
+	return &track, symbolCode, nil
+}
+
 func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
-	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE status = $1 ORDER BY created_at DESC"
+	query := `
+		SELECT t.id, t.signal_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
+		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
+		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
+		       COALESCE(s.symbol_code, '') as symbol_code
+		FROM trade_tracks t
+		LEFT JOIN symbols s ON t.symbol_id = s.id
+		WHERE t.status = $1
+		ORDER BY t.created_at DESC
+	`
 
 	rows, err := r.db.Query(context.Background(), query, models.TrackStatusOpen)
 	if err != nil {
@@ -61,7 +93,21 @@ func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 	}
 	defer rows.Close()
 
-	return scanTradeTracks(rows)
+	var tracks []*models.TradeTrack
+	for rows.Next() {
+		track, symbolCode, err := scanTradeTrackWithSymbolCode(rows)
+		if err != nil {
+			return nil, err
+		}
+		track.SymbolCode = symbolCode
+		tracks = append(tracks, track)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历结果失败: %w", err)
+	}
+
+	return tracks, nil
 }
 
 func (r *TradeTrackRepoPG) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) {
@@ -105,24 +151,40 @@ func (r *TradeTrackRepoPG) CountClosedSince(startTime time.Time) (int, error) {
 }
 
 func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error) {
-	baseQuery := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE status = $1"
-
 	var query string
 	var args []interface{}
+
+	baseSelect := `SELECT t.id, t.signal_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
+		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
+		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
+		       COALESCE(s.symbol_code, '') as symbol_code
+		FROM trade_tracks t
+		LEFT JOIN symbols s ON t.symbol_id = s.id
+		WHERE t.status = $1`
+
 	args = append(args, models.TrackStatusClosed)
+	argIndex := 2
 
 	if startDate != nil && endDate != nil {
-		query = baseQuery + " AND exit_time BETWEEN $2 AND $3"
+		query = baseSelect + fmt.Sprintf(" AND t.exit_time BETWEEN $%d AND $%d", argIndex, argIndex+1)
 		args = append(args, startDate, endDate)
+		argIndex += 2
 	} else if startDate != nil {
-		query = baseQuery + " AND exit_time >= $2"
+		query = baseSelect + fmt.Sprintf(" AND t.exit_time >= $%d", argIndex)
 		args = append(args, startDate)
+		argIndex++
 	} else if endDate != nil {
-		query = baseQuery + " AND exit_time <= $2"
+		query = baseSelect + fmt.Sprintf(" AND t.exit_time <= $%d", argIndex)
 		args = append(args, endDate)
+		argIndex++
 	} else {
-		query = baseQuery
+		query = baseSelect
 	}
+
+	query += " ORDER BY t.created_at DESC"
 
 	rows, err := r.db.Query(context.Background(), query, args...)
 	if err != nil {
@@ -130,7 +192,21 @@ func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time) ([]*mo
 	}
 	defer rows.Close()
 
-	return scanTradeTracks(rows)
+	var tracks []*models.TradeTrack
+	for rows.Next() {
+		track, symbolCode, err := scanTradeTrackWithSymbolCode(rows)
+		if err != nil {
+			return nil, err
+		}
+		track.SymbolCode = symbolCode
+		tracks = append(tracks, track)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历结果失败: %w", err)
+	}
+
+	return tracks, nil
 }
 
 func (r *TradeTrackRepoPG) Create(track *models.TradeTrack) error {
@@ -194,14 +270,25 @@ func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error) {
 	var count int
 
-	countQuery := `SELECT COUNT(*) FROM trade_tracks WHERE created_at BETWEEN $1 AND $2`
+	countQuery := `SELECT COUNT(*) FROM trade_tracks WHERE status = 'closed' AND created_at BETWEEN $1 AND $2`
 	err := r.db.QueryRow(context.Background(), countQuery, startDate, endDate).Scan(&count)
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询交易历史总数失败: %w", err)
 	}
 
 	offset := (page - 1) * size
-	dataQuery := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4"
+	dataQuery := `
+		SELECT t.id, t.signal_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
+		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
+		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
+		       COALESCE(s.symbol_code, '') as symbol_code
+		FROM trade_tracks t
+		LEFT JOIN symbols s ON t.symbol_id = s.id
+		WHERE t.status = 'closed' AND t.created_at BETWEEN $1 AND $2
+		ORDER BY t.created_at DESC LIMIT $3 OFFSET $4`
 
 	rows, err := r.db.Query(context.Background(), dataQuery, startDate, endDate, size, offset)
 	if err != nil {
@@ -209,9 +296,29 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 	}
 	defer rows.Close()
 
-	tracks, err := scanTradeTracks(rows)
-	if err != nil {
-		return nil, 0, err
+	var tracks []*models.TradeTrack
+	for rows.Next() {
+		var track models.TradeTrack
+		var symbolCode string
+		if err := rows.Scan(
+			&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
+			&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
+			&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
+			&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
+			&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
+			&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
+			&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
+			&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
+			&track.UpdatedAt, &symbolCode,
+		); err != nil {
+			return nil, 0, err
+		}
+		track.SymbolCode = symbolCode
+		tracks = append(tracks, &track)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("遍历结果失败: %w", err)
 	}
 
 	return tracks, count, nil
@@ -231,21 +338,3 @@ func (r *TradeTrackRepoPG) GetByID(id int) (*models.TradeTrack, error) {
 	return track, nil
 }
 
-// scanTradeTracks 从行集合扫描多个 TradeTrack
-func scanTradeTracks(rows interface{ Next() bool; Scan(dest ...any) error; Err() error }) ([]*models.TradeTrack, error) {
-	var tracks []*models.TradeTrack
-
-	for rows.Next() {
-		track, err := scanTradeTrack(rows)
-		if err != nil {
-			return nil, err
-		}
-		tracks = append(tracks, track)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("遍历结果失败: %w", err)
-	}
-
-	return tracks, nil
-}

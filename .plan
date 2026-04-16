@@ -1,0 +1,246 @@
+# Plan: 行情界面实现
+
+## 目标
+实现一个行情界面，可以查看数据库中所有标的，在图表上切换不同周期，显示趋势状态、EMA 均线、支撑和阻力位置。
+
+## 现有基础设施
+
+### 后端已就绪
+- Markets API: `GET /api/v1/markets`, `GET /api/v1/markets/:code`
+- Symbols API: `GET /api/v1/markets/:code/symbols` (返回所有跟踪标的)
+- Klines API: `GET /api/v1/klines?symbol_id=X&period=15m&limit=500` (返回含 ema_short/ema_medium/ema_long 的 K 线)
+- Key Levels API: `GET /api/v1/symbols/:id/key-levels?period=15m` (返回支撑/阻力位)
+- Trend 模型存在 (`internal/models/trend.go`)，但无 API endpoint
+- EMA 计算服务: `internal/service/ema/ema_calculator.go` (周期 30/60/90)
+
+### 前端已就绪
+- `KlineChart.vue` - 完整的 K 线图组件 (lightweight-charts)
+- EMA 均线渲染 (EMA短:黄, EMA中:蓝, EMA长:紫)
+- 支撑/阻力位渲染 (key_levels)
+- API 模块: klines.js, symbols.js, key_levels.js, signals.js
+- 路由: `/chart/:symbol` (需 query params: symbolId, period 等)
+
+### 缺失部分
+1. **趋势 API** - TrendRepo 有 `GetBySymbol` 方法，但无 handler 暴露
+2. **行情总览页** - 不存在
+3. **图表内周期切换** - KlineChart 周期通过 URL params，无 UI 切换
+4. **图表内标的选择器** - 不存在
+
+## 实施步骤
+
+### 1. 后端: 趋势 API (新增 endpoint)
+
+**文件: `internal/handler/trend_handler.go`** (新增)
+```go
+type TrendHandler struct {
+    trendRepo repository.TrendRepo
+}
+```
+- `GET /api/v1/symbols/:id/trends?period=15m` - 获取某标的某周期的趋势状态
+- 返回: `{ trend_type, strength, ema_short, ema_medium, ema_long }`
+
+**文件: `internal/handler/market_handler.go`** (修改)
+- `GET /api/v1/markets/:code/overview` - 新增总览 API
+- 返回所有跟踪标的 + 最新价格 + 涨跌幅 + 趋势状态
+- 从 klines 表取最新 K 线获取价格，从 trends 表取趋势
+
+**文件: `cmd/server/main.go`** (修改)
+- 注册 TrendHandler 和新路由
+
+### 2. 前端: 行情总览页 (新增)
+
+**文件: `starfire-frontend/src/views/market/MarketOverview.vue`** (新增)
+- 标的列表表格: 标的代码, 标的名称, 最新价, 涨跌幅, 趋势状态(多/空/震荡), 趋势强度
+- 市场切换 tab (Bybit / A股 / 美股)
+- 点击标的 → 跳转 K 线图页面
+- 绿色科技感风格，与现有 UI 一致
+
+**文件: `starfire-frontend/src/api/markets.js`** (新增)
+- `marketApi.list()` - GET /markets
+- `marketApi.overview(marketCode)` - GET /markets/:code/overview
+
+**文件: `starfire-frontend/src/api/trends.js`** (新增)
+- `trendApi.listBySymbol(symbolId, params)` - GET /symbols/:id/trends
+
+**文件: `starfire-frontend/src/router/index.js`** (修改)
+- 新增路由 `/market` → MarketOverview
+
+**文件: `starfire-frontend/src/components/common/AppSidebar.vue`** (修改)
+- 在"市场分析"子菜单中添加"行情总览"入口
+
+### 3. 前端: K 线图增强
+
+**文件: `starfire-frontend/src/views/kline/KlineChart.vue`** (修改)
+- **周期切换按钮**: 在图表头部添加 15m / 1h / 1d 按钮组
+- **标的选择器**: 添加标的搜索下拉框，支持快速切换标的
+- **趋势状态栏**: 显示当前周期趋势 (bullish/bearish/sideways) + 强度
+- **默认显示支撑阻力**: 无论信号来源类型，默认获取并显示 key levels
+- **EMA 均线**: 已有，确保所有模式都显示 (当前仅趋势信号模式显示)
+
+### 4. 文档
+
+**文件: `docs/market_overview_20260413.md`** (新增)
+- 需求文档
+
+## 数据流
+
+```
+MarketOverview 页面
+  ├─ GET /markets → 市场列表 (tab 切换)
+  ├─ GET /markets/:code/overview → 标的列表 + 价格 + 趋势
+  └─ 点击标的 → router.push('/chart/:symbol?symbolId=X')
+
+KlineChart 页面 (增强后)
+  ├─ 周期按钮 15m/1h/1d → 重新 fetchKlines(period=newPeriod)
+  ├─ 标的选择器 → symbolApi.search(keyword) → 切换标的
+  ├─ GET /klines?symbol_id=X&period=Y → K线 + EMA
+  ├─ GET /symbols/:id/key-levels?period=Y → 支撑阻力位
+  └─ GET /symbols/:id/trends?period=Y → 趋势状态
+```
+
+## 涉及文件
+
+### 新增 (5 个)
+| 文件 | 说明 |
+|------|------|
+| `internal/handler/trend_handler.go` | 趋势 API handler |
+| `starfire-frontend/src/views/market/MarketOverview.vue` | 行情总览页 |
+| `starfire-frontend/src/api/markets.js` | 市场 API |
+| `starfire-frontend/src/api/trends.js` | 趋势 API |
+| `docs/market_overview_20260413.md` | 需求文档 |
+
+### 修改 (4 个)
+| 文件 | 改动 |
+|------|------|
+| `internal/handler/market_handler.go` | 新增 /markets/:code/overview endpoint |
+| `cmd/server/main.go` | 注册新 handler 和路由 |
+| `starfire-frontend/src/views/kline/KlineChart.vue` | 周期切换 + 标的选择器(全市场搜索) + 趋势状态 + 默认显示 key levels |
+| `starfire-frontend/src/router/index.js` | 新增 /market 路由 |
+
+### 微调 (1 个)
+| 文件 | 改动 |
+|------|------|
+| `starfire-frontend/src/components/common/AppSidebar.vue` | 添加行情总览菜单项 |
+
+## 实施顺序
+
+1. 后端: 趋势 API + 市场 Overview API → handler + main.go 注册
+2. 前端: API 模块 → markets.js + trends.js
+3. 前端: 行情总览页 → MarketOverview.vue + router + sidebar
+4. 前端: K 线图增强 → KlineChart.vue 修改
+5. 文档 → docs/market_overview_20260413.md
+6. 测试 → make backend + make frontend，验证功能
+
+## NOT in scope
+
+- 实时价格推送 (WebSocket) — 当前用 K 线收盘价即可，实时推送是后续需求
+- 深度图/订单簿 — 与行情界面无关
+- 技术指标自定义 (RSI/MACD 等) — 当前只需 EMA
+- 自选标的收藏 — 后续优化
+- 价格预警通知 — 后续优化
+
+## What already exists
+
+| 功能 | 已有实现 | 本计划处理 |
+|------|----------|-----------|
+| K 线渲染 | KlineChart.vue (lightweight-charts) | 复用 |
+| EMA 均线 | KlineChart.vue + klines API (ema_short/medium/long) | 复用，改为始终显示 |
+| 支撑阻力 | key_levels API + KlineChart.vue 渲染 | 复用，改为始终显示 |
+| 标的列表 | symbols API | 复用 |
+| 趋势数据 | TrendRepo + Trend model | 新增 API 暴露 |
+
+## 设计规范
+
+### 行情总览页布局
+```
+┌──────────────────────────────────────────────────────────┐
+│  市场选择: [Bybit]  [A股]  [美股]       共 127 个标的    │
+├──────────────────────────────────────────────────────────┤
+│  标的代码    名称        最新价      涨跌幅     趋势     │
+│  ──────────────────────────────────────────────────────── │
+│  BTCUSDT   Bitcoin    85,432.50   +2.34%     ▲ 看多     │
+│  ETHUSDT   Ethereum    3,521.80   -0.81%     ▼ 看空     │
+│  SOLUSDT   Solana        178.45   +5.12%     ▲ 看多     │
+│  BNBUSDT   BNB           612.30   +0.23%     ── 震荡    │
+│  ...                                                     │
+│  ──────────────────────────────────────────────────────── │
+│                   < 1  2  3 ... 25 >                     │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 交互状态表
+```
+功能              | 加载中          | 空状态              | 错误          | 成功            | 部分
+------------------|----------------|--------------------|--------------|-----------------|----------------
+标的列表          | el-table 骨架屏 | "暂无跟踪标的"     | 红色提示条    | 表格数据        | 部分缺价格/趋势
+市场切换          | tab 禁用态      | —                  | —            | tab 高亮+刷新   | —
+分页              | 按钮禁用        | 不显示分页          | —            | 正常分页        | —
+涨跌幅颜色        | —              | 灰色 "--"          | —            | 绿/红/灰        | —
+趋势状态          | —              | 灰色 "未知" 标签    | —            | 看多/看空/震荡  | —
+```
+
+### K 线图增强布局
+```
+┌──────────────────────────────────────────────────────────┐
+│ [返回] [标的选择器▼]  BTCUSDT  85,432.50  +2.34%        │
+│ [15m] [1h] [1d]   趋势: ▲ 看多 (强度 7)   K线数: 500   │
+├──────────────────────────────────────────────────────────┤
+│  EMA图例: ── EMA30  ── EMA60  ── EMA90                  │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │              K 线图 + EMA + 支撑/阻力               │  │
+│  │  ── 阻力位 85,800                                   │  │
+│  │  ── 支撑位 84,200                                   │  │
+│  └────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────┘
+```
+
+### K 线图交互状态
+```
+功能              | 加载中          | 空状态              | 错误          | 成功
+------------------|----------------|--------------------|--------------|----------------
+K 线数据          | 加载动画        | "暂无K线数据"      | 错误提示      | 图表渲染
+周期切换          | 按钮loading     | —                  | —            | 数据刷新
+标的选择器        | 搜索loading     | "无匹配标的"       | —            | 下拉列表
+趋势状态          | —              | 不显示趋势栏        | —            | 趋势标签
+支撑阻力          | —              | 不显示水平线        | —            | 阻力/支撑线
+```
+
+### 颜色规范
+- 涨/看多: #00C853 (绿)
+- 跌/看空: #EF5350 (红)
+- 震荡/无变化: #909399 (灰)
+- EMA30 (短): #FFD740 (黄)
+- EMA60 (中): #42A5F5 (蓝)
+- EMA90 (长): #AB47BC (紫)
+- 阻力位线: #EF5350 (红虚线)
+- 支撑位线: #00C853 (绿虚线)
+
+### 组件规范
+- 表格行高: 48px
+- 标的选择器: el-select + remote-search, 最小宽度 200px
+- 周期按钮组: el-radio-group + el-radio-button, 大小 small
+- 趋势标签: el-tag, 看多=success, 看空=danger, 震荡=info
+- 分页: el-pagination, 每页 20 条
+
+## Review 决策记录
+
+1. **N+1 查询** → 分页加载 (page=1, size=20, 每页 41 queries)
+2. **KlineChart 组件拆分** → 抽取周期选择器、标的选择器为独立小组件
+3. **EMA/Key Levels 显示** → 始终显示，不按信号类型条件判断
+4. **周期切换** → 内部状态驱动，watch(period) 触发数据重载
+5. **行情页布局** → 纯表格 (el-table)，数据密集，交易者优先
+6. **排序** → 涨跌幅 + 趋势强度列支持排序
+7. **标的选择器** → 全市场搜索 (不限于当前 tab)
+8. **响应式** → 桌面优先，最小宽度 1024px
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | CLEAR | 4 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | score: 4/10 → 8/10, 8 decisions |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+VERDICT: ENG + DESIGN CLEARED — ready to implement

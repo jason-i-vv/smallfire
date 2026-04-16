@@ -1,6 +1,6 @@
 <template>
   <div class="position-list-component">
-    <el-table :data="positions" stripe style="width: 100%" size="small">
+    <el-table :data="positions" stripe size="small" class="position-table">
       <el-table-column prop="symbol_code" label="标的" width="120" />
       <el-table-column prop="direction" label="方向" width="80">
         <template #default="{ row }">
@@ -20,6 +20,11 @@
         </template>
       </el-table-column>
       <el-table-column prop="quantity" label="数量" width="100" />
+      <el-table-column prop="position_value" label="买入金额" width="100">
+        <template #default="{ row }">
+          {{ row.position_value ? formatPnL(row.position_value) : '--' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="unrealized_pnl" label="浮动盈亏" width="120">
         <template #default="{ row }">
           <span :class="row.unrealized_pnl >= 0 ? 'profit' : 'loss'">
@@ -27,20 +32,14 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column prop="pnl_percent" label="盈亏%" width="100">
+      <el-table-column prop="unrealized_pnl_pct" label="盈亏%" width="100">
         <template #default="{ row }">
-          <span :class="row.pnl_percent >= 0 ? 'profit' : 'loss'">
-            {{ formatPercent(row.pnl_percent) }}
+          <span :class="row.unrealized_pnl_pct >= 0 ? 'profit' : 'loss'">
+            {{ formatPercent(row.unrealized_pnl_pct) }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="100">
-        <template #default="{ row }">
-          <el-button type="danger" size="small" link @click="handleClose(row)">
-            平仓
-          </el-button>
-        </template>
-      </el-table-column>
+      <el-table-column label="操作" />
     </el-table>
   </div>
 </template>
@@ -65,12 +64,17 @@ const handleClose = (position) => {
 <style lang="scss" scoped>
 @import '@/assets/styles/variables.scss';
 
+.position-table {
+  width: 100%;
+}
+
 .position-list-component {
   :deep(.el-table) {
     --el-table-bg-color: #{$surface};
     --el-table-tr-bg-color: #{$surface};
     --el-table-header-bg-color: #{$background};
     --el-table-row-hover-bg-color: #{$surface-hover};
+    width: 100%;
   }
 }
 

@@ -2,7 +2,6 @@ package market
 
 import (
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -36,26 +35,9 @@ func NewKlineService(klineRepo repository.KlineRepo, symbolRepo repository.Symbo
 	}
 }
 
-// GetKlines 获取K线数据，DB数据不足时从交易所API补充
+// GetKlines 获取K线数据，数据不足时触发后台同步，立即返回DB数据
 func (s *KlineService) GetKlines(symbolID int64, period string, startTime, endTime *time.Time, limit int) ([]models.Kline, error) {
-	// 并发去重：防止同一标的并发触发多次 API 请求
-	dedupKey := fmt.Sprintf("%d:%s", symbolID, period)
-	s.sfMu.Lock()
-	if _, inFlight := s.sfInFlight[dedupKey]; inFlight {
-		s.sfMu.Unlock()
-		// 其他请求正在补充，直接返回本地数据
-		dbKlines, _ := s.klineRepo.GetBySymbolPeriod(symbolID, period, startTime, endTime, limit)
-		return dbKlines, nil
-	}
-	s.sfInFlight[dedupKey] = struct{}{}
-	s.sfMu.Unlock()
-	defer func() {
-		s.sfMu.Lock()
-		delete(s.sfInFlight, dedupKey)
-		s.sfMu.Unlock()
-	}()
-
-	// 1. 先查本地数据库
+	// 1. 先查本地数据库（总是快速返回）
 	dbKlines, err := s.klineRepo.GetBySymbolPeriod(symbolID, period, startTime, endTime, limit)
 	if err != nil {
 		return nil, err
@@ -67,68 +49,81 @@ func (s *KlineService) GetKlines(symbolID int64, period string, startTime, endTi
 		return dbKlines, nil
 	}
 
-	// 3. 获取 symbol 信息
+	// 3. 数据不足，触发后台同步（不阻塞，立即返回DB数据）
+	go s.syncKlinesBackground(symbolID, period, fetchStart, fetchEnd)
+
+	return dbKlines, nil
+}
+
+// syncKlinesBackground 后台同步K线数据到本地数据库
+func (s *KlineService) syncKlinesBackground(symbolID int64, period string, fetchStart, fetchEnd time.Time) {
+	// 并发去重：防止同一标的并发触发多次 API 同步
+	dedupKey := fmt.Sprintf("%d:%s", symbolID, period)
+	s.sfMu.Lock()
+	if _, inFlight := s.sfInFlight[dedupKey]; inFlight {
+		s.sfMu.Unlock()
+		return
+	}
+	s.sfInFlight[dedupKey] = struct{}{}
+	s.sfMu.Unlock()
+	defer func() {
+		s.sfMu.Lock()
+		delete(s.sfInFlight, dedupKey)
+		s.sfMu.Unlock()
+	}()
+
+	// 获取 symbol 信息
 	symbol, err := s.symbolRepo.GetByID(int(symbolID))
 	if err != nil {
-		s.logger.Warn("获取标的信息失败，跳过API补充",
+		s.logger.Warn("获取标的信息失败，跳过后台同步",
 			zap.Int64("symbol_id", symbolID), zap.Error(err))
-		return dbKlines, nil
+		return
 	}
 
-	// 4. 获取对应的 fetcher
+	// 获取对应的 fetcher
 	fetcher, ok := s.factory.GetFetcher(symbol.MarketCode)
 	if !ok || fetcher == nil {
-		s.logger.Warn("不支持的市场，跳过API补充",
+		s.logger.Warn("不支持的市场，跳过后台同步",
 			zap.String("market_code", symbol.MarketCode))
-		return dbKlines, nil
+		return
 	}
 
-	// 5. 从交易所 API 获取数据
+	// 从交易所 API 获取数据
 	apiPeriod := MapPeriod(symbol.MarketCode, period)
 	apiKlines, err := fetcher.FetchKlinesByTimeRange(symbol.SymbolCode, apiPeriod, fetchStart, fetchEnd)
 	if err != nil {
-		s.logger.Warn("从交易所API获取K线数据失败，返回本地数据",
+		s.logger.Warn("后台同步：从交易所API获取K线数据失败",
 			zap.String("symbol", symbol.SymbolCode),
 			zap.String("period", period),
 			zap.Error(err))
-		return dbKlines, nil
+		return
 	}
 
 	if len(apiKlines) == 0 {
-		return dbKlines, nil
+		s.logger.Info("后台同步：无新数据",
+			zap.String("symbol", symbol.SymbolCode),
+			zap.String("period", period))
+		return
 	}
 
-	// 6. API 数据入库（ON CONFLICT DO NOTHING 幂等去重）
+	// API 数据入库
 	klineModels := make([]*models.Kline, 0, len(apiKlines))
 	for _, k := range apiKlines {
 		klineModels = append(klineModels, convertToModel(int(symbolID), period, k))
 	}
 
 	if err := s.klineRepo.BatchCreate(klineModels); err != nil {
-		s.logger.Warn("API数据入库失败",
+		s.logger.Warn("后台同步：数据入库失败",
 			zap.String("symbol", symbol.SymbolCode),
 			zap.Int("count", len(apiKlines)),
 			zap.Error(err))
-		// 入库失败仍尝试合并返回
-		return s.mergeKlines(dbKlines, klineModels, limit), nil
+		return
 	}
 
-	// 7. 入库成功，重新从 DB 查询（unique constraint 保证去重）
-	klines, err := s.klineRepo.GetBySymbolPeriod(symbolID, period, startTime, endTime, limit)
-	if err != nil {
-		s.logger.Warn("重新查询DB失败，使用合并数据",
-			zap.Int64("symbol_id", symbolID), zap.Error(err))
-		return s.mergeKlines(dbKlines, klineModels, limit), nil
-	}
-
-	s.logger.Info("API补充K线数据",
+	s.logger.Info("后台同步：K线数据同步完成",
 		zap.String("symbol", symbol.SymbolCode),
 		zap.String("period", period),
-		zap.Int("db_count", len(dbKlines)),
-		zap.Int("api_count", len(apiKlines)),
-		zap.Int("final_count", len(klines)))
-
-	return klines, nil
+		zap.Int("synced_count", len(apiKlines)))
 }
 
 // GetLatestKline 获取最新K线
@@ -192,40 +187,4 @@ func (s *KlineService) needSupplement(klines []models.Kline, period string, star
 	}
 
 	return false, time.Time{}, time.Time{}
-}
-
-// mergeKlines 合并DB和API的K线数据，按 open_time 去重（DB数据优先，可能有EMA）
-func (s *KlineService) mergeKlines(dbKlines []models.Kline, apiKlines []*models.Kline, limit int) []models.Kline {
-	klineMap := make(map[int64]models.Kline)
-
-	// 先放 API 数据
-	for _, k := range apiKlines {
-		klineMap[k.OpenTime.Unix()] = *k
-	}
-
-	// 再放 DB 数据（覆盖 API 数据，因为 DB 数据可能有计算过的 EMA）
-	for _, k := range dbKlines {
-		klineMap[k.OpenTime.Unix()] = k
-	}
-
-	result := make([]models.Kline, 0, len(klineMap))
-	for _, k := range klineMap {
-		result = append(result, k)
-	}
-
-	// 按 open_time 升序排列
-	s.sortKlines(result)
-
-	if limit > 0 && len(result) > limit {
-		result = result[:limit]
-	}
-
-	return result
-}
-
-// sortKlines 按 open_time 升序排列
-func (s *KlineService) sortKlines(klines []models.Kline) {
-	sort.Slice(klines, func(i, j int) bool {
-		return klines[i].OpenTime.Before(klines[j].OpenTime)
-	})
 }

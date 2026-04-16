@@ -801,8 +801,15 @@ const updateKlineData = (klines) => {
   } else {
     // 其他模式：始终获取并显示支撑阻力
     fetchKeyLevels()
-    if (signalTime.value) {
+    // 默认滚动到最新数据，除非明确指定 scrollToSignal=true
+    if (route.query.scrollToSignal === 'true' && signalTime.value) {
       scrollToTime(signalTime.value)
+    } else {
+      // 滚动到最新数据
+      const lastKline = klines[klines.length - 1]
+      if (lastKline) {
+        scrollToTime(normalizeTimestamp(lastKline.time || lastKline.open_time))
+      }
     }
   }
 

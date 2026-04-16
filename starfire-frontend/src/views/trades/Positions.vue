@@ -158,6 +158,10 @@ onMounted(() => {
   :deep(.el-card) {
     background: $surface !important;
     border-color: $border !important;
+
+    .el-card__body {
+      padding: 16px;
+    }
   }
 
   :deep(.el-card__header) {

@@ -284,11 +284,11 @@ func (s *StatisticsService) GetSignalAnalysis() (map[string]*SignalAnalysis, err
 	analysis := make(map[string]*SignalAnalysis)
 
 	for _, track := range tracks {
-		signalType := s.getSignalType(track)
+		signalType, sourceType := s.getFullSignalInfo(track)
 		if _, ok := analysis[signalType]; !ok {
 			analysis[signalType] = &SignalAnalysis{
 				SignalType: signalType,
-				SourceType: signalType,
+				SourceType: sourceType,
 			}
 		}
 
@@ -338,15 +338,13 @@ func (s *StatisticsService) GetEquityCurve(startDate, endDate *time.Time) ([]Equ
 		return tracks[i].ExitTime.Before(*tracks[j].ExitTime)
 	})
 
-	points := make([]EquityCurvePoint, 0, len(tracks)+1)
+	// 使用 map 去重，同一时间戳只保留最后一个权益值
+	equityByTime := make(map[int64]float64)
 	equity := s.config.InitialCapital
 
 	// 起始点
 	if len(tracks) > 0 && tracks[0].ExitTime != nil {
-		points = append(points, EquityCurvePoint{
-			Time:   tracks[0].ExitTime.Add(-time.Minute).Unix(),
-			Equity: equity,
-		})
+		equityByTime[tracks[0].ExitTime.Add(-time.Minute).Unix()] = equity
 	}
 
 	for _, track := range tracks {
@@ -354,12 +352,18 @@ func (s *StatisticsService) GetEquityCurve(startDate, endDate *time.Time) ([]Equ
 			equity += *track.PnL
 		}
 		if track.ExitTime != nil {
-			points = append(points, EquityCurvePoint{
-				Time:   track.ExitTime.Unix(),
-				Equity: equity,
-			})
+			equityByTime[track.ExitTime.Unix()] = equity
 		}
 	}
+
+	// 转换为有序切片
+	points := make([]EquityCurvePoint, 0, len(equityByTime))
+	for time, equity := range equityByTime {
+		points = append(points, EquityCurvePoint{Time: time, Equity: equity})
+	}
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].Time < points[j].Time
+	})
 
 	return points, nil
 }

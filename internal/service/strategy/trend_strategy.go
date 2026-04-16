@@ -105,8 +105,9 @@ func (s *TrendStrategy) checkPullback(getEMA func(models.Kline) *float64, emaPer
 
 	// 条件3：之前价格曾远离EMA
 	// 牛市回撤：EMA上升（slope>0），价格从上方回撤到EMA
+	// 要求Low必须触达或穿过EMA（lowPct<=0），收盘在EMA上方确认支撑
 	if emaSlope > 0 {
-		if lowPct <= 0.008 && lowPct >= -0.005 && closePct > 0 {
+		if lowPct <= 0 && lowPct >= -0.005 && closePct > 0 {
 			if s.wasFarFromEMA(getEMA, klines, true) {
 				return s.makeSignal(last, "long", emaPeriod)
 			}
@@ -114,8 +115,9 @@ func (s *TrendStrategy) checkPullback(getEMA func(models.Kline) *float64, emaPer
 	}
 
 	// 熊市回撤：EMA下降（slope<0），价格从下方反弹到EMA
+	// 要求High必须触达或穿过EMA（highPct>=0），收盘在EMA下方确认阻力
 	if emaSlope < 0 {
-		if highPct >= -0.008 && highPct <= 0.005 && closePct < 0 {
+		if highPct >= 0 && highPct <= 0.005 && closePct < 0 {
 			if s.wasFarFromEMA(getEMA, klines, false) {
 				return s.makeSignal(last, "short", emaPeriod)
 			}

@@ -37,7 +37,9 @@ export const formatPercent = (value) => {
   if (value === null || value === undefined) return '--'
   const num = Number(value)
   const sign = num >= 0 ? '+' : ''
-  return `${sign}${num.toFixed(2)}%`
+  // 后端返回的小数形式 (0.2018 = 20.18%)，需要乘以100
+  const percent = num * 100
+  return `${sign}${percent.toFixed(2)}%`
 }
 
 // 格式化大数

@@ -267,7 +267,7 @@
 
           <!-- 图表模式：内嵌K线图表，标记所有引线信号和交易记录 -->
           <BacktestChart
-            v-if="signalViewMode === 'chart' && supportsChartMode && currentSymbolId && (result.signals?.length > 0 || result.trades?.length > 0)"
+            v-if="signalViewMode === 'chart' && supportsChartMode && currentSymbolId"
             :symbol-id="currentSymbolId"
             :period="form.period"
             :start-time="result.request.start_time"
@@ -276,12 +276,9 @@
             :trades="result.trades || []"
             :strategy-type="form.strategy_type"
           />
-          <div v-else-if="signalViewMode === 'chart' && supportsChartMode && (!result.signals || result.signals.length === 0) && (!result.trades || result.trades.length === 0)" class="chart-empty">
-            暂无信号和交易数据
-          </div>
 
           <!-- 列表模式：表格 -->
-          <el-table v-else :data="result.signals || []" stripe style="width: 100%" max-height="300" @row-click="(row) => viewChart('signal', row)">
+          <el-table v-if="signalViewMode === 'list'" :data="result.signals || []" stripe style="width: 100%" max-height="300" @row-click="(row) => viewChart('signal', row)">
             <el-table-column prop="id" label="#" width="60" />
             <el-table-column label="时间" width="160">
               <template #default="{ row }">
@@ -888,8 +885,8 @@ const runBacktest = async () => {
     const res = await backtestApi.runBacktest(requestData)
     result.value = res.data
 
-    // 根据策略类型设置视图模式
-    signalViewMode.value = (form.value.strategy_type === 'wick' || form.value.strategy_type === 'volume_price') ? 'chart' : 'list'
+    // 根据策略类型设置视图模式（趋势策略默认图表模式以显示均线）
+    signalViewMode.value = ['wick', 'volume_price', 'trend'].includes(form.value.strategy_type) ? 'chart' : 'list'
 
     // 保存结果到 sessionStorage
     saveToSession()
@@ -922,7 +919,7 @@ const restoreFromSession = () => {
       result.value = data.result
       form.value = { ...form.value, ...data.form }
       // 恢复后根据策略类型设置视图模式
-      signalViewMode.value = (form.value.strategy_type === 'wick' || form.value.strategy_type === 'volume_price') ? 'chart' : 'list'
+      signalViewMode.value = ['wick', 'volume_price', 'trend'].includes(form.value.strategy_type) ? 'chart' : 'list'
       return true
     } catch (e) {
       console.error('Failed to restore backtest data:', e)

@@ -69,13 +69,13 @@ const fetchData = async () => {
     const res = await tradeApi.history(params)
     const data = res.data || {}
     trades.value = (data.list || []).map(t => ({
-      closed_at: t.exit_time,
+      exit_time: t.exit_time,
       symbol_code: t.symbol_code || '',
       direction: t.direction,
       entry_price: t.entry_price,
       exit_price: t.exit_price,
       quantity: t.quantity,
-      realized_pnl: t.pnl,
+      pnl: t.pnl,
       pnl_percent: t.pnl_percent
     }))
     total.value = data.total || 0
@@ -134,6 +134,10 @@ onMounted(() => {
   :deep(.el-card) {
     background: $surface !important;
     border-color: $border !important;
+
+    .el-card__body {
+      padding: 16px;
+    }
   }
 
   :deep(.el-card__header) {
