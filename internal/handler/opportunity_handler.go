@@ -114,9 +114,19 @@ func (h *OpportunityHandler) GetOpportunity(c *gin.Context) {
 }
 
 // GetActiveOpportunities 获取所有活跃交易机会（卡片视图用）
-// GET /api/v1/opportunities/active
+// GET /api/v1/opportunities/active?page=1&page_size=100
 func (h *OpportunityHandler) GetActiveOpportunities(c *gin.Context) {
-	opportunities, err := h.oppRepo.GetActive()
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "100"))
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 500 {
+		pageSize = 100
+	}
+
+	opportunities, total, err := h.oppRepo.List("active", page, pageSize)
 	if err != nil {
 		h.logger.Error("查询活跃交易机会失败", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -129,7 +139,12 @@ func (h *OpportunityHandler) GetActiveOpportunities(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"code":    0,
 		"message": "success",
-		"data":    opportunities,
+		"data": gin.H{
+			"items":     opportunities,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
 	})
 }
 

@@ -172,9 +172,9 @@ monitoring:
 ai:
   enabled: true                        # 是否启用 AI 增强判定
   provider: "openai"                    # 服务商: openai, anthropic, custom
-  base_url: "https://api.minimaxi.com/v1" # API 基础地址（可替换为兼容 API）
-  api_key: "${AI_API_KEY}"             # API Key，建议通过环境变量设置
-  model: "MiniMax-M2.7-highspeed"                 # 模型名称
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4" # API 基础地址（可替换为兼容 API）
+  api_key: "${AI_API_KEY}"                # API Key，通过环境变量设置
+  model: "GLM-4-Flash"                 # 模型名称
   max_tokens: 2000                       # 最大输出 token
   temperature: 0.3                      # 温度（越低越确定）
 
@@ -184,11 +184,11 @@ ai:
     score_max: 79                       # 公式评分上限（<= 此值才触发）
     max_daily_calls: 5000                 # 每日最大调用次数
     cooldown_minutes: 30                # 同一标的冷却时间（分钟）
-    auto_analyze: true                  # 交易机会产生时自动进行 AI 分析
+    auto_analyze: false                  # 交易机会产生时自动进行 AI 分析
 
   # 每日市场简报
   briefing:
-    enabled: false                      # 是否启用每日简报
+    enabled: true                      # 是否启用每日简报
     time: "08:00"                       # 简报生成时间（UTC+8）
     max_tokens: 800                     # 简报最大 token
 
