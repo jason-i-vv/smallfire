@@ -141,7 +141,20 @@ func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, currentPr
 // calcStopLoss 计算止损价
 func (t *AutoTrader) calcStopLoss(entryPrice float64, opp *models.TradingOpportunity) float64 {
 	if opp.SuggestedStopLoss != nil && *opp.SuggestedStopLoss > 0 {
-		return *opp.SuggestedStopLoss
+		suggested := *opp.SuggestedStopLoss
+		// 验证建议止损价是否距离入场价足够远（至少 1%）
+		minLossDistance := entryPrice * 0.01
+		if opp.Direction == models.DirectionLong && suggested < entryPrice-minLossDistance {
+			return suggested
+		}
+		if opp.Direction == models.DirectionShort && suggested > entryPrice+minLossDistance {
+			return suggested
+		}
+		// 距离太近，使用默认值
+		t.logger.Warn("建议止损价距离入场价过近，使用默认值",
+			zap.Float64("entry_price", entryPrice),
+			zap.Float64("suggested_stop_loss", suggested),
+			zap.Float64("min_distance", minLossDistance))
 	}
 	// 默认固定百分比
 	if opp.Direction == models.DirectionLong {
@@ -153,7 +166,20 @@ func (t *AutoTrader) calcStopLoss(entryPrice float64, opp *models.TradingOpportu
 // calcTakeProfit 计算止盈价
 func (t *AutoTrader) calcTakeProfit(entryPrice float64, opp *models.TradingOpportunity) float64 {
 	if opp.SuggestedTakeProfit != nil && *opp.SuggestedTakeProfit > 0 {
-		return *opp.SuggestedTakeProfit
+		suggested := *opp.SuggestedTakeProfit
+		// 验证建议止盈价是否距离入场价足够远（至少 1%）
+		minProfitDistance := entryPrice * 0.01
+		if opp.Direction == models.DirectionLong && suggested > entryPrice+minProfitDistance {
+			return suggested
+		}
+		if opp.Direction == models.DirectionShort && suggested < entryPrice-minProfitDistance {
+			return suggested
+		}
+		// 距离太近，使用默认值
+		t.logger.Warn("建议止盈价距离入场价过近，使用默认值",
+			zap.Float64("entry_price", entryPrice),
+			zap.Float64("suggested_take_profit", suggested),
+			zap.Float64("min_distance", minProfitDistance))
 	}
 	if opp.Direction == models.DirectionLong {
 		return entryPrice * (1 + t.config.TakeProfitPercent)
