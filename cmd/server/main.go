@@ -309,7 +309,7 @@ func main() {
 	marketHandler := handler.NewMarketHandler(marketRepo, symbolRepo, klineRepo, trendRepo, utils.Logger)
 	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, klineService, utils.Logger)
 	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
-	opportunityHandler := handler.NewOpportunityHandler(oppRepo, signalScorer, aiAnalyzer, cfg.AI, cooldownTracker, utils.Logger)
+	opportunityHandler := handler.NewOpportunityHandler(oppRepo, trackRepo, signalScorer, aiAnalyzer, cfg.AI, cooldownTracker, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
 	tradeHandler := handler.NewTradeHandler(trackRepo, tradeExecutor, statsService, utils.Logger)
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
@@ -398,6 +398,7 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				opportunitiesGroup.GET("", opportunityHandler.GetOpportunities)
 				opportunitiesGroup.GET("/active", opportunityHandler.GetActiveOpportunities)
 				opportunitiesGroup.GET("/:id", opportunityHandler.GetOpportunity)
+				opportunitiesGroup.GET("/:id/trades", opportunityHandler.GetOpportunityTrades)
 				opportunitiesGroup.POST("/:id/ai-analysis", opportunityHandler.AIAnalysis)
 			}
 

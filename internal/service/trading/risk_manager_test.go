@@ -26,6 +26,7 @@ func (m *mockTrackRepo) GetHistory(startDate, endDate time.Time, page, size int)
 	return nil, 0, nil
 }
 func (m *mockTrackRepo) GetByID(id int) (*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepo) GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error) { return nil, nil }
 
 func TestRiskManager_CheckBeforeOpen(t *testing.T) {
 	cfg := &config.TradingConfig{

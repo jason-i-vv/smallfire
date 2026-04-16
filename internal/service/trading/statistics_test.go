@@ -218,6 +218,7 @@ func (m *mockTrackRepoForStats) GetHistory(startDate, endDate time.Time, page, s
 	return nil, 0, nil
 }
 func (m *mockTrackRepoForStats) GetByID(id int) (*models.TradeTrack, error)            { return nil, nil }
+func (m *mockTrackRepoForStats) GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error) { return nil, nil }
 
 func makeClosedTrackFull(pnl float64, symbolID int, direction string, entryTime, exitTime time.Time, exitReason string) *models.TradeTrack {
 	return &models.TradeTrack{

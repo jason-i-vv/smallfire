@@ -339,3 +339,23 @@ func (r *TradeTrackRepoPG) GetByID(id int) (*models.TradeTrack, error) {
 	return track, nil
 }
 
+func (r *TradeTrackRepoPG) GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error) {
+	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE opportunity_id = $1 ORDER BY created_at DESC"
+
+	rows, err := r.db.Query(context.Background(), query, opportunityID)
+	if err != nil {
+		return nil, fmt.Errorf("查询交易记录失败: %w", err)
+	}
+	defer rows.Close()
+
+	var tracks []*models.TradeTrack
+	for rows.Next() {
+		track, err := scanTradeTrack(rows)
+		if err != nil {
+			return nil, err
+		}
+		tracks = append(tracks, track)
+	}
+	return tracks, rows.Err()
+}
+

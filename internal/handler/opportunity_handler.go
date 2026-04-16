@@ -15,6 +15,7 @@ import (
 // OpportunityHandler 交易机会 API
 type OpportunityHandler struct {
 	oppRepo    repository.OpportunityRepo
+	trackRepo  repository.TradeTrackRepo
 	scorer     *scoring.SignalScorer
 	aiAnalyzer *aiservice.OpportunityAnalyzer
 	aiEnabled  bool
@@ -25,6 +26,7 @@ type OpportunityHandler struct {
 // NewOpportunityHandler 创建交易机会 handler
 func NewOpportunityHandler(
 	oppRepo repository.OpportunityRepo,
+	trackRepo repository.TradeTrackRepo,
 	scorer *scoring.SignalScorer,
 	aiAnalyzer *aiservice.OpportunityAnalyzer,
 	aiCfg config.AIConfig,
@@ -33,6 +35,7 @@ func NewOpportunityHandler(
 ) *OpportunityHandler {
 	return &OpportunityHandler{
 		oppRepo:    oppRepo,
+		trackRepo:  trackRepo,
 		scorer:     scorer,
 		aiAnalyzer: aiAnalyzer,
 		aiEnabled:  aiCfg.Enabled,
@@ -144,6 +147,57 @@ func (h *OpportunityHandler) GetActiveOpportunities(c *gin.Context) {
 			"total":     total,
 			"page":      page,
 			"page_size": pageSize,
+		},
+	})
+}
+
+// GetOpportunityTrades 获取交易机会关联的交易记录
+// GET /api/v1/opportunities/:id/trades
+func (h *OpportunityHandler) GetOpportunityTrades(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    1,
+			"message": "无效的ID",
+		})
+		return
+	}
+
+	// 查询交易机会是否存在
+	opp, err := h.oppRepo.GetByID(id)
+	if err != nil {
+		h.logger.Error("查询交易机会失败", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    1,
+			"message": "查询失败",
+		})
+		return
+	}
+	if opp == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code":    1,
+			"message": "交易机会不存在",
+		})
+		return
+	}
+
+	// 获取关联的交易记录
+	tracks, err := h.trackRepo.GetByOpportunityID(id)
+	if err != nil {
+		h.logger.Error("查询交易记录失败", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    1,
+			"message": "查询失败",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "success",
+		"data": gin.H{
+			"opportunity": opp,
+			"trades":      tracks,
 		},
 	})
 }
