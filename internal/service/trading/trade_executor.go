@@ -2,16 +2,18 @@ package trading
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
 	"github.com/smallfire/starfire/internal/repository"
+	"go.uber.org/zap"
 )
 
 // 指针帮助函数
 func ptrTime(t time.Time) *time.Time { return &t }
-func ptrFloat64(f float64) *float64  { return &f }
+func ptrFloat64(f float64) *float64 { return &f }
 func ptrString(s string) *string     { return &s }
 
 // TradeExecutor 交易执行器
@@ -19,12 +21,15 @@ type TradeExecutor struct {
 	config         *config.TradingConfig
 	trackRepo      repository.TradeTrackRepo
 	signalRepo     repository.SignalRepo
-	positionSizer  *PositionSizer
+	oppRepo        repository.OpportunityRepo
+	statsRepo      repository.SignalTypeStatsRepo
+	positionSizer *PositionSizer
 	stopLoss       *StopLossStrategy
 	trailingStop   *TrailingStopStrategy
 	riskManager    *RiskManager
 	monitorFactory MonitorFactory
 	notifier       Notifier
+	logger         *zap.Logger
 }
 
 // NewTradeExecutor 创建交易执行器实例
@@ -34,12 +39,15 @@ func NewTradeExecutor(cfg *config.TradingConfig, deps Dependency) *TradeExecutor
 		config:         cfg,
 		trackRepo:      deps.TrackRepo,
 		signalRepo:     deps.SignalRepo,
+		oppRepo:        deps.OppRepo,
+		statsRepo:      deps.StatsRepo,
 		positionSizer:  positionSizer,
 		stopLoss:       NewStopLossStrategy(cfg),
 		trailingStop:   NewTrailingStopStrategy(cfg),
 		riskManager:    NewRiskManager(cfg, deps.TrackRepo, positionSizer),
-		monitorFactory: nil, // 暂时不实现
-		notifier:       nil, // 暂时不实现
+		monitorFactory: nil,
+		notifier:       nil,
+		logger:         deps.Logger,
 	}
 }
 
@@ -159,7 +167,49 @@ func (e *TradeExecutor) ClosePosition(track *models.TradeTrack, reason string, e
 		e.notifier.SendTradeClosed(track)
 	}
 
+	// 异步更新信号类型统计（反馈闭环）
+	go e.updateSignalTypeStatsAsync(track, exitPrice)
+
 	return nil
+}
+
+// updateSignalTypeStatsAsync 异步更新信号类型统计
+func (e *TradeExecutor) updateSignalTypeStatsAsync(track *models.TradeTrack, exitPrice float64) {
+	if e.statsRepo == nil || track.OpportunityID == nil {
+		return
+	}
+
+	// 计算盈亏百分比
+	var returnPct float64
+	if track.Direction == models.DirectionLong {
+		returnPct = (exitPrice - *track.EntryPrice) / *track.EntryPrice * 100
+	} else {
+		returnPct = (*track.EntryPrice - exitPrice) / *track.EntryPrice * 100
+	}
+	won := returnPct > 0
+
+	// 获取 opportunity 以解析信号类型
+	opp, err := e.oppRepo.GetByID(*track.OpportunityID)
+	if err != nil || opp == nil || len(opp.ConfluenceDirections) == 0 {
+		return
+	}
+
+	// 更新每个信号类型的统计
+	for _, cd := range opp.ConfluenceDirections {
+		parts := strings.SplitN(cd, ":", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		signalType := parts[0]
+		direction := parts[1]
+		symbolID := track.SymbolID
+		if err := e.statsRepo.UpdateStats(signalType, direction, opp.Period, &symbolID, won, returnPct); err != nil {
+			e.logger.Error("更新信号类型统计失败",
+				zap.String("signal_type", signalType),
+				zap.String("direction", direction),
+				zap.Error(err))
+		}
+	}
 }
 
 // CloseByStopLoss 止损平仓

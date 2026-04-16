@@ -10,6 +10,8 @@ import (
 type Dependency struct {
 	TrackRepo  repository.TradeTrackRepo
 	SignalRepo repository.SignalRepo
+	OppRepo    repository.OpportunityRepo
+	StatsRepo  repository.SignalTypeStatsRepo
 	Logger     *zap.Logger
 }
 
