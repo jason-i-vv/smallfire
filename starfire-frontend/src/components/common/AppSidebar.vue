@@ -6,7 +6,7 @@
           <span class="logo-icon">
             <el-icon><Lightning /></el-icon>
           </span>
-          <span class="logo-text" v-show="!isCollapsed">星火量化</span>
+          <span class="logo-text" v-show="!isCollapsed">{{ t('app.name') }}</span>
         </router-link>
       </div>
     </div>
@@ -21,55 +21,55 @@
       >
         <el-menu-item index="/">
           <el-icon><HomeFilled /></el-icon>
-          <template #title>仪表盘</template>
+          <template #title>{{ t('menu.dashboard') }}</template>
         </el-menu-item>
 
         <el-sub-menu index="signals">
           <template #title>
             <el-icon><TrendCharts /></el-icon>
-            <span>信号中心</span>
+            <span>{{ t('menu.signals') }}</span>
           </template>
-          <el-menu-item index="/opportunities">交易机会</el-menu-item>
-          <el-menu-item index="/signals">信号列表</el-menu-item>
+          <el-menu-item index="/opportunities">{{ t('menu.opportunities') }}</el-menu-item>
+          <el-menu-item index="/signals">{{ t('menu.signalList') }}</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu index="market">
           <template #title>
             <el-icon><Box /></el-icon>
-            <span>市场分析</span>
+            <span>{{ t('menu.marketAnalysis') }}</span>
           </template>
-          <el-menu-item index="/market">行情总览</el-menu-item>
-          <el-menu-item index="/boxes">箱体列表</el-menu-item>
-          <el-menu-item index="/tracking">趋势标的</el-menu-item>
+          <el-menu-item index="/market">{{ t('menu.marketOverview') }}</el-menu-item>
+          <el-menu-item index="/boxes">{{ t('menu.boxList') }}</el-menu-item>
+          <el-menu-item index="/tracking">{{ t('menu.trackingList') }}</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu index="trades">
           <template #title>
             <el-icon><Coin /></el-icon>
-            <span>交易管理</span>
+            <span>{{ t('menu.trading') }}</span>
           </template>
-          <el-menu-item index="/positions">持仓监控</el-menu-item>
-          <el-menu-item index="/trades">历史交易</el-menu-item>
-          <el-menu-item index="/statistics">交易统计</el-menu-item>
+          <el-menu-item index="/positions">{{ t('menu.positions') }}</el-menu-item>
+          <el-menu-item index="/trades">{{ t('menu.trades') }}</el-menu-item>
+          <el-menu-item index="/statistics">{{ t('menu.statistics') }}</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu index="settings">
           <template #title>
             <el-icon><Setting /></el-icon>
-            <span>系统设置</span>
+            <span>{{ t('menu.system') }}</span>
           </template>
-          <el-menu-item index="/settings">系统配置</el-menu-item>
-          <el-menu-item v-if="isAdmin" index="/users">用户管理</el-menu-item>
+          <el-menu-item index="/settings">{{ t('menu.settings') }}</el-menu-item>
+          <el-menu-item v-if="isAdmin" index="/users">{{ t('menu.users') }}</el-menu-item>
         </el-sub-menu>
 
         <el-menu-item index="/backtest">
           <el-icon><DataAnalysis /></el-icon>
-          <template #title>策略回测</template>
+          <template #title>{{ t('menu.backtest') }}</template>
         </el-menu-item>
 
         <el-menu-item index="/ai-management">
           <el-icon><Cpu /></el-icon>
-          <template #title>AI 管理</template>
+          <template #title>{{ t('menu.aiManagement') }}</template>
         </el-menu-item>
       </el-menu>
     </nav>
@@ -86,6 +86,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import {
   HomeFilled,
@@ -100,6 +101,7 @@ import {
   Cpu
 } from '@element-plus/icons-vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const authStore = useAuthStore()
 const isCollapsed = ref(false)
@@ -108,9 +110,7 @@ const isAdmin = computed(() => authStore.isAdmin)
 
 const activeMenu = computed(() => {
   const path = route.path
-  // 匹配根路径
   if (path === '/') return '/'
-  // 匹配其他路径
   const matchPath = ['/opportunities', '/signals', '/market', '/boxes', '/tracking', '/positions', '/trades', '/statistics', '/settings', '/backtest', '/ai-management', '/users']
   for (const p of matchPath) {
     if (path.startsWith(p)) return path
@@ -211,7 +211,6 @@ const toggleCollapse = () => {
   }
 }
 
-// 折叠状态下的样式调整
 .is-collapsed {
   .sidebar-header {
     justify-content: center;

@@ -10,13 +10,15 @@
           <div class="status-info">
             <span class="status-item">
               <span class="status-dot"></span>
-              <span>系统正常</span>
+              <span>{{ t('header.systemNormal') }}</span>
             </span>
             <span class="status-item">
               <el-icon><Refresh /></el-icon>
               <span>{{ lastSyncTime }}</span>
             </span>
           </div>
+          <el-divider direction="vertical" />
+          <LanguageSwitcher />
           <el-divider direction="vertical" />
           <el-dropdown @command="handleCommand">
             <span class="user-info">
@@ -28,11 +30,11 @@
               <el-dropdown-menu>
                 <el-dropdown-item command="settings">
                   <el-icon><Setting /></el-icon>
-                  系统设置
+                  {{ t('header.settings') }}
                 </el-dropdown-item>
                 <el-dropdown-item command="logout" divided>
                   <el-icon><SwitchButton /></el-icon>
-                  退出登录
+                  {{ t('header.logout') }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -49,11 +51,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import AppSidebar from '@/components/common/AppSidebar.vue'
+import LanguageSwitcher from '@/components/common/LanguageSwitcher.vue'
 import { UserFilled, ArrowDown, Setting, SwitchButton, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -78,40 +83,39 @@ const updateSyncTime = () => {
   lastSyncTime.value = `${hours}:${minutes}`
 }
 
-const userName = computed(() => authStore.user?.username || '用户')
+const userName = computed(() => authStore.user?.username || t('header.user'))
 
 const pageTitleMap = {
-  '/': '仪表盘',
-  '/signals': '信号列表',
-  '/positions': '持仓监控',
-  '/trades': '历史交易',
-  '/statistics': '交易统计',
-  '/boxes': '箱体列表',
-  '/tracking': '趋势标的',
-  '/settings': '系统设置',
-  '/backtest': '策略回测',
-  '/users': '用户管理'
+  '/': 'menu.dashboard',
+  '/signals': 'menu.signalList',
+  '/positions': 'menu.positions',
+  '/trades': 'menu.trades',
+  '/statistics': 'menu.statistics',
+  '/boxes': 'menu.boxes',
+  '/tracking': 'menu.tracking',
+  '/settings': 'menu.settings',
+  '/backtest': 'menu.backtest',
+  '/users': 'menu.users'
 }
 
 const pageTitle = computed(() => {
   const path = route.path
-  if (pageTitleMap[path]) return pageTitleMap[path]
-  // 处理详情页
-  if (path.startsWith('/signals/') && path !== '/signals') return '信号详情'
-  if (path.startsWith('/chart/')) return 'K线图表'
-  return '仪表盘'
+  if (pageTitleMap[path]) return t(pageTitleMap[path])
+  if (path.startsWith('/signals/') && path !== '/signals') return t('menu.signalDetail')
+  if (path.startsWith('/chart/')) return t('menu.klineChart')
+  return t('menu.dashboard')
 })
 
 const handleCommand = async (command) => {
   if (command === 'logout') {
     try {
-      await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+      await ElMessageBox.confirm(t('header.confirmLogout'), t('common.confirm'), {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       })
       authStore.logout()
-      ElMessage.success('退出登录成功')
+      ElMessage.success(t('header.logoutSuccess'))
       router.push('/login')
     } catch (error) {
       // 用户取消
@@ -225,7 +229,6 @@ const handleCommand = async (command) => {
   padding: 24px;
 }
 
-// 响应式处理
 @media (max-width: 768px) {
   .main-wrapper {
     margin-left: 64px;

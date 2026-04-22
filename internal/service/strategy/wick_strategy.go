@@ -457,8 +457,17 @@ func (s *WickStrategy) buildSignalData(kline models.Kline, wickType WickType, tr
 
 // calculateStopLoss 计算止损价格
 func (s *WickStrategy) calculateStopLoss(kline models.Kline, direction string) float64 {
-	// 止损设在引线端点外侧
-	buffer := (kline.HighPrice - kline.LowPrice) * 0.002 // 0.2%缓冲
+	klineRange := kline.HighPrice - kline.LowPrice
+	// 最小波动率检查：如果K线范围小于价格的0.3%，使用固定百分比止损
+	minRangePercent := 0.003
+	minRange := kline.ClosePrice * minRangePercent
+
+	var buffer float64
+	if klineRange < minRange {
+		buffer = kline.ClosePrice * minRangePercent
+	} else {
+		buffer = klineRange * 0.002
+	}
 
 	if direction == models.DirectionLong {
 		return kline.LowPrice - buffer
@@ -471,8 +480,20 @@ func (s *WickStrategy) calculateTarget(kline models.Kline, direction string) flo
 	currentPrice := kline.ClosePrice
 	klineRange := kline.HighPrice - kline.LowPrice
 
+	// 最小波动率检查：如果K线范围小于价格的0.5%，视为低波动，使用固定百分比目标
+	minRangePercent := 0.005
+	minRange := currentPrice * minRangePercent
+
+	if klineRange < minRange {
+		// 低波动：使用固定的1.5%目标
+		if direction == models.DirectionLong {
+			return currentPrice * 1.015
+		}
+		return currentPrice * 0.985
+	}
+
 	if direction == models.DirectionLong {
-		// 目标涨幅约为K线范围的1.5-2倍
+		// 目标涨幅约为K线范围的1.5倍
 		return currentPrice + klineRange*1.5
 	}
 	return currentPrice - klineRange*1.5

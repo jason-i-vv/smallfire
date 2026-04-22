@@ -1,0 +1,48 @@
+// 登录页样式 - 橙色主题
+
+// 主题色
+$auth-primary: #FF6B00;
+$auth-primary-light: #FF8A3D;
+$auth-primary-dark: #E55A00;
+
+// 背景色
+$auth-bg-dark: #0F172A;
+$auth-bg-light: #FFFFFF;
+
+// 文字色
+$auth-text-primary: #1A1A1A;
+$auth-text-secondary: #6B7280;
+$auth-text-on-dark: #F8FAFC;
+$auth-text-muted: #9CA3AF;
+
+// 边框色
+$auth-border: #E5E7EB;
+$auth-border-hover: #D1D5DB;
+
+// 状态色
+$auth-success: #10B981;
+$auth-error: #EF4444;
+
+// 阴影
+$auth-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+$auth-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+$auth-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+$auth-shadow-focus: 0 0 0 3px rgba(255, 107, 0, 0.15);
+
+// 字体
+$auth-font-en: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+$auth-font-zh: 'PingFang SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+
+// 间距
+$auth-space-1: 4px;
+$auth-space-2: 8px;
+$auth-space-3: 12px;
+$auth-space-4: 16px;
+$auth-space-5: 20px;
+$auth-space-6: 24px;
+$auth-space-8: 32px;
+$auth-space-10: 40px;
+
+// 动画
+$auth-transition-fast: 150ms ease;
+$auth-transition: 250ms ease;

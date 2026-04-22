@@ -45,20 +45,32 @@ func NewOpportunityHandler(
 }
 
 // GetOpportunities 获取交易机会列表（按评分排序）
-// GET /api/v1/opportunities?status=active&page=1&page_size=20
+// GET /api/v1/opportunities?status=active&page=1&page_size=20&period=15m&direction=long&symbol=BTC&min_score=50
 func (h *OpportunityHandler) GetOpportunities(c *gin.Context) {
 	status := c.DefaultQuery("status", "active")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
-
-	if page < 1 {
-		page = 1
+	period := c.DefaultQuery("period", "")
+	direction := c.DefaultQuery("direction", "")
+	symbolCode := c.DefaultQuery("symbol", "")
+	var minScore *int
+	if ms := c.Query("min_score"); ms != "" {
+		if v, err := strconv.Atoi(ms); err == nil {
+			minScore = &v
+		}
 	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
+
+	filter := &repository.OpportunityListFilter{
+		Status:     status,
+		Period:     period,
+		Direction:  direction,
+		SymbolCode: symbolCode,
+		MinScore:   minScore,
+		Page:       page,
+		PageSize:   pageSize,
 	}
 
-	opportunities, total, err := h.oppRepo.List(status, page, pageSize)
+	opportunities, total, err := h.oppRepo.List(filter)
 	if err != nil {
 		h.logger.Error("查询交易机会失败", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -117,19 +129,31 @@ func (h *OpportunityHandler) GetOpportunity(c *gin.Context) {
 }
 
 // GetActiveOpportunities 获取所有活跃交易机会（卡片视图用）
-// GET /api/v1/opportunities/active?page=1&page_size=100
+// GET /api/v1/opportunities/active?page=1&page_size=100&period=15m&direction=long&symbol=BTC&min_score=50
 func (h *OpportunityHandler) GetActiveOpportunities(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "100"))
-
-	if page < 1 {
-		page = 1
+	period := c.DefaultQuery("period", "")
+	direction := c.DefaultQuery("direction", "")
+	symbolCode := c.DefaultQuery("symbol", "")
+	var minScore *int
+	if ms := c.Query("min_score"); ms != "" {
+		if v, err := strconv.Atoi(ms); err == nil {
+			minScore = &v
+		}
 	}
-	if pageSize < 1 || pageSize > 500 {
-		pageSize = 100
+
+	filter := &repository.OpportunityListFilter{
+		Status:     "active",
+		Period:     period,
+		Direction:  direction,
+		SymbolCode: symbolCode,
+		MinScore:   minScore,
+		Page:       page,
+		PageSize:   pageSize,
 	}
 
-	opportunities, total, err := h.oppRepo.List("active", page, pageSize)
+	opportunities, total, err := h.oppRepo.List(filter)
 	if err != nil {
 		h.logger.Error("查询活跃交易机会失败", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{

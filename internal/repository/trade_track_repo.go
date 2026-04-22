@@ -13,7 +13,7 @@ import (
 
 // tradeTrackColumns 查询列名
 const tradeTrackColumns = `
-	id, signal_id, symbol_id, direction, entry_price, entry_time, quantity,
+	id, signal_id, opportunity_id, symbol_id, direction, entry_price, entry_time, quantity,
 	position_value, stop_loss_price, stop_loss_percent, take_profit_price,
 	take_profit_percent, trailing_stop_enabled, trailing_stop_active,
 	trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
@@ -37,7 +37,7 @@ func NewTradeTrackRepoPG(db *database.DB) TradeTrackRepo {
 func scanTradeTrack(row interface{ Scan(dest ...any) error }) (*models.TradeTrack, error) {
 	var track models.TradeTrack
 	if err := row.Scan(
-		&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
+		&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
 		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
 		&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
 		&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
@@ -57,7 +57,7 @@ func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*mo
 	var track models.TradeTrack
 	var symbolCode string
 	if err := row.Scan(
-		&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
+		&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
 		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
 		&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
 		&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
@@ -74,12 +74,23 @@ func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*mo
 
 func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 	query := `
-		SELECT t.id, t.signal_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
+		SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
+		       t.entry_time entry_time,
+		       t.quantity,
 		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
 		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
-		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
+		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
+		       t.exit_time exit_time,
 		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
-		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
+		       t.unrealized_pnl,
+		       CASE WHEN t.direction = 'long' THEN
+		         (t.current_price - t.entry_price) * t.quantity / NULLIF(t.position_value, 0)
+		       ELSE
+		         (t.entry_price - t.current_price) * t.quantity / NULLIF(t.position_value, 0)
+		       END as unrealized_pnl_pct,
+		       t.subscriber_count,
+		       t.created_at created_at,
+		       t.updated_at updated_at,
 		       COALESCE(s.symbol_code, '') as symbol_code
 		FROM trade_tracks t
 		LEFT JOIN symbols s ON t.symbol_id = s.id
@@ -108,6 +119,75 @@ func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 	}
 
 	return tracks, nil
+}
+
+func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int) ([]*models.TradeTrack, int, error) {
+	// 先获取总数
+	var total int
+	countQuery := `SELECT COUNT(*) FROM trade_tracks WHERE status = $1`
+	if err := r.db.QueryRow(context.Background(), countQuery, models.TrackStatusOpen).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("查询持仓总数失败: %w", err)
+	}
+
+	// 分页查询
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 20
+	}
+	if size > 500 {
+		size = 500
+	}
+	offset := (page - 1) * size
+
+	query := `
+		SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
+		       t.entry_time entry_time,
+		       t.quantity,
+		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
+		       t.exit_time exit_time,
+		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+		       t.unrealized_pnl,
+		       CASE WHEN t.direction = 'long' THEN
+		         (t.current_price - t.entry_price) * t.quantity / NULLIF(t.position_value, 0)
+		       ELSE
+		         (t.entry_price - t.current_price) * t.quantity / NULLIF(t.position_value, 0)
+		       END as unrealized_pnl_pct,
+		       t.subscriber_count,
+		       t.created_at created_at,
+		       t.updated_at updated_at,
+		       COALESCE(s.symbol_code, '') as symbol_code
+		FROM trade_tracks t
+		LEFT JOIN symbols s ON t.symbol_id = s.id
+		WHERE t.status = $1
+		ORDER BY t.created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+
+	rows, err := r.db.Query(context.Background(), query, models.TrackStatusOpen, size, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("查询持仓列表失败: %w", err)
+	}
+	defer rows.Close()
+
+	var tracks []*models.TradeTrack
+	for rows.Next() {
+		track, symbolCode, err := scanTradeTrackWithSymbolCode(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		track.SymbolCode = symbolCode
+		tracks = append(tracks, track)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("遍历结果失败: %w", err)
+	}
+
+	return tracks, total, nil
 }
 
 func (r *TradeTrackRepoPG) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) {
@@ -154,12 +234,17 @@ func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time) ([]*mo
 	var query string
 	var args []interface{}
 
-	baseSelect := `SELECT t.id, t.signal_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
+	baseSelect := `SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
+		       t.entry_time entry_time,
+		       t.quantity,
 		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
 		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
-		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
+		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
+		       t.exit_time exit_time,
 		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
-		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
+		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count,
+		       t.created_at created_at,
+		       t.updated_at updated_at,
 		       COALESCE(s.symbol_code, '') as symbol_code
 		FROM trade_tracks t
 		LEFT JOIN symbols s ON t.symbol_id = s.id
@@ -279,7 +364,7 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 
 	offset := (page - 1) * size
 	dataQuery := `
-		SELECT t.id, t.signal_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
+		SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
 		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
 		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
 		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
@@ -302,7 +387,7 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 		var track models.TradeTrack
 		var symbolCode string
 		if err := rows.Scan(
-			&track.ID, &track.SignalID, &track.SymbolID, &track.Direction,
+			&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
 			&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
 			&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
 			&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,

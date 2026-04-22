@@ -131,28 +131,84 @@ func (r *OpportunityRepoPG) ExpireBySymbol(symbolID int, excludeID int) error {
 	return err
 }
 
-func (r *OpportunityRepoPG) List(status string, page, size int) ([]*models.TradingOpportunity, int, error) {
+func (r *OpportunityRepoPG) List(filter *OpportunityListFilter) ([]*models.TradingOpportunity, int, error) {
 	countQuery := `SELECT COUNT(*) FROM trading_opportunities`
 	listQuery := `SELECT id, symbol_id, symbol_code, direction, score, score_details, signal_count,
 		confluence_directions, confluence_ratio, suggested_entry, suggested_stop_loss,
 		suggested_take_profit, ai_adjustment, ai_judgment, status, period,
-		first_signal_at, last_signal_at, expired_at, created_at, updated_at
+		first_signal_at, last_signal_at, expired_at, created_at, updated_at,
+		COALESCE((SELECT t.status FROM trade_tracks t WHERE t.opportunity_id = trading_opportunities.id AND t.status = 'open' LIMIT 1), '') as trade_status
 		FROM trading_opportunities`
 
+	// 构建 WHERE 条件
+	whereClause := ""
 	args := []any{}
-	if status != "" {
-		countQuery += ` WHERE status = $1`
-		listQuery += ` WHERE status = $1`
-		args = append(args, status)
+	argIdx := 1
+
+	if filter.Status != "" {
+		whereClause = fmt.Sprintf(` WHERE status = $%d`, argIdx)
+		args = append(args, filter.Status)
+		argIdx++
 	}
+	if filter.Period != "" {
+		if whereClause == "" {
+			whereClause = fmt.Sprintf(` WHERE period = $%d`, argIdx)
+		} else {
+			whereClause += fmt.Sprintf(` AND period = $%d`, argIdx)
+		}
+		args = append(args, filter.Period)
+		argIdx++
+	}
+	if filter.Direction != "" {
+		if whereClause == "" {
+			whereClause = fmt.Sprintf(` WHERE direction = $%d`, argIdx)
+		} else {
+			whereClause += fmt.Sprintf(` AND direction = $%d`, argIdx)
+		}
+		args = append(args, filter.Direction)
+		argIdx++
+	}
+	if filter.SymbolCode != "" {
+		if whereClause == "" {
+			whereClause = fmt.Sprintf(` WHERE symbol_code ILIKE $%d`, argIdx)
+		} else {
+			whereClause += fmt.Sprintf(` AND symbol_code ILIKE $%d`, argIdx)
+		}
+		args = append(args, "%"+filter.SymbolCode+"%")
+		argIdx++
+	}
+	if filter.MinScore != nil {
+		if whereClause == "" {
+			whereClause = fmt.Sprintf(` WHERE score >= $%d`, argIdx)
+		} else {
+			whereClause += fmt.Sprintf(` AND score >= $%d`, argIdx)
+		}
+		args = append(args, *filter.MinScore)
+		argIdx++
+	}
+
+	countQuery += whereClause
+	listQuery += whereClause
 
 	var total int
 	if err := r.db.QueryRow(context.Background(), countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
+	// 分页
+	page := filter.Page
+	size := filter.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 20
+	}
+	if size > 500 {
+		size = 500
+	}
+
 	offset := (page - 1) * size
-	argIdx := len(args) + 1
 	listQuery += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, argIdx, argIdx+1)
 	args = append(args, size, offset)
 
@@ -168,6 +224,7 @@ func (r *OpportunityRepoPG) scanOpp(row interface{ Scan(...any) error }, opp *mo
 		&opp.SuggestedTakeProfit, &opp.AIAdjustment, &opp.AIJudgment,
 		&opp.Status, &opp.Period, &opp.FirstSignalAt, &opp.LastSignalAt,
 		&opp.ExpiredAt, &opp.CreatedAt, &opp.UpdatedAt,
+		&opp.TradeStatus,
 	)
 }
 

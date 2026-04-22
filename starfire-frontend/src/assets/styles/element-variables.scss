@@ -1,0 +1,78 @@
+/* Element Plus 橙色主题覆盖 */
+
+// 主色
+$--color-primary: #FF6B00;
+$--color-primary-light: #FF8A3D;
+$--color-primary-lighter: #FFB366;
+$--color-primary-dark: #E55A00;
+$--color-primary-darker: #CC4D00;
+
+// 文字
+$--color-text-primary: #303133;
+$--color-text-regular: #606266;
+$--color-text-secondary: #909399;
+$--color-text-placeholder: #C0C4CC;
+
+// 边框
+$--border-color-base: #DCDFE6;
+$--border-color-light: #E4E7ED;
+$--border-color-lighter: #EBEEF5;
+$--border-color-extra-light: #F2F6FC;
+
+// 背景
+$--background-color-base: #F5F7FA;
+$--background-color-light: #F5F7FA;
+$--background-color-lighter: #FAFAFA;
+
+// 成功
+$--color-success: #00C853;
+// 危险
+$--color-danger: #EF5350;
+// 警告
+$--color-warning: #FF9800;
+// 信息
+$--color-info: #42A5F5;
+
+// 主按钮
+$--button-primary-font-color: #FFFFFF;
+$--button-primary-background-color: #FF6B00;
+$--button-primary-border-color: #FF6B00;
+
+$--button-hover-font-color: #FF8A3D;
+$--button-hover-border-color: #FF8A3D;
+
+// 输入框
+$--input-border-color: #DCDFE6;
+$--input-border-color-hover: #FF6B00;
+$--input-focus-border-color: #FF6B00;
+$--input-hover-border-color: #FF6B00;
+
+// 链接
+$--link-color: #FF6B00;
+$--link-hover-color: #FF8A3D;
+
+// 重要: 将 CSS 变量应用到全局
+:root {
+  --el-color-primary: #{$--color-primary};
+  --el-color-primary-light: #{$--color-primary-light};
+  --el-color-primary-lighter: #{$--color-primary-lighter};
+  --el-color-primary-dark: #{$--color-primary-dark};
+  --el-color-primary-darker: #{$--color-primary-darker};
+
+  --el-color-text-primary: #{$--color-text-primary};
+  --el-color-text-regular: #{$--color-text-regular};
+  --el-color-text-secondary: #{$--color-text-secondary};
+  --el-color-text-placeholder: #{$--color-text-placeholder};
+
+  --el-border-color-base: #{$--border-color-base};
+  --el-border-color-light: #{$--border-color-light};
+  --el-border-color-lighter: #{$--border-color-lighter};
+  --el-border-color-extra-light: #{$--border-color-extra-light};
+
+  --el-background-color-base: #{$--background-color-base};
+
+  --el-color-success: #{$--color-success};
+  --el-color-danger: #{$--color-danger};
+  --el-color-warning: #{$--color-warning};
+  --el-color-info: #{$--color-info};
+}

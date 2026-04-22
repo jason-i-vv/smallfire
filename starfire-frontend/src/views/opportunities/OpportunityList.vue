@@ -2,9 +2,9 @@
   <div class="opportunity-list">
     <!-- 头部 -->
     <div class="page-header">
-      <h2>交易机会</h2>
+      <h2>{{ t('opportunities.title') }}</h2>
       <el-button size="small" @click="fetchOpportunities" :loading="loading">
-        刷新
+        {{ t('opportunities.refresh') }}
       </el-button>
     </div>
 
@@ -12,29 +12,29 @@
     <div class="filter-bar">
       <div class="filter-row">
         <div class="filter-group">
-          <span class="filter-label">市场</span>
+          <span class="filter-label">{{ t('opportunities.market') }}</span>
           <el-radio-group v-model="filters.market" size="small">
-            <el-radio-button value="">全部</el-radio-button>
+            <el-radio-button value="">{{ t('opportunities.all') }}</el-radio-button>
             <el-radio-button value="bybit">Bybit</el-radio-button>
-            <el-radio-button value="a_stock">A股</el-radio-button>
-            <el-radio-button value="us_stock">美股</el-radio-button>
+            <el-radio-button value="a_stock">{{ t('opportunities.aStock') }}</el-radio-button>
+            <el-radio-button value="us_stock">{{ t('opportunities.usStock') }}</el-radio-button>
           </el-radio-group>
         </div>
 
         <div class="filter-group">
-          <span class="filter-label">周期</span>
+          <span class="filter-label">{{ t('opportunities.period') }}</span>
           <el-radio-group v-model="filters.period" size="small">
-            <el-radio-button value="">全部</el-radio-button>
+            <el-radio-button value="">{{ t('opportunities.all') }}</el-radio-button>
             <el-radio-button value="15m">15m</el-radio-button>
             <el-radio-button value="1h">1H</el-radio-button>
-            <el-radio-button value="1d">日线</el-radio-button>
+            <el-radio-button value="1d">{{ t('opportunities.daily') }}</el-radio-button>
           </el-radio-group>
         </div>
 
         <div class="filter-group">
-          <span class="filter-label">评分</span>
+          <span class="filter-label">{{ t('opportunities.score') }}</span>
           <el-radio-group v-model="filters.scoreRange" size="small">
-            <el-radio-button value="">全部</el-radio-button>
+            <el-radio-button value="">{{ t('opportunities.all') }}</el-radio-button>
             <el-radio-button value="70">70+</el-radio-button>
             <el-radio-button value="60">60+</el-radio-button>
             <el-radio-button value="50">50+</el-radio-button>
@@ -42,17 +42,17 @@
         </div>
 
         <div class="filter-group">
-          <span class="filter-label">方向</span>
+          <span class="filter-label">{{ t('opportunities.direction') }}</span>
           <el-radio-group v-model="filters.direction" size="small">
-            <el-radio-button value="">全部</el-radio-button>
-            <el-radio-button value="long">做多</el-radio-button>
-            <el-radio-button value="short">做空</el-radio-button>
+            <el-radio-button value="">{{ t('opportunities.all') }}</el-radio-button>
+            <el-radio-button value="long">{{ t('opportunities.long') }}</el-radio-button>
+            <el-radio-button value="short">{{ t('opportunities.short') }}</el-radio-button>
           </el-radio-group>
         </div>
 
         <el-input
           v-model="filters.symbol"
-          placeholder="搜索币对..."
+          :placeholder="t('opportunities.symbolPlaceholder')"
           clearable
           size="small"
           style="width: 150px"
@@ -60,7 +60,7 @@
         />
 
         <div class="filter-result">
-          {{ filteredOpportunities.length }} / {{ opportunities.length }}
+          {{ pagination.total }} 条记录
         </div>
       </div>
     </div>
@@ -73,23 +73,23 @@
       size="small"
       @row-click="handleViewDetail"
       v-loading="loading"
-      empty-text="暂无活跃交易机会"
+      :empty-text="t('opportunities.noActiveOpportunities')"
     >
-      <el-table-column prop="symbol_code" label="标的" width="130" fixed>
+      <el-table-column prop="symbol_code" :label="t('opportunities.symbol')" width="130" fixed>
         <template #default="{ row }">
           <span class="symbol-code">{{ row.symbol_code }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column prop="direction" label="方向" width="80" align="center">
+      <el-table-column prop="direction" :label="t('opportunities.direction')" width="80" align="center">
         <template #default="{ row }">
           <span :class="row.direction === 'long' ? 'dir-long' : 'dir-short'">
-            {{ row.direction === 'long' ? '多 ▲' : '空 ▼' }}
+            {{ row.direction === 'long' ? t('opportunities.bullish') : t('opportunities.bearish') }}
           </span>
         </template>
       </el-table-column>
 
-      <el-table-column prop="score" label="评分" width="90" align="center" sortable>
+      <el-table-column prop="score" :label="t('opportunities.score')" width="90" align="center" sortable>
         <template #default="{ row }">
           <span class="score-badge" :style="{ color: getScoreColor(row.score) }">
             {{ row.score }}
@@ -97,19 +97,19 @@
         </template>
       </el-table-column>
 
-      <el-table-column prop="signal_count" label="信号数" width="80" align="center">
+      <el-table-column prop="signal_count" :label="t('opportunities.signalCount')" width="80" align="center">
         <template #default="{ row }">
           <span class="signal-count">{{ row.signal_count }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column prop="period" label="周期" width="70" align="center">
+      <el-table-column prop="period" :label="t('opportunities.period')" width="70" align="center">
         <template #default="{ row }">
           <span class="period-tag">{{ row.period || '-' }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="策略信号" min-width="220">
+      <el-table-column :label="t('opportunities.strategySignal')" min-width="220">
         <template #default="{ row }">
           <div class="strategy-tags">
             <span
@@ -124,28 +124,28 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="入场" width="110" align="right">
+      <el-table-column :label="t('opportunities.entry')" width="110" align="right">
         <template #default="{ row }">
           <span v-if="row.suggested_entry">{{ formatPrice(row.suggested_entry) }}</span>
           <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="止损" width="110" align="right">
+      <el-table-column :label="t('opportunities.stopLoss')" width="110" align="right">
         <template #default="{ row }">
           <span v-if="row.suggested_stop_loss" class="text-danger">{{ formatPrice(row.suggested_stop_loss) }}</span>
           <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="止盈" width="110" align="right">
+      <el-table-column :label="t('opportunities.takeProfit')" width="110" align="right">
         <template #default="{ row }">
           <span v-if="row.suggested_take_profit" class="text-success">{{ formatPrice(row.suggested_take_profit) }}</span>
           <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="AI" width="90" align="center">
+      <el-table-column :label="t('opportunities.aiAnalysis')" width="90" align="center">
         <template #default="{ row }">
           <template v-if="row.ai_judgment">
             <span
@@ -153,7 +153,7 @@
               :class="row.ai_judgment.direction === row.direction ? 'ai-agree' : 'ai-disagree'"
               @click.stop="handleViewAIResult(row)"
             >
-              {{ row.ai_judgment.direction === row.direction ? '一致' : '分歧' }}
+              {{ row.ai_judgment.direction === row.direction ? t('opportunities.agree') : t('opportunities.disagree') }}
               {{ row.ai_judgment.confidence }}%
             </span>
           </template>
@@ -165,48 +165,61 @@
             @click.stop="handleAIAnalysis(row)"
             text
           >
-            AI 分析
+            {{ t('opportunities.aiAnalysis') }}
           </el-button>
         </template>
       </el-table-column>
 
-      <el-table-column label="交易" width="100" align="center">
+      <el-table-column :label="t('opportunities.trade')" width="100" align="center">
         <template #default="{ row }">
           <el-button
             size="small"
-            :type="getTradeBtnType(row.tradeStatus)"
+            :type="getTradeBtnType(row.trade_status)"
             @click.stop="handleViewTrade(row)"
             :loading="loadingTradeId === row.id"
             text
           >
-            {{ getTradeBtnText(row.tradeStatus) }}
+            {{ getTradeBtnText(row.trade_status) }}
           </el-button>
         </template>
       </el-table-column>
 
-      <el-table-column label="时间" width="150">
+      <el-table-column :label="t('opportunities.time')" width="150">
         <template #default="{ row }">
           {{ formatTime(row.created_at) }}
         </template>
       </el-table-column>
     </el-table>
 
+    <!-- 分页 -->
+    <div class="pagination-wrapper">
+      <el-pagination
+        v-model:current-page="pagination.currentPage"
+        v-model:page-size="pagination.pageSize"
+        :page-sizes="[20, 50, 100, 200]"
+        :total="pagination.total"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="handleSizeChange"
+        @current-change="handlePageChange"
+      />
+    </div>
+
     <!-- 交易对话框 -->
-    <el-dialog v-model="tradeDialogVisible" title="交易详情" width="600px" destroy-on-close>
+    <el-dialog v-model="tradeDialogVisible" :title="t('opportunities.tradeDetails')" width="600px" destroy-on-close>
       <template v-if="tradeDialogData.opportunity">
         <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="标的">{{ tradeDialogData.opportunity.symbol_code }}</el-descriptions-item>
-          <el-descriptions-item label="方向">
+          <el-descriptions-item :label="t('opportunities.symbol')">{{ tradeDialogData.opportunity.symbol_code }}</el-descriptions-item>
+          <el-descriptions-item :label="t('opportunities.direction')">
             <span :class="tradeDialogData.opportunity.direction === 'long' ? 'dir-long' : 'dir-short'">
-              {{ tradeDialogData.opportunity.direction === 'long' ? '多' : '空' }}
+              {{ tradeDialogData.opportunity.direction === 'long' ? t('opportunities.bullish') : t('opportunities.bearish') }}
             </span>
           </el-descriptions-item>
-          <el-descriptions-item label="评分">{{ tradeDialogData.opportunity.score }}</el-descriptions-item>
-          <el-descriptions-item label="周期">{{ tradeDialogData.opportunity.period }}</el-descriptions-item>
-          <el-descriptions-item label="入场价" v-if="tradeDialogData.opportunity.suggested_entry">
+          <el-descriptions-item :label="t('opportunities.score')">{{ tradeDialogData.opportunity.score }}</el-descriptions-item>
+          <el-descriptions-item :label="t('opportunities.period')">{{ tradeDialogData.opportunity.period }}</el-descriptions-item>
+          <el-descriptions-item :label="t('opportunities.entryPrice')" v-if="tradeDialogData.opportunity.suggested_entry">
             {{ formatPrice(tradeDialogData.opportunity.suggested_entry) }}
           </el-descriptions-item>
-          <el-descriptions-item label="策略信号" :span="2">
+          <el-descriptions-item :label="t('opportunities.strategySignal')" :span="2">
             <div class="strategy-tags">
               <span
                 v-for="(s, idx) in getMergedStrategies(tradeDialogData.opportunity.confluence_directions)"
@@ -220,28 +233,28 @@
           </el-descriptions-item>
         </el-descriptions>
 
-        <el-divider content-position="left">交易记录</el-divider>
+        <el-divider content-position="left">{{ t('opportunities.tradeHistory') }}</el-divider>
 
         <template v-if="tradeDialogData.trades && tradeDialogData.trades.length > 0">
           <el-table :data="tradeDialogData.trades" stripe size="small">
-            <el-table-column prop="direction" label="方向" width="70">
+            <el-table-column prop="direction" :label="t('opportunities.direction')" width="70">
               <template #default="{ row }">
                 <span :class="row.direction === 'long' ? 'dir-long' : 'dir-short'">
-                  {{ row.direction === 'long' ? '多' : '空' }}
+                  {{ row.direction === 'long' ? t('opportunities.bullish') : t('opportunities.bearish') }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="entry_price" label="入场价" width="120">
+            <el-table-column prop="entry_price" :label="t('opportunities.entryPrice')" width="120">
               <template #default="{ row }">
                 {{ formatPrice(row.entry_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="exit_price" label="出场价" width="120">
+            <el-table-column prop="exit_price" :label="t('opportunities.exitPrice')" width="120">
               <template #default="{ row }">
                 {{ row.exit_price ? formatPrice(row.exit_price) : '-' }}
               </template>
             </el-table-column>
-            <el-table-column prop="pnl" label="盈亏" width="100">
+            <el-table-column prop="pnl" :label="t('opportunities.pnl')" width="100">
               <template #default="{ row }">
                 <template v-if="row.pnl != null">
                   <span :class="row.pnl >= 0 ? 'profit' : 'loss'">{{ formatPnL(row.pnl) }}</span>
@@ -252,21 +265,21 @@
                 <template v-else>-</template>
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" width="80">
+            <el-table-column prop="status" :label="t('opportunities.status')" width="80">
               <template #default="{ row }">
                 <el-tag :type="row.status === 'open' ? 'warning' : 'success'" size="small">
-                  {{ row.status === 'open' ? '持仓中' : '已平仓' }}
+                  {{ row.status === 'open' ? t('opportunities.openPosition') : t('opportunities.closedPosition') }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="exit_reason" label="出场原因">
+            <el-table-column prop="exit_reason" :label="t('opportunities.exitReason')">
               <template #default="{ row }">
                 {{ row.exit_reason || '-' }}
               </template>
             </el-table-column>
           </el-table>
         </template>
-        <el-empty v-else description="暂无交易记录" :image-size="60" />
+        <el-empty v-else :description="t('opportunities.noTradeHistory')" :image-size="60" />
       </template>
     </el-dialog>
 
@@ -280,15 +293,47 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { opportunityApi } from '@/api/opportunities'
 import { formatTime, formatPrice, formatPnL } from '@/utils/formatters'
 import AIAnalysisDialog from '@/components/common/AIAnalysisDialog.vue'
 
+const { t } = useI18n()
 const router = useRouter()
 const loading = ref(false)
 const opportunities = ref([])
+
+const STORAGE_KEY = 'opp_list_filters'
+
+// 从 sessionStorage 恢复筛选条件
+const loadFilters = () => {
+  try {
+    const saved = sessionStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      filters.market = parsed.market || ''
+      filters.period = parsed.period || ''
+      filters.scoreRange = parsed.scoreRange || ''
+      filters.direction = parsed.direction || ''
+      filters.symbol = parsed.symbol || ''
+    }
+  } catch {}
+}
+
+// 保存筛选条件到 sessionStorage
+const saveFilters = () => {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      market: filters.market,
+      period: filters.period,
+      scoreRange: filters.scoreRange,
+      direction: filters.direction,
+      symbol: filters.symbol
+    }))
+  } catch {}
+}
 
 const filters = reactive({
   market: '',
@@ -298,28 +343,34 @@ const filters = reactive({
   symbol: ''
 })
 
-const filteredOpportunities = computed(() => {
-  let list = [...opportunities.value]
+// 分页状态
+const pagination = reactive({
+  currentPage: 1,
+  pageSize: 50,
+  total: 0
+})
 
+// 构建 API 查询参数
+const buildApiParams = () => {
+  const params = {
+    page: pagination.currentPage,
+    page_size: pagination.pageSize
+  }
+  if (filters.period) params.period = filters.period
+  if (filters.direction) params.direction = filters.direction
+  if (filters.symbol) params.symbol = filters.symbol
+  if (filters.scoreRange) params.min_score = parseInt(filters.scoreRange)
+  return params
+}
+
+const filteredOpportunities = computed(() => {
+  let list = Array.isArray(opportunities.value) ? opportunities.value : []
+
+  // 市场筛选在前端处理（从 symbol code 推断）
   if (filters.market) {
     list = list.filter(o => getMarketBySymbol(o.symbol_code) === filters.market)
   }
-  if (filters.period) {
-    list = list.filter(o => o.period === filters.period)
-  }
-  if (filters.scoreRange) {
-    const min = parseInt(filters.scoreRange)
-    list = list.filter(o => o.score >= min)
-  }
-  if (filters.direction) {
-    list = list.filter(o => o.direction === filters.direction)
-  }
-  if (filters.symbol) {
-    const kw = filters.symbol.toUpperCase()
-    list = list.filter(o => o.symbol_code.toUpperCase().includes(kw))
-  }
 
-  // 保持后端返回的时间倒序
   return list
 })
 
@@ -332,14 +383,28 @@ const getMarketBySymbol = (code) => {
 const fetchOpportunities = async () => {
   loading.value = true
   try {
-    const res = await opportunityApi.active()
-    opportunities.value = res.data || []
+    const res = await opportunityApi.active(buildApiParams())
+    opportunities.value = Array.isArray(res.data?.items) ? res.data.items : []
+    pagination.total = res.data?.total || 0
   } catch (error) {
     console.error('Failed to fetch opportunities:', error)
     opportunities.value = []
+    pagination.total = 0
   } finally {
     loading.value = false
   }
+}
+
+// 翻页处理
+const handlePageChange = (page) => {
+  pagination.currentPage = page
+  fetchOpportunities()
+}
+
+const handleSizeChange = (size) => {
+  pagination.pageSize = size
+  pagination.currentPage = 1
+  fetchOpportunities()
 }
 
 const handleViewDetail = (opp) => {
@@ -364,7 +429,8 @@ const signalNameMap = {
   fake_breakout_upper: '假突破上引', fake_breakout_lower: '假突破下引',
   engulfing_bullish: '阳包阴吞没', engulfing_bearish: '阴包阳吞没',
   momentum_bullish: '连阳动量', momentum_bearish: '连阴动量',
-  morning_star: '早晨之星', evening_star: '黄昏之星'
+  morning_star: '早晨之星', evening_star: '黄昏之星',
+  macd: 'MACD信号'
 }
 
 const getMergedStrategies = (directions) => {
@@ -434,8 +500,8 @@ const getTradeBtnType = (status) => {
 }
 
 const getTradeBtnText = (status) => {
-  if (status === 'open') return '持仓中'
-  if (status === 'closed') return '已平仓'
+  if (status === 'open') return t('opportunities.openPosition')
+  if (status === 'closed') return t('opportunities.closedPosition')
   return '无交易'
 }
 
@@ -476,8 +542,16 @@ const handleViewTrade = async (opp) => {
 }
 
 onMounted(() => {
+  loadFilters()
   fetchOpportunities()
 })
+
+// 筛选条件变化时持久化并重置分页
+watch(filters, () => {
+  saveFilters()
+  pagination.currentPage = 1
+  fetchOpportunities()
+}, { deep: true })
 </script>
 
 <style lang="scss" scoped>
@@ -620,6 +694,13 @@ onMounted(() => {
 
     &.ai-agree { background: rgba($success, 0.1); color: $success; }
     &.ai-disagree { background: rgba($danger, 0.1); color: $danger; }
+  }
+
+  .pagination-wrapper {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+    padding: 12px 0;
   }
 }
 </style>

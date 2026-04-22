@@ -15,15 +15,17 @@ import (
 type StatisticsService struct {
 	trackRepo  repository.TradeTrackRepo
 	signalRepo repository.SignalRepo
+	oppRepo    repository.OpportunityRepo
 	symbolRepo repository.SymbolRepo
 	config     *config.TradingConfig
 }
 
 // NewStatisticsService 创建统计分析服务实例
-func NewStatisticsService(trackRepo repository.TradeTrackRepo, signalRepo repository.SignalRepo, symbolRepo repository.SymbolRepo, cfg *config.TradingConfig) *StatisticsService {
+func NewStatisticsService(trackRepo repository.TradeTrackRepo, signalRepo repository.SignalRepo, oppRepo repository.OpportunityRepo, symbolRepo repository.SymbolRepo, cfg *config.TradingConfig) *StatisticsService {
 	return &StatisticsService{
 		trackRepo:  trackRepo,
 		signalRepo: signalRepo,
+		oppRepo:    oppRepo,
 		symbolRepo: symbolRepo,
 		config:     cfg,
 	}
@@ -661,13 +663,155 @@ func (s *StatisticsService) GetDetailedSignalAnalysis(startDate, endDate *time.T
 }
 
 // getFullSignalInfo 获取信号的完整信息（signal_type + source_type）
+// signalTypeToSourceType 映射各信号类型对应的策略来源
+var signalTypeToSourceType = map[string]string{
+	// candlestick
+	"engulfing_bullish": "candlestick",
+	"engulfing_bearish": "candlestick",
+	"momentum_bullish":  "candlestick",
+	"momentum_bearish":  "candlestick",
+	"morning_star":      "candlestick",
+	"evening_star":      "candlestick",
+	// wick
+	"upper_wick_reversal": "wick",
+	"lower_wick_reversal": "wick",
+	"fake_breakout_upper": "wick",
+	"fake_breakout_lower": "wick",
+	// key_level
+	"resistance_break": "key_level",
+	"support_break":    "key_level",
+	// volume
+	"volume_surge":      "volume",
+	"volume_price_rise":  "volume",
+	"volume_price_fall":  "volume",
+	"price_surge_up":    "volume",
+	"price_surge_down":  "volume",
+	// trend
+	"trend_retracement": "trend",
+}
+
+// ScoreAnalysis 按评分区间分析
+type ScoreAnalysis struct {
+	ScoreRange     string  `json:"score_range"`      // 评分区间，如 "80-100"
+	TotalTrades    int     `json:"total_trades"`     // 交易次数
+	WinTrades      int     `json:"win_trades"`       // 盈利次数
+	WinRate        float64 `json:"win_rate"`         // 胜率
+	TotalPnL       float64 `json:"total_pnl"`        // 总盈亏
+	AvgPnL         float64 `json:"avg_pnl"`          // 平均盈亏
+	AvgHoldingHours float64 `json:"avg_holding_hours"` // 平均持仓时长
+}
+
+// GetScoreAnalysis 按评分区间统计胜率
+func (s *StatisticsService) GetScoreAnalysis(startDate, endDate *time.Time) ([]ScoreAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	// 定义评分区间
+	ranges := []struct {
+		name  string
+		min   int
+		max   int
+	}{
+		{"80-100", 80, 100},
+		{"70-80", 70, 79},
+		{"60-70", 60, 69},
+		{"50-60", 50, 59},
+		{"<50", 0, 49},
+	}
+
+	// 初始化每个区间的统计
+	stats := make(map[string]*ScoreAnalysis)
+	for _, r := range ranges {
+		stats[r.name] = &ScoreAnalysis{
+			ScoreRange: r.name,
+		}
+	}
+
+	// 遍历所有交易，按评分分组
+	for _, track := range tracks {
+		if track.PnL == nil {
+			continue
+		}
+
+		// 获取评分
+		score := 0
+		if track.OpportunityID != nil && s.oppRepo != nil {
+			opp, err := s.oppRepo.GetByID(*track.OpportunityID)
+			if err == nil && opp != nil {
+				score = opp.Score
+			}
+		}
+
+		// 确定区间
+		var rangeName string
+		for _, r := range ranges {
+			if score >= r.min && score <= r.max {
+				rangeName = r.name
+				break
+			}
+		}
+		if rangeName == "" {
+			rangeName = "<50"
+		}
+
+		a := stats[rangeName]
+		a.TotalTrades++
+		pnl := *track.PnL
+		a.TotalPnL += pnl
+		if pnl > 0 {
+			a.WinTrades++
+		}
+		if track.EntryTime != nil && track.ExitTime != nil {
+			a.AvgHoldingHours += track.ExitTime.Sub(*track.EntryTime).Hours()
+		}
+	}
+
+	// 计算统计指标
+	result := make([]ScoreAnalysis, 0, len(ranges))
+	for _, r := range ranges {
+		a := stats[r.name]
+		if a.TotalTrades > 0 {
+			a.WinRate = float64(a.WinTrades) / float64(a.TotalTrades)
+			a.AvgPnL = a.TotalPnL / float64(a.TotalTrades)
+			a.AvgHoldingHours /= float64(a.TotalTrades)
+		}
+		result = append(result, *a)
+	}
+
+	return result, nil
+}
+
 func (s *StatisticsService) getFullSignalInfo(track *models.TradeTrack) (signalType, sourceType string) {
-	if s.signalRepo == nil || track.SignalID == nil {
-		return "unknown", "unknown"
+	// 优先通过 SignalID 获取
+	if track.SignalID != nil && s.signalRepo != nil {
+		signal, err := s.signalRepo.GetByID(*track.SignalID)
+		if err == nil && signal != nil {
+			return signal.SignalType, signal.SourceType
+		}
 	}
-	signal, err := s.signalRepo.GetByID(*track.SignalID)
-	if err != nil || signal == nil {
-		return "unknown", "unknown"
+
+	// SignalID 为空时，通过 OpportunityID 获取机会，再从 confluence_directions 推断信号类型
+	if track.OpportunityID != nil && s.oppRepo != nil {
+		opp, err := s.oppRepo.GetByID(*track.OpportunityID)
+		if err == nil && opp != nil && opp.ConfluenceDirections != nil && len(opp.ConfluenceDirections) > 0 {
+			// 取第一个信号类型（机会创建时的第一个信号）
+			// confluence_directions 格式："signal_type:direction"
+			first := opp.ConfluenceDirections[0]
+			for i := 0; i < len(first); i++ {
+				if first[i] == ':' {
+					st := first[:i]
+					src := signalTypeToSourceType[st]
+					if src == "" {
+						src = "unknown"
+					}
+					return st, src
+				}
+			}
+			return first, "unknown"
+		}
 	}
-	return signal.SignalType, signal.SourceType
+
+	return "unknown", "unknown"
 }

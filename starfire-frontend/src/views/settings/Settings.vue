@@ -4,20 +4,20 @@
       <el-col :span="12">
         <el-card>
           <template #header>
-            <span>修改密码</span>
+            <span>{{ t('settings.password') }}</span>
           </template>
           <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="100px">
-            <el-form-item label="当前密码" prop="oldPassword">
-              <el-input v-model="pwdForm.oldPassword" type="password" show-password placeholder="请输入当前密码" />
+            <el-form-item :label="t('settings.currentPassword')" prop="oldPassword">
+              <el-input v-model="pwdForm.oldPassword" type="password" show-password :placeholder="t('settings.enterCurrentPassword')" />
             </el-form-item>
-            <el-form-item label="新密码" prop="newPassword">
-              <el-input v-model="pwdForm.newPassword" type="password" show-password placeholder="6-64位新密码" />
+            <el-form-item :label="t('settings.newPassword')" prop="newPassword">
+              <el-input v-model="pwdForm.newPassword" type="password" show-password :placeholder="t('settings.passwordLength')" />
             </el-form-item>
-            <el-form-item label="确认新密码" prop="confirmPassword">
-              <el-input v-model="pwdForm.confirmPassword" type="password" show-password placeholder="再次输入新密码" />
+            <el-form-item :label="t('settings.confirmPassword')" prop="confirmPassword">
+              <el-input v-model="pwdForm.confirmPassword" type="password" show-password :placeholder="t('settings.confirmNewPasswordPlaceholder')" />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" :loading="pwdLoading" @click="handleChangePassword">修改密码</el-button>
+              <el-button type="primary" :loading="pwdLoading" @click="handleChangePassword">{{ t('settings.submit') }}</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -28,9 +28,11 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 
+const { t } = useI18n()
 const authStore = useAuthStore()
 
 const pwdFormRef = ref(null)
@@ -43,20 +45,20 @@ const pwdForm = reactive({
 
 const validateConfirmPassword = (rule, value, callback) => {
   if (value !== pwdForm.newPassword) {
-    callback(new Error('两次输入的密码不一致'))
+    callback(new Error(t('auth.register.passwordMismatch')))
   } else {
     callback()
   }
 }
 
 const pwdRules = {
-  oldPassword: [{ required: true, message: '请输入当前密码' }],
+  oldPassword: [{ required: true, message: t('settings.enterCurrentPassword') }],
   newPassword: [
-    { required: true, message: '请输入新密码' },
-    { min: 6, max: 64, message: '密码长度为6-64位' }
+    { required: true, message: t('settings.enterNewPassword') },
+    { min: 6, max: 64, message: t('settings.passwordLength') }
   ],
   confirmPassword: [
-    { required: true, message: '请确认新密码' },
+    { required: true, message: t('settings.confirmNewPasswordPlaceholder') },
     { validator: validateConfirmPassword, trigger: 'blur' }
   ]
 }
@@ -69,7 +71,7 @@ const handleChangePassword = async () => {
       oldPassword: pwdForm.oldPassword,
       newPassword: pwdForm.newPassword
     })
-    ElMessage.success('密码修改成功，请重新登录')
+    ElMessage.success(t('settings.passwordSuccess'))
     authStore.logout()
   } catch (error) {
     // 错误已在拦截器中提示

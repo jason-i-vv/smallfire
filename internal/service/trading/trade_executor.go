@@ -168,7 +168,16 @@ func (e *TradeExecutor) ClosePosition(track *models.TradeTrack, reason string, e
 	}
 
 	// 异步更新信号类型统计（反馈闭环）
-	go e.updateSignalTypeStatsAsync(track, exitPrice)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				e.logger.Error("updateSignalTypeStatsAsync panic",
+					zap.Int("track_id", track.ID),
+					zap.Any("recover", r))
+			}
+		}()
+		e.updateSignalTypeStatsAsync(track, exitPrice)
+	}()
 
 	return nil
 }
@@ -176,6 +185,9 @@ func (e *TradeExecutor) ClosePosition(track *models.TradeTrack, reason string, e
 // updateSignalTypeStatsAsync 异步更新信号类型统计
 func (e *TradeExecutor) updateSignalTypeStatsAsync(track *models.TradeTrack, exitPrice float64) {
 	if e.statsRepo == nil || track.OpportunityID == nil {
+		e.logger.Debug("反馈闭环跳过: statsRepo或opportunity_id为空",
+			zap.Int("track_id", track.ID),
+			zap.Any("opportunity_id", track.OpportunityID))
 		return
 	}
 
@@ -190,7 +202,17 @@ func (e *TradeExecutor) updateSignalTypeStatsAsync(track *models.TradeTrack, exi
 
 	// 获取 opportunity 以解析信号类型
 	opp, err := e.oppRepo.GetByID(*track.OpportunityID)
-	if err != nil || opp == nil || len(opp.ConfluenceDirections) == 0 {
+	if err != nil || opp == nil {
+		e.logger.Warn("反馈闭环: opportunity查询失败",
+			zap.Int("track_id", track.ID),
+			zap.Int("opportunity_id", *track.OpportunityID),
+			zap.Error(err))
+		return
+	}
+	if len(opp.ConfluenceDirections) == 0 {
+		e.logger.Debug("反馈闭环跳过: confluence_directions为空",
+			zap.Int("track_id", track.ID),
+			zap.Int("opportunity_id", opp.ID))
 		return
 	}
 

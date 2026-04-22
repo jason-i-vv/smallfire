@@ -25,25 +25,25 @@
         class="symbol-table"
         :row-style="{ cursor: 'pointer' }"
       >
-        <el-table-column prop="symbol_code" label="代码" width="140" fixed>
+        <el-table-column prop="symbol_code" :label="t('market.code')" width="140" fixed>
           <template #default="{ row }">
             <span class="symbol-code">{{ row.symbol_code }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="symbol_name" label="名称" min-width="140">
+        <el-table-column prop="symbol_name" :label="t('market.name')" min-width="140">
           <template #default="{ row }">
             <span class="symbol-name">{{ row.symbol_name || '--' }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="close_price" label="最新价" width="140" align="right">
+        <el-table-column prop="close_price" :label="t('market.latestPrice')" width="140" align="right">
           <template #default="{ row }">
             <span class="price">{{ formatPrice(row.close_price) }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column prop="change" label="涨跌幅" width="120" align="right" sortable="custom">
+        <el-table-column prop="change" :label="t('market.changePercent')" width="120" align="right" sortable="custom">
           <template #default="{ row }">
             <span :class="changeClass(row.change)">
               {{ formatPercent(row.change) }}
@@ -51,7 +51,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="trend_type" label="趋势" width="100" align="center" sortable="custom">
+        <el-table-column prop="trend_type" :label="t('market.trend')" width="100" align="center" sortable="custom">
           <template #default="{ row }">
             <el-tag
               v-if="row.trend_type"
@@ -65,7 +65,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="trend_strength" label="强度" width="80" align="center" sortable="custom">
+        <el-table-column prop="trend_strength" :label="t('market.strength')" width="80" align="center" sortable="custom">
           <template #default="{ row }">
             <span v-if="row.trend_strength != null" class="trend-strength">
               {{ row.trend_strength }}
@@ -91,9 +91,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { marketApi } from '@/api/markets'
 import { formatPrice, formatPercent } from '@/utils/formatters'
+
+const { t } = useI18n()
 
 const router = useRouter()
 
@@ -121,9 +124,9 @@ const trendTagType = (type) => {
 }
 
 const trendLabel = (type) => {
-  if (type === 'bullish') return '看多'
-  if (type === 'bearish') return '看空'
-  return '震荡'
+  if (type === 'bullish') return t('market.bullish')
+  if (type === 'bearish') return t('market.bearish')
+  return t('market.neutral')
 }
 
 const handleSortChange = ({ prop, order }) => {

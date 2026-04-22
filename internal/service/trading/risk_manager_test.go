@@ -16,6 +16,9 @@ type mockTrackRepo struct {
 }
 
 func (m *mockTrackRepo) GetOpenPositions() ([]*models.TradeTrack, error) { return m.openPositions, nil }
+func (m *mockTrackRepo) GetOpenPositionsPaginated(page, size int) ([]*models.TradeTrack, int, error) {
+	return m.openPositions, len(m.openPositions), nil
+}
 func (m *mockTrackRepo) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) { return m.openBySymbol[symbolID], nil }
 func (m *mockTrackRepo) GetBySignalID(signalID int) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepo) CountClosedSince(startTime time.Time) (int, error) { return m.closedSince, nil }

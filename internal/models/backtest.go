@@ -97,6 +97,8 @@ type BacktestTrade struct {
 	CumPnL                float64    `json:"cum_pnl"`                  // 累计盈亏
 	TrailingStopActivated bool       `json:"trailing_stop_activated"`  // 是否激活了移动止损
 	MaxFavorableExcursion float64   `json:"max_favorable_excursion"`  // 最大有利幅度(MFE)
+	SignalStopLoss        *float64  `json:"signal_stop_loss"`         // 信号级止损价（策略计算）
+	SignalTakeProfit      *float64  `json:"signal_take_profit"`       // 信号级止盈价（策略计算）
 }
 
 // EquityPoint 权益曲线数据点

@@ -32,6 +32,7 @@ type TradingOpportunity struct {
 
 	// 关联数据（非数据库字段）
 	Signals []*Signal `json:"signals,omitempty" db:"-"`
+	TradeStatus string `json:"trade_status,omitempty" db:"-"` // 交易状态: open, closed, none
 }
 
 // StringArray 用于 PostgreSQL TEXT[] 类型

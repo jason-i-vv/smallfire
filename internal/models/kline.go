@@ -19,6 +19,9 @@ type Kline struct {
 	EMAShort    *float64  `json:"ema_short,omitempty" db:"ema_short"`
 	EMAMedium   *float64  `json:"ema_medium,omitempty" db:"ema_medium"`
 	EMALong     *float64  `json:"ema_long,omitempty" db:"ema_long"`
+	MACD        *float64  `json:"macd,omitempty" db:"macd"`
+	MACDSignal  *float64  `json:"macd_signal,omitempty" db:"macd_signal"`
+	MACDHist    *float64  `json:"macd_hist,omitempty" db:"macd_hist"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 

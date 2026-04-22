@@ -52,6 +52,7 @@ type KlineRepo interface {
 // TradeTrackRepo 交易跟踪数据访问接口
 type TradeTrackRepo interface {
 	GetOpenPositions() ([]*models.TradeTrack, error)
+	GetOpenPositionsPaginated(page, size int) ([]*models.TradeTrack, int, error)
 	GetOpenBySymbol(symbolID int) (*models.TradeTrack, error)
 	GetBySignalID(signalID int) (*models.TradeTrack, error)
 	CountClosedSince(startTime time.Time) (int, error)
@@ -179,6 +180,17 @@ type SignalTypeStatsRepo interface {
 	GetAll() ([]*models.SignalTypeStat, error)
 }
 
+// OpportunityListFilter 交易机会列表筛选条件
+type OpportunityListFilter struct {
+	Status     string
+	Period     string
+	Direction  string
+	SymbolCode string
+	MinScore   *int
+	Page       int
+	PageSize   int
+}
+
 // OpportunityRepo 交易机会数据访问接口
 type OpportunityRepo interface {
 	Create(opp *models.TradingOpportunity) error
@@ -188,7 +200,7 @@ type OpportunityRepo interface {
 	GetActiveBySymbol(symbolID int) ([]*models.TradingOpportunity, error)
 	GetActiveBySymbolAndDirection(symbolID int, direction string) (*models.TradingOpportunity, error)
 	ExpireBySymbol(symbolID int, excludeID int) error
-	List(status string, page, size int) ([]*models.TradingOpportunity, int, error)
+	List(filter *OpportunityListFilter) ([]*models.TradingOpportunity, int, error)
 }
 
 

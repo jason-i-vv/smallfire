@@ -64,16 +64,7 @@ func (t *AutoTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		return
 	}
 
-	// 4. 检查是否已有该标的同方向的未平仓交易
-	existing, _ := t.trackRepo.GetOpenBySymbol(opp.SymbolID)
-	if existing != nil {
-		t.logger.Debug("已有持仓，跳过",
-			zap.String("symbol", opp.SymbolCode),
-			zap.Int("opportunity_id", opp.ID))
-		return
-	}
-
-	// 5. 固定金额开仓
+	// 4. 固定金额开仓（不检查是否已有持仓，数据收集目的）
 	track, err := t.openFixedPosition(opp, currentPrice)
 	if err != nil {
 		t.logger.Error("模拟开仓失败",
@@ -107,6 +98,8 @@ func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, currentPr
 	// 止损止盈：优先用 opportunity 建议值，没有就用固定百分比
 	stopLossPrice := t.calcStopLoss(currentPrice, opp)
 	takeProfitPrice := t.calcTakeProfit(currentPrice, opp)
+	// 校验盈亏比，确保不低于最低阈值
+	stopLossPrice, takeProfitPrice = t.validateRiskReward(currentPrice, opp.Direction, stopLossPrice, takeProfitPrice)
 
 	now := time.Now()
 	oppID := opp.ID
@@ -123,6 +116,7 @@ func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, currentPr
 		TakeProfitPrice:     &takeProfitPrice,
 		TakeProfitPercent:   ptrFloat64(t.config.TakeProfitPercent),
 		TrailingStopEnabled: t.config.TrailingStopEnabled,
+		TrailingActivationPct: ptrFloat64(t.config.TrailingActivatePct),
 		TrailingStopActive:  false,
 		Status:              models.TrackStatusOpen,
 		SubscriberCount:     1,
@@ -144,10 +138,35 @@ func (t *AutoTrader) calcStopLoss(entryPrice float64, opp *models.TradingOpportu
 		suggested := *opp.SuggestedStopLoss
 		// 验证建议止损价是否距离入场价足够远（至少 1%）
 		minLossDistance := entryPrice * 0.01
+		maxLossDistance := entryPrice * t.maxStopLossDistance()
 		if opp.Direction == models.DirectionLong && suggested < entryPrice-minLossDistance {
+			// 校验最大距离
+			if entryPrice-suggested > maxLossDistance {
+				t.logger.Warn("止损距离超过上限，使用上限值",
+					zap.Float64("entry_price", entryPrice),
+					zap.Float64("suggested_stop_loss", suggested),
+					zap.Float64("max_distance", maxLossDistance))
+				return entryPrice - maxLossDistance
+			}
 			return suggested
 		}
 		if opp.Direction == models.DirectionShort && suggested > entryPrice+minLossDistance {
+			// 对于做空，止损价应该在入场价上方
+			// 但如果建议止损价超出合理范围（超过2倍入场价），重新计算
+			if suggested > entryPrice*2 {
+				t.logger.Warn("做空止损价超出合理范围，重新计算",
+					zap.Float64("entry_price", entryPrice),
+					zap.Float64("suggested_stop_loss", suggested))
+				return entryPrice * (1 + t.config.StopLossPercent)
+			}
+			// 校验最大距离
+			if suggested-entryPrice > maxLossDistance {
+				t.logger.Warn("止损距离超过上限，使用上限值",
+					zap.Float64("entry_price", entryPrice),
+					zap.Float64("suggested_stop_loss", suggested),
+					zap.Float64("max_distance", maxLossDistance))
+				return entryPrice + maxLossDistance
+			}
 			return suggested
 		}
 		// 距离太近，使用默认值
@@ -185,6 +204,57 @@ func (t *AutoTrader) calcTakeProfit(entryPrice float64, opp *models.TradingOppor
 		return entryPrice * (1 + t.config.TakeProfitPercent)
 	}
 	return entryPrice * (1 - t.config.TakeProfitPercent)
+}
+
+// maxStopLossDistance 返回最大允许的止损距离（相对于入场价的比例）
+func (t *AutoTrader) maxStopLossDistance() float64 {
+	if t.config.MaxStopLossPercent > 0 {
+		return t.config.MaxStopLossPercent
+	}
+	return 0.05 // 默认 5%
+}
+
+// validateRiskReward 校验并调整止盈止损的盈亏比
+// 如果实际盈亏比低于配置阈值，调整止盈价以满足最低盈亏比
+func (t *AutoTrader) validateRiskReward(entryPrice float64, direction string, stopLoss, takeProfit float64) (float64, float64) {
+	minRR := t.config.MinRiskRewardRatio
+	if minRR <= 0 {
+		minRR = 1.5 // 默认最低盈亏比 1.5
+	}
+
+	var slDist, tpDist float64
+	if direction == models.DirectionLong {
+		slDist = entryPrice - stopLoss
+		tpDist = takeProfit - entryPrice
+	} else {
+		slDist = stopLoss - entryPrice
+		tpDist = entryPrice - takeProfit
+	}
+
+	if slDist <= 0 || tpDist <= 0 {
+		return stopLoss, takeProfit
+	}
+
+	actualRR := tpDist / slDist
+	if actualRR < minRR {
+		// 调整止盈价以满足最低盈亏比
+		newTPDist := slDist * minRR
+		if direction == models.DirectionLong {
+			takeProfit = entryPrice + newTPDist
+		} else {
+			takeProfit = entryPrice - newTPDist
+		}
+		t.logger.Warn("盈亏比不达标，调整止盈价",
+			zap.Float64("entry_price", entryPrice),
+			zap.Float64("direction", 0),
+			zap.Float64("actual_rr", actualRR),
+			zap.Float64("min_rr", minRR),
+			zap.Float64("sl_distance", slDist),
+			zap.Float64("original_tp", tpDist),
+			zap.Float64("adjusted_tp", newTPDist))
+	}
+
+	return stopLoss, takeProfit
 }
 
 // getCurrentPrice 从最新K线获取当前价格

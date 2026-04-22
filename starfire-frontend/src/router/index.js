@@ -3,28 +3,26 @@ import DefaultLayout from '@/layouts/DefaultLayout.vue'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 
 const routes = [
+  // Auth routes with locale support
   {
-    path: '/login',
+    path: '/:locale(login|register)?',
     component: AuthLayout,
     children: [
       {
         path: '',
         name: 'Login',
-        component: () => import('@/views/auth/Login.vue')
-      }
-    ]
-  },
-  {
-    path: '/register',
-    component: AuthLayout,
-    children: [
+        component: () => import('@/views/auth/Login.vue'),
+        meta: { requiresAuth: false }
+      },
       {
-        path: '',
+        path: 'register',
         name: 'Register',
-        component: () => import('@/views/auth/Register.vue')
+        component: () => import('@/views/auth/Register.vue'),
+        meta: { requiresAuth: false }
       }
     ]
   },
+  // Default routes
   {
     path: '/',
     component: DefaultLayout,
@@ -68,6 +66,11 @@ const routes = [
         path: 'chart/:symbol',
         name: 'KlineChart',
         component: () => import('@/views/kline/KlineChart.vue')
+      },
+      {
+        path: 'test-position',
+        name: 'TestPositionChart',
+        component: () => import('@/views/test/TestPositionChart.vue')
       },
       {
         path: 'market',
@@ -132,8 +135,24 @@ async function checkAuthEnabled() {
   return authCheckPromise
 }
 
+// 从 URL 中提取 locale
+const getLocaleFromUrl = () => {
+  const path = window.location.pathname
+  const match = path.match(/^\/(zh|en)/)
+  return match ? match[1] : null
+}
+
 router.beforeEach(async (to, from, next) => {
-  const publicPaths = ['/login', '/register']
+  // 从 URL 中提取 locale
+  const urlLocale = getLocaleFromUrl()
+  if (urlLocale) {
+    // 同步到 i18n
+    const { locale } = await import('vue-i18n')
+    locale.value = urlLocale
+    localStorage.setItem('locale', urlLocale)
+  }
+
+  const publicPaths = ['/login', '/register', '/zh/login', '/zh/register', '/en/login', '/en/register']
 
   if (authEnabled === null) {
     await checkAuthEnabled()

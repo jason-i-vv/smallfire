@@ -75,6 +75,13 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 	threshold := s.config.LevelDistance / 100.0
 	volumeConfirmed := s.checkVolumeConfirm(klines, latestIdx)
 
+	// 计算 ATR（供阻力和支撑突破共用）
+	atrPeriod := 14
+	if s.config.ATRPeriod > 0 {
+		atrPeriod = int(s.config.ATRPeriod)
+	}
+	atr := CalculateATR(klines, atrPeriod)
+
 	var signals []models.Signal
 
 	// 阻力位突破（向上）
@@ -92,7 +99,7 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 		}
 	}
 	if closestBrokenResistance != nil {
-		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenResistance, models.LevelTypeResistance, latestKline, "long"))
+		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenResistance, models.LevelTypeResistance, latestKline, "long", atr))
 	}
 
 	// 支撑位突破（向下）
@@ -110,7 +117,7 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 		}
 	}
 	if closestBrokenSupport != nil {
-		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenSupport, models.LevelTypeSupport, latestKline, "short"))
+		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenSupport, models.LevelTypeSupport, latestKline, "short", atr))
 	}
 
 	// 同一K线同时产生做多和做空信号时，选择突破距离更大的一方
@@ -641,7 +648,7 @@ func (s *KeyLevelStrategy) mergeAndClassify(candidates []candidateLevel, levelTy
 // ==================== 信号生成 ====================
 
 // createBreakSignal 创建突破信号
-func (s *KeyLevelStrategy) createBreakSignal(symbolID int, level models.KeyLevelEntry, levelType string, kline models.Kline, direction string) models.Signal {
+func (s *KeyLevelStrategy) createBreakSignal(symbolID int, level models.KeyLevelEntry, levelType string, kline models.Kline, direction string, atr float64) models.Signal {
 	price := kline.ClosePrice
 	distance := math.Abs(price-level.Price) / level.Price * 100
 
@@ -662,6 +669,27 @@ func (s *KeyLevelStrategy) createBreakSignal(symbolID int, level models.KeyLevel
 	desc := fmt.Sprintf("ALGO:%s %s%s，%s，距%s%.2f%%",
 		level.Reason, actionLabel, levelLabel, level.Strength, actionLabel, distance)
 
+	// 止损设在 level 之外，加上最小缓冲（0.5%）
+	stopLossBuffer := level.Price * 0.005
+	var stopLoss float64
+	if direction == models.DirectionLong {
+		// 支撑位跌破，止损设在支撑位下方
+		stopLoss = level.Price - stopLossBuffer
+	} else {
+		// 阻力位突破，止损设在阻力位上方
+		stopLoss = level.Price + stopLossBuffer
+	}
+
+	// 基于 ATR 计算止盈
+	var takeProfit float64
+	if atr > 0 {
+		stopLoss2, takeProfit2 := CalculateSLTP(price, direction, atr, s.config.ATRMultiplier, s.config.RiskRewardRatio)
+		if stopLoss2 > 0 && takeProfit2 > 0 {
+			stopLoss = stopLoss2
+			takeProfit = takeProfit2
+		}
+	}
+
 	return models.Signal{
 		SymbolID:       symbolID,
 		SignalType:     signalType,
@@ -669,7 +697,8 @@ func (s *KeyLevelStrategy) createBreakSignal(symbolID int, level models.KeyLevel
 		Direction:      direction,
 		Strength:       strength,
 		Price:          price,
-		StopLossPrice:  &level.Price,
+		StopLossPrice:  &stopLoss,
+		TargetPrice:    &takeProfit,
 		Period:         kline.Period,
 		SignalData: &models.JSONB{
 			"level_price":       level.Price,
