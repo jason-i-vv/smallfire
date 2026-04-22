@@ -102,6 +102,8 @@ func main() {
 	tradingDeps := trading.Dependency{
 		TrackRepo:  trackRepo,
 		SignalRepo: signalRepo,
+		OppRepo:    oppRepo,
+		StatsRepo:  statsRepo,
 		Logger:     utils.Logger,
 	}
 	tradeExecutor := trading.NewTradeExecutor(&cfg.Trading, tradingDeps)
@@ -193,7 +195,7 @@ func main() {
 	utils.Info("评分引擎初始化成功")
 
 	// 初始化交易机会聚合器
-	oppAggregator := scoring.NewOpportunityAggregator(oppRepo, signalRepo, statsRepo, signalScorer, scoring.DefaultValidityConfig, notifyManager, utils.Logger)
+	oppAggregator := scoring.NewOpportunityAggregator(oppRepo, signalRepo, statsRepo, signalScorer, scoring.DefaultValidityConfig, notifyManager, utils.Logger, cfg.Trading.MinNotifyScoreThreshold)
 	strategyRunner.SetAggregator(oppAggregator)
 	utils.Info("交易机会聚合器初始化成功")
 
@@ -307,7 +309,7 @@ func main() {
 	marketHandler := handler.NewMarketHandler(marketRepo, symbolRepo, klineRepo, trendRepo, utils.Logger)
 	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, klineService, utils.Logger)
 	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
-	opportunityHandler := handler.NewOpportunityHandler(oppRepo, signalScorer, aiAnalyzer, cfg.AI, cooldownTracker, utils.Logger)
+	opportunityHandler := handler.NewOpportunityHandler(oppRepo, trackRepo, signalScorer, aiAnalyzer, cfg.AI, cooldownTracker, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
 	tradeHandler := handler.NewTradeHandler(trackRepo, tradeExecutor, statsService, utils.Logger)
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
@@ -396,6 +398,7 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				opportunitiesGroup.GET("", opportunityHandler.GetOpportunities)
 				opportunitiesGroup.GET("/active", opportunityHandler.GetActiveOpportunities)
 				opportunitiesGroup.GET("/:id", opportunityHandler.GetOpportunity)
+				opportunitiesGroup.GET("/:id/trades", opportunityHandler.GetOpportunityTrades)
 				opportunitiesGroup.POST("/:id/ai-analysis", opportunityHandler.AIAnalysis)
 			}
 

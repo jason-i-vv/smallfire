@@ -161,6 +161,7 @@ trading:
   auto_trade_score_threshold: 60       # 自动交易最低评分
   paper_trading: true                  # 模拟交易模式
   fixed_trade_amount: 1000             # 每笔固定交易金额（USDT）
+  min_notify_score_threshold: 60        # 通知最低评分，低于此值不发送通知
 
 # 实时监测配置
 monitoring:

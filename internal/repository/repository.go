@@ -60,6 +60,7 @@ type TradeTrackRepo interface {
 	Update(trade *models.TradeTrack) error
 	GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error)
 	GetByID(id int) (*models.TradeTrack, error)
+	GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error)
 }
 
 // SignalRepo 信号数据访问接口

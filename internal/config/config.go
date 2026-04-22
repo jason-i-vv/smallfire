@@ -203,6 +203,7 @@ type TradingConfig struct {
 	AutoTradeScoreThreshold int     `mapstructure:"auto_trade_score_threshold"` // 自动交易最低评分
 	PaperTrading            bool    `mapstructure:"paper_trading"`              // 模拟交易模式
 	FixedTradeAmount        float64 `mapstructure:"fixed_trade_amount"`          // 模拟交易每笔固定金额
+	MinNotifyScoreThreshold int     `mapstructure:"min_notify_score_threshold"` // 通知最低评分，低于此值不发送通知
 }
 
 type MonitoringConfig struct {

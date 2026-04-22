@@ -47,6 +47,7 @@ type OpportunityAggregator struct {
 	handlers           []OpportunityHandler
 	validity           SignalValidityConfig
 	minScoreToCreate   int
+	minScoreToNotify   int
 	expireAfterNoNew   time.Duration
 	logger             *zap.Logger
 	mu                 sync.Mutex // 防止并发 find-or-create 竞态
@@ -61,7 +62,11 @@ func NewOpportunityAggregator(
 	validity SignalValidityConfig,
 	notifier OpportunityNotifier,
 	logger *zap.Logger,
+	minScoreToNotify int,
 ) *OpportunityAggregator {
+	if minScoreToNotify <= 0 {
+		minScoreToNotify = 60
+	}
 	return &OpportunityAggregator{
 		oppRepo:          oppRepo,
 		signalRepo:       signalRepo,
@@ -70,6 +75,7 @@ func NewOpportunityAggregator(
 		notifier:         notifier,
 		validity:         validity,
 		minScoreToCreate: 45,
+		minScoreToNotify: minScoreToNotify,
 		expireAfterNoNew: 2 * time.Hour,
 		logger:           logger,
 	}
@@ -359,20 +365,26 @@ func (a *OpportunityAggregator) createOpportunity(signals []*models.Signal, ctx 
 		zap.Int("signal_count", opp.SignalCount),
 	)
 
-	// 发送飞书通知
-	if a.notifier != nil {
-		if err := a.notifier.SendOpportunity(opp); err != nil {
-			a.logger.Error("发送交易机会通知失败",
-				zap.Int("id", opp.ID),
-				zap.String("symbol", opp.SymbolCode),
-				zap.Error(err))
-		}
-	}
+	// 发送飞书通知（评分低于阈值时不通知）
+	a.notifyIfNeeded(opp)
 
 	_ = scoreDetails // avoid unused warning
 
 	// 触发回调（自动交易等）
 	a.invokeHandlers(opp)
+}
+
+// notifyIfNeeded 发送通知（如果评分达到阈值）
+func (a *OpportunityAggregator) notifyIfNeeded(opp *models.TradingOpportunity) {
+	if a.notifier != nil && opp.Score >= a.minScoreToNotify {
+		if err := a.notifier.SendOpportunity(opp); err != nil {
+			a.logger.Error("发送交易机会通知失败",
+				zap.Int("id", opp.ID),
+				zap.String("symbol", opp.SymbolCode),
+				zap.Int("score", opp.Score),
+				zap.Error(err))
+		}
+	}
 }
 
 // updateOpportunity 更新已有交易机会

@@ -76,7 +76,8 @@ const fetchData = async () => {
       exit_price: t.exit_price,
       quantity: t.quantity,
       pnl: t.pnl,
-      pnl_percent: t.pnl_percent
+      pnl_percent: t.pnl_percent,
+      opportunity_id: t.opportunity_id
     }))
     total.value = data.total || 0
   } catch (error) {

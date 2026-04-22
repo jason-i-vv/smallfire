@@ -170,12 +170,105 @@
         </template>
       </el-table-column>
 
+      <el-table-column label="交易" width="100" align="center">
+        <template #default="{ row }">
+          <el-button
+            size="small"
+            :type="getTradeBtnType(row.tradeStatus)"
+            @click.stop="handleViewTrade(row)"
+            :loading="loadingTradeId === row.id"
+            text
+          >
+            {{ getTradeBtnText(row.tradeStatus) }}
+          </el-button>
+        </template>
+      </el-table-column>
+
       <el-table-column label="时间" width="150">
         <template #default="{ row }">
           {{ formatTime(row.created_at) }}
         </template>
       </el-table-column>
     </el-table>
+
+    <!-- 交易对话框 -->
+    <el-dialog v-model="tradeDialogVisible" title="交易详情" width="600px" destroy-on-close>
+      <template v-if="tradeDialogData.opportunity">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="标的">{{ tradeDialogData.opportunity.symbol_code }}</el-descriptions-item>
+          <el-descriptions-item label="方向">
+            <span :class="tradeDialogData.opportunity.direction === 'long' ? 'dir-long' : 'dir-short'">
+              {{ tradeDialogData.opportunity.direction === 'long' ? '多' : '空' }}
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="评分">{{ tradeDialogData.opportunity.score }}</el-descriptions-item>
+          <el-descriptions-item label="周期">{{ tradeDialogData.opportunity.period }}</el-descriptions-item>
+          <el-descriptions-item label="入场价" v-if="tradeDialogData.opportunity.suggested_entry">
+            {{ formatPrice(tradeDialogData.opportunity.suggested_entry) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="策略信号" :span="2">
+            <div class="strategy-tags">
+              <span
+                v-for="(s, idx) in getMergedStrategies(tradeDialogData.opportunity.confluence_directions)"
+                :key="idx"
+                class="strategy-tag"
+                :class="s.direction === 'long' ? 'tag-long' : 'tag-short'"
+              >
+                {{ s.label }}<template v-if="s.count > 1"> x{{ s.count }}</template>
+              </span>
+            </div>
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">交易记录</el-divider>
+
+        <template v-if="tradeDialogData.trades && tradeDialogData.trades.length > 0">
+          <el-table :data="tradeDialogData.trades" stripe size="small">
+            <el-table-column prop="direction" label="方向" width="70">
+              <template #default="{ row }">
+                <span :class="row.direction === 'long' ? 'dir-long' : 'dir-short'">
+                  {{ row.direction === 'long' ? '多' : '空' }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="entry_price" label="入场价" width="120">
+              <template #default="{ row }">
+                {{ formatPrice(row.entry_price) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="exit_price" label="出场价" width="120">
+              <template #default="{ row }">
+                {{ row.exit_price ? formatPrice(row.exit_price) : '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="pnl" label="盈亏" width="100">
+              <template #default="{ row }">
+                <template v-if="row.pnl != null">
+                  <span :class="row.pnl >= 0 ? 'profit' : 'loss'">{{ formatPnL(row.pnl) }}</span>
+                </template>
+                <template v-else-if="row.unrealized_pnl != null">
+                  <span :class="row.unrealized_pnl >= 0 ? 'profit' : 'loss'">{{ formatPnL(row.unrealized_pnl) }}</span>
+                </template>
+                <template v-else>-</template>
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="80">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 'open' ? 'warning' : 'success'" size="small">
+                  {{ row.status === 'open' ? '持仓中' : '已平仓' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="exit_reason" label="出场原因">
+              <template #default="{ row }">
+                {{ row.exit_reason || '-' }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </template>
+        <el-empty v-else description="暂无交易记录" :image-size="60" />
+      </template>
+    </el-dialog>
 
     <!-- AI 分析结果对话框 -->
     <AIAnalysisDialog
@@ -190,7 +283,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { opportunityApi } from '@/api/opportunities'
-import { formatTime, formatPrice } from '@/utils/formatters'
+import { formatTime, formatPrice, formatPnL } from '@/utils/formatters'
 import AIAnalysisDialog from '@/components/common/AIAnalysisDialog.vue'
 
 const router = useRouter()
@@ -328,6 +421,60 @@ const handleViewAIResult = (opp) => {
   aiDialogVisible.value = true
 }
 
+// 交易对话框
+const tradeDialogVisible = ref(false)
+const tradeDialogData = ref({ opportunity: null, trades: [] })
+const loadingTradeId = ref(null)
+const tradeStatusMap = ref({}) // id -> 'none' | 'open' | 'closed'
+
+const getTradeBtnType = (status) => {
+  if (status === 'open') return 'warning'
+  if (status === 'closed') return 'success'
+  return 'info'
+}
+
+const getTradeBtnText = (status) => {
+  if (status === 'open') return '持仓中'
+  if (status === 'closed') return '已平仓'
+  return '无交易'
+}
+
+const handleViewTrade = async (opp) => {
+  if (tradeStatusMap.value[opp.id] === undefined) {
+    loadingTradeId.value = opp.id
+    try {
+      const res = await opportunityApi.trades(opp.id)
+      const data = res.data || {}
+      tradeDialogData.value = {
+        opportunity: data.opportunity || opp,
+        trades: data.trades || []
+      }
+      // 判断交易状态
+      if (tradeDialogData.value.trades.length === 0) {
+        tradeStatusMap.value[opp.id] = 'none'
+      } else {
+        const hasOpen = tradeDialogData.value.trades.some(t => t.status === 'open')
+        tradeStatusMap.value[opp.id] = hasOpen ? 'open' : 'closed'
+      }
+    } catch (error) {
+      console.error('获取交易记录失败:', error)
+      tradeDialogData.value = { opportunity: opp, trades: [] }
+      tradeStatusMap.value[opp.id] = 'none'
+    } finally {
+      loadingTradeId.value = null
+    }
+  } else {
+    // 已缓存，直接用缓存数据打开对话框
+    const res = await opportunityApi.trades(opp.id)
+    const data = res.data || {}
+    tradeDialogData.value = {
+      opportunity: data.opportunity || opp,
+      trades: data.trades || []
+    }
+  }
+  tradeDialogVisible.value = true
+}
+
 onMounted(() => {
   fetchOpportunities()
 })
@@ -460,6 +607,9 @@ onMounted(() => {
   .text-muted { color: $text-tertiary; }
   .text-danger { color: $danger; }
   .text-success { color: $success; }
+
+  .profit { color: $success; }
+  .loss { color: $danger; }
 
   .ai-badge {
     font-size: 11px;
