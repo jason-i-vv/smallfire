@@ -1632,6 +1632,8 @@ func (s *BacktestService) runBacktestLoop(
 	for i := 0; i <= len(klines)-windowSize; i++ {
 		currentKline := klines[i+windowSize-1] // 窗口中最新的K线
 		currentPrice := currentKline.ClosePrice
+		currentHigh := currentKline.HighPrice
+		currentLow := currentKline.LowPrice
 
 		// 更新权益和最大回撤（仅启用交易时）
 			if req.EnableTrade {
@@ -1682,8 +1684,9 @@ func (s *BacktestService) runBacktestLoop(
 				exitPrice := currentPrice
 
 				// 1. 检查移动止损（优先级最高）
+				// 使用K线影线判断：多头用最高价激活/最低价触发，空头用最低价激活/最高价触发
 				if req.TrailingStopPct > 0 {
-					trailingTriggered := s.updateTrailingStop(&trailing, currentPosition.EntryPrice, currentPrice, currentPosition.Direction, req.TrailingStopPct, req.TrailingActivatePct)
+					trailingTriggered := s.updateTrailingStop(&trailing, currentPosition.EntryPrice, currentHigh, currentLow, currentPosition.Direction, req.TrailingStopPct, req.TrailingActivatePct)
 					if trailingTriggered {
 						shouldClose = true
 						exitReason = models.ExitReasonTrailingStop
@@ -1692,17 +1695,27 @@ func (s *BacktestService) runBacktestLoop(
 					}
 				}
 
-				// 2. 检查固定止损
+				// 2. 检查固定止损（优先使用信号级止损价）
+				// 使用K线影线判断：多头用最低价，空头用最高价
 				if !shouldClose {
-					stopLossPrice := s.calculateStopLossPrice(currentPosition.EntryPrice, currentPosition.Direction, req.StopLossPct)
+					var stopLossPrice float64
+					if currentPosition.SignalStopLoss != nil {
+						// 策略计算的信号级止损价
+						stopLossPrice = *currentPosition.SignalStopLoss
+					} else {
+						// 全局百分比止损
+						stopLossPrice = s.calculateStopLossPrice(currentPosition.EntryPrice, currentPosition.Direction, req.StopLossPct)
+					}
 					if currentPosition.Direction == models.DirectionLong {
-						if currentPrice <= stopLossPrice {
+						// 多头：只要最低价触及止损价就平仓
+						if currentKline.LowPrice <= stopLossPrice {
 							shouldClose = true
 							exitReason = models.ExitReasonStopLoss
 							exitPrice = stopLossPrice
 						}
 					} else {
-						if currentPrice >= stopLossPrice {
+						// 空头：只要最高价触及止损价就平仓
+						if currentKline.HighPrice >= stopLossPrice {
 							shouldClose = true
 							exitReason = models.ExitReasonStopLoss
 							exitPrice = stopLossPrice
@@ -1710,17 +1723,27 @@ func (s *BacktestService) runBacktestLoop(
 					}
 				}
 
-				// 3. 检查止盈
+				// 3. 检查止盈（优先使用信号级止盈价）
+				// 使用K线影线判断：多头用最高价，空头用最低价
 				if !shouldClose {
-					takeProfitPrice := s.calculateTakeProfitPrice(currentPosition.EntryPrice, currentPosition.Direction, req.TakeProfitPct)
+					var takeProfitPrice float64
+					if currentPosition.SignalTakeProfit != nil {
+						// 策略计算的信号级止盈价
+						takeProfitPrice = *currentPosition.SignalTakeProfit
+					} else {
+						// 全局百分比止盈
+						takeProfitPrice = s.calculateTakeProfitPrice(currentPosition.EntryPrice, currentPosition.Direction, req.TakeProfitPct)
+					}
 					if currentPosition.Direction == models.DirectionLong {
-						if currentPrice >= takeProfitPrice {
+						// 多头：只要最高价触及止盈价就平仓
+						if currentKline.HighPrice >= takeProfitPrice {
 							shouldClose = true
 							exitReason = models.ExitReasonTakeProfit
 							exitPrice = takeProfitPrice
 						}
 					} else {
-						if currentPrice <= takeProfitPrice {
+						// 空头：只要最低价触及止盈价就平仓
+						if currentKline.LowPrice <= takeProfitPrice {
 							shouldClose = true
 							exitReason = models.ExitReasonTakeProfit
 							exitPrice = takeProfitPrice
@@ -1821,12 +1844,14 @@ func (s *BacktestService) openNewPosition(
 	quantity := positionValue / entryPrice
 
 	trade := &models.BacktestTrade{
-		SignalID:   signal.ID,
-		EntryTime:  currentKline.OpenTime,
-		Direction:  signal.Direction,
-		EntryPrice: entryPrice,
-		Quantity:   quantity,
-		Fees:       positionValue * 0.0004 * 2, // 双向手续费
+		SignalID:         signal.ID,
+		EntryTime:        currentKline.OpenTime,
+		Direction:        signal.Direction,
+		EntryPrice:       entryPrice,
+		Quantity:         quantity,
+		Fees:             positionValue * 0.0004 * 2, // 双向手续费
+		SignalStopLoss:   signal.StopLossPrice,
+		SignalTakeProfit: signal.TargetPrice,
 	}
 
 	*trades = append(*trades, trade)
@@ -1865,7 +1890,7 @@ type trailingStopState struct {
 }
 
 // updateTrailingStop 更新移动止损状态，返回是否触发
-func (s *BacktestService) updateTrailingStop(state *trailingStopState, entryPrice, currentPrice float64, direction string, trailingPct, activatePct float64) bool {
+func (s *BacktestService) updateTrailingStop(state *trailingStopState, entryPrice, currentHigh, currentLow float64, direction string, trailingPct, activatePct float64) bool {
 	activationPrice := entryPrice
 	if activatePct > 0 {
 		if direction == models.DirectionLong {
@@ -1876,38 +1901,42 @@ func (s *BacktestService) updateTrailingStop(state *trailingStopState, entryPric
 	}
 
 	if direction == models.DirectionLong {
-		if !state.isActivated && currentPrice >= activationPrice {
+		// 多头：使用最高价判断激活，用最低价判断触发
+		if !state.isActivated && currentHigh >= activationPrice {
 			state.isActivated = true
-			state.highestPrice = currentPrice
-			state.currentStop = currentPrice * (1 - trailingPct)
+			state.highestPrice = currentHigh
+			state.currentStop = currentHigh * (1 - trailingPct)
 		}
 		if state.isActivated {
-			if currentPrice > state.highestPrice {
-				state.highestPrice = currentPrice
-				newStop := currentPrice * (1 - trailingPct)
+			if currentHigh > state.highestPrice {
+				state.highestPrice = currentHigh
+				newStop := currentHigh * (1 - trailingPct)
 				if newStop > state.currentStop {
 					state.currentStop = newStop
 				}
 			}
-			if currentPrice <= state.currentStop {
+			// 触发：最低价跌到移动止损价
+			if currentLow <= state.currentStop {
 				return true
 			}
 		}
 	} else {
-		if !state.isActivated && currentPrice <= activationPrice {
+		// 空头：使用最低价判断激活，用最高价判断触发
+		if !state.isActivated && currentLow <= activationPrice {
 			state.isActivated = true
-			state.lowestPrice = currentPrice
-			state.currentStop = currentPrice * (1 + trailingPct)
+			state.lowestPrice = currentLow
+			state.currentStop = currentLow * (1 + trailingPct)
 		}
 		if state.isActivated {
-			if currentPrice < state.lowestPrice {
-				state.lowestPrice = currentPrice
-				newStop := currentPrice * (1 + trailingPct)
+			if currentLow < state.lowestPrice {
+				state.lowestPrice = currentLow
+				newStop := currentLow * (1 + trailingPct)
 				if newStop < state.currentStop {
 					state.currentStop = newStop
 				}
 			}
-			if currentPrice >= state.currentStop {
+			// 触发：最高价涨到移动止损价
+			if currentHigh >= state.currentStop {
 				return true
 			}
 		}
@@ -2131,6 +2160,7 @@ func (s *BacktestService) GetSupportedStrategies() []map[string]string {
 		{"volume_price", "量价分析"},
 		{"wick", "引线策略"},
 		{"candlestick", "K线形态"},
+		{"macd", "MACD交叉"},
 	}
 	result := make([]map[string]string, 0, len(allStrategies))
 	for _, st := range allStrategies {

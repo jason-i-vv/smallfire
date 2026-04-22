@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.0.1] - 2026-04-22
+
+### Added
+- 回测支持 MACD 交叉策略（回测接口 + 策略分析器）
+
 ## [0.1.0.0] - 2026-04-15
 
 ### Added
