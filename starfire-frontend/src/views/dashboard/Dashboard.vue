@@ -4,7 +4,7 @@
     <el-row :gutter="20" class="stats-row">
       <el-col :span="6">
         <StatCard
-          title="总盈亏"
+          :title="t('dashboard.totalPnl')"
           :value="formatPnL(stats.totalPnL)"
           :change="stats.pnlChange"
           type="profit"
@@ -12,7 +12,7 @@
       </el-col>
       <el-col :span="6">
         <StatCard
-          title="胜率"
+          :title="t('dashboard.winRate')"
           :value="stats.winRate + '%'"
           :change="stats.winRateChange"
           type="rate"
@@ -20,14 +20,14 @@
       </el-col>
       <el-col :span="6">
         <StatCard
-          title="盈亏比"
+          :title="t('dashboard.profitFactor')"
           :value="stats.profitFactor"
           type="ratio"
         />
       </el-col>
       <el-col :span="6">
         <StatCard
-          title="最大回撤"
+          :title="t('dashboard.maxDrawdown')"
           :value="stats.maxDrawdown + '%'"
           type="drawdown"
         />
@@ -37,7 +37,7 @@
     <!-- 权益曲线 -->
     <el-card class="chart-card">
       <template #header>
-        <span>权益曲线</span>
+        <span>{{ t('dashboard.equityCurve') }}</span>
       </template>
       <EquityCurve :data="equityData" />
     </el-card>
@@ -47,7 +47,7 @@
       <el-col :span="12">
         <el-card>
           <template #header>
-            <span>当前持仓</span>
+            <span>{{ t('dashboard.currentPositions') }}</span>
           </template>
           <PositionList :positions="positions" @close="handleClosePosition" />
         </el-card>
@@ -55,7 +55,7 @@
       <el-col :span="12">
         <el-card>
           <template #header>
-            <span>最新信号</span>
+            <span>{{ t('dashboard.latestSignals') }}</span>
           </template>
           <SignalList :signals="recentSignals" @view="handleViewSignal" />
         </el-card>
@@ -66,6 +66,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import StatCard from '@/components/common/StatCard.vue'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
@@ -74,6 +75,8 @@ import SignalList from '@/components/signals/SignalList.vue'
 import { tradeApi } from '@/api/trades'
 import { signalApi } from '@/api/signals'
 import { formatPnL } from '@/utils/formatters'
+
+const { t } = useI18n()
 
 const stats = ref({
   totalPnL: 0,
@@ -174,10 +177,10 @@ const fetchData = async () => {
 const handleClosePosition = async (position) => {
   try {
     await tradeApi.closePosition(position.id, { reason: 'manual' })
-    ElMessage.success('平仓成功')
+    ElMessage.success(t('common.closeSuccess'))
     fetchData()
   } catch (error) {
-    ElMessage.error('平仓失败')
+    ElMessage.error(t('common.closeFailed'))
   }
 }
 

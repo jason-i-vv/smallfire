@@ -4,13 +4,13 @@
     <el-row :gutter="20" class="stats-row">
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">总持仓</div>
-          <div class="stat-value">{{ positions.length }}</div>
+          <div class="stat-label">{{ t('positions.totalPositions') || '总持仓' }}</div>
+          <div class="stat-value">{{ pagination.total }}</div>
         </div>
       </el-col>
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">浮动盈亏</div>
+          <div class="stat-label">{{ t('positions.unrealizedPnl') || '浮动盈亏' }}</div>
           <div class="stat-value" :class="totalPnL >= 0 ? 'profit' : 'loss'">
             {{ formatPnL(totalPnL) }}
           </div>
@@ -18,13 +18,13 @@
       </el-col>
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">总保证金</div>
+          <div class="stat-label">{{ t('positions.totalMargin') || '总保证金' }}</div>
           <div class="stat-value">{{ formatPnL(totalMargin) }}</div>
         </div>
       </el-col>
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">持仓均价</div>
+          <div class="stat-label">{{ t('positions.avgEntryPrice') || '持仓均价' }}</div>
           <div class="stat-value">{{ positions.length > 0 ? formatPrice(avgEntryPrice) : '-' }}</div>
         </div>
       </el-col>
@@ -33,19 +33,31 @@
     <!-- 加载状态 -->
     <div v-if="loading" class="loading-state">
       <el-icon class="is-loading"><Loading /></el-icon>
-      <span>加载中...</span>
+      <span>{{ t('common.loading') }}</span>
     </div>
 
     <!-- 持仓列表 -->
     <template v-else>
       <el-card v-if="positions.length > 0">
         <template #header>
-          <span>当前持仓</span>
+          <span>{{ t('positions.title') }}</span>
         </template>
         <PositionList :positions="positions" @close="handleClosePosition" />
+        <!-- 分页 -->
+        <div class="pagination-wrapper">
+          <el-pagination
+            v-model:current-page="pagination.page"
+            v-model:page-size="pagination.pageSize"
+            :page-sizes="[20, 50, 100]"
+            :total="pagination.total"
+            layout="total, sizes, prev, pager, next"
+            @size-change="handleSizeChange"
+            @current-change="handlePageChange"
+          />
+        </div>
       </el-card>
       <div v-else class="empty-state">
-        <p>暂无持仓</p>
+        <p>{{ t('positions.noPositions') }}</p>
       </div>
     </template>
   </div>
@@ -53,14 +65,22 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PositionList from '@/components/trades/PositionList.vue'
 import { tradeApi } from '@/api/trades'
 import { formatPnL, formatPrice } from '@/utils/formatters'
 
+const { t } = useI18n()
 const loading = ref(false)
 const positions = ref([])
+
+const pagination = ref({
+  page: 1,
+  pageSize: 20,
+  total: 0
+})
 
 const totalPnL = computed(() => {
   return positions.value.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0)
@@ -79,8 +99,12 @@ const avgEntryPrice = computed(() => {
 const fetchPositions = async () => {
   loading.value = true
   try {
-    const res = await tradeApi.positions()
-    positions.value = res.data || []
+    const res = await tradeApi.positions({
+      page: pagination.value.page,
+      page_size: pagination.value.pageSize
+    })
+    positions.value = res.data?.items || []
+    pagination.value.total = res.data?.total || 0
   } catch (error) {
     console.error('Failed to fetch positions:', error)
   } finally {
@@ -91,22 +115,33 @@ const fetchPositions = async () => {
 const handleClosePosition = async (position) => {
   try {
     await ElMessageBox.confirm(
-      `确定要平仓 ${position.symbol_code || position.symbol_id} 吗？`,
-      '确认平仓',
+      `${t('common.confirmDelete')} ${position.symbol_code || position.symbol_id}?`,
+      t('positions.close'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
     await tradeApi.closePosition(position.id, { price: position.current_price })
-    ElMessage.success('平仓成功')
+    ElMessage.success(t('common.closeSuccess'))
     fetchPositions()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('平仓失败')
+      ElMessage.error(t('common.closeFailed'))
     }
   }
+}
+
+const handlePageChange = (page) => {
+  pagination.value.page = page
+  fetchPositions()
+}
+
+const handleSizeChange = (size) => {
+  pagination.value.pageSize = size
+  pagination.value.page = 1
+  fetchPositions()
 }
 
 onMounted(() => {
@@ -168,6 +203,13 @@ onMounted(() => {
     background: $surface !important;
     border-color: $border !important;
     color: $text-primary;
+  }
+
+  .pagination-wrapper {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+    padding: 12px 0;
   }
 }
 </style>

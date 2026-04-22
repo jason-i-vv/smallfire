@@ -95,12 +95,16 @@ const (
 	SignalTypeMorningStar      = "morning_star"       // 早晨之星（看多）
 	SignalTypeEveningStar      = "evening_star"       // 黄昏之星（看空）
 
+	// MACD信号类型
+	SignalTypeMACD = "macd"
+
 	SourceTypeBox        = "box"
 	SourceTypeTrend      = "trend"
 	SourceTypeKeyLevel   = "key_level"
 	SourceTypeVolume     = "volume"
 	SourceTypeWick       = "wick"
 	SourceTypeCandlestick = "candlestick"
+	SourceTypeMACD       = "macd"
 
 	DirectionLong  = "long"
 	DirectionShort = "short"

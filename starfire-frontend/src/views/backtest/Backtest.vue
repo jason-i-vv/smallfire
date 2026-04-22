@@ -6,29 +6,29 @@
         <el-card class="config-card">
           <template #header>
             <div class="card-header">
-              <span>回测参数配置</span>
+              <span>{{ t('backtest.config') || '回测参数配置' }}</span>
               <el-button type="primary" :loading="loading" @click="runBacktest" :disabled="!canRun">
                 <el-icon v-if="!loading"><VideoPlay /></el-icon>
-                {{ loading ? '回测中...' : '开始回测' }}
+                {{ loading ? t('backtest.running') || '回测中...' : t('backtest.start') || '开始回测' }}
               </el-button>
             </div>
           </template>
 
           <el-form :model="form" label-width="100px" class="config-form">
             <!-- 市场选择 -->
-            <el-form-item label="市场">
-              <el-select v-model="form.market_code" placeholder="请选择市场" @change="onMarketChange">
+            <el-form-item :label="t('backtest.market') || '市场'">
+              <el-select v-model="form.market_code" :placeholder="t('backtest.selectMarket') || '请选择市场'" @change="onMarketChange">
                 <el-option label="Bybit" value="bybit" />
-                <el-option label="A股" value="a_stock" />
-                <el-option label="美股" value="us_stock" />
+                <el-option :label="t('opportunities.aStock') || 'A股'" value="a_stock" />
+                <el-option :label="t('opportunities.usStock') || '美股'" value="us_stock" />
               </el-select>
             </el-form-item>
 
             <!-- 标的选择 -->
-            <el-form-item label="交易标的">
+            <el-form-item :label="t('backtest.symbol') || '交易标的'">
               <el-select
                 v-model="form.symbol_code"
-                placeholder="请先选择市场"
+                :placeholder="t('backtest.selectMarketFirst') || '请先选择市场'"
                 filterable
                 :disabled="!form.market_code"
                 @focus="loadSymbols"
@@ -43,17 +43,17 @@
             </el-form-item>
 
             <!-- 周期选择 -->
-            <el-form-item label="K线周期">
-              <el-select v-model="form.period" placeholder="请选择周期">
-                <el-option label="15分钟" value="15m" />
-                <el-option label="1小时" value="1h" />
-                <el-option label="1天" value="1d" />
+            <el-form-item :label="t('backtest.period') || 'K线周期'">
+              <el-select v-model="form.period" :placeholder="t('backtest.selectPeriod') || '请选择周期'">
+                <el-option :label="t('backtest.15min') || '15分钟'" value="15m" />
+                <el-option :label="t('backtest.1hour') || '1小时'" value="1h" />
+                <el-option :label="t('backtest.1day') || '1天'" value="1d" />
               </el-select>
             </el-form-item>
 
             <!-- 策略选择 -->
-            <el-form-item label="策略类型">
-              <el-select v-model="form.strategy_type" placeholder="请选择策略">
+            <el-form-item :label="t('backtest.strategyType') || '策略类型'">
+              <el-select v-model="form.strategy_type" :placeholder="t('backtest.selectStrategy') || '请选择策略'">
                 <el-option
                   v-for="s in strategies"
                   :key="s.type"
@@ -64,22 +64,22 @@
             </el-form-item>
 
             <!-- 时间范围 -->
-            <el-form-item label="开始时间">
+            <el-form-item :label="t('backtest.startTime') || '开始时间'">
               <el-date-picker
                 v-model="form.start_time"
                 type="datetime"
-                placeholder="选择开始时间"
+                :placeholder="t('backtest.selectStartTime') || '选择开始时间'"
                 format="YYYY-MM-DD HH:mm:ss"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 :disabled-date="disabledStartDate"
               />
             </el-form-item>
 
-            <el-form-item label="结束时间">
+            <el-form-item :label="t('backtest.endTime') || '结束时间'">
               <el-date-picker
                 v-model="form.end_time"
                 type="datetime"
-                placeholder="选择结束时间"
+                :placeholder="t('backtest.selectEndTime') || '选择结束时间'"
                 format="YYYY-MM-DD HH:mm:ss"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 :disabled-date="disabledEndDate"
@@ -87,18 +87,18 @@
             </el-form-item>
 
             <!-- 交易开关 -->
-            <el-divider content-position="left">交易设置</el-divider>
+            <el-divider content-position="left">{{ t('backtest.tradeSettings') || '交易设置' }}</el-divider>
 
-            <el-form-item label="执行交易">
+            <el-form-item :label="t('backtest.enableTrade') || '执行交易'">
               <el-switch v-model="form.enable_trade" />
-              <span class="switch-hint">{{ form.enable_trade ? '将根据信号执行交易' : '仅分析信号，不执行交易' }}</span>
+              <span class="switch-hint">{{ form.enable_trade ? (t('backtest.willTrade') || '将根据信号执行交易') : (t('backtest.analyzeOnly') || '仅分析信号，不执行交易') }}</span>
             </el-form-item>
 
             <!-- 资金参数（仅启用交易时显示） -->
             <template v-if="form.enable_trade">
-              <el-divider content-position="left">资金参数</el-divider>
+              <el-divider content-position="left">{{ t('backtest.capitalParams') || '资金参数' }}</el-divider>
 
-              <el-form-item label="初始资金">
+              <el-form-item :label="t('backtest.initialCapital') || '初始资金'">
                 <el-input-number
                   v-model="form.initial_capital"
                   :min="1000"
@@ -107,7 +107,7 @@
                 />
               </el-form-item>
 
-              <el-form-item label="仓位比例">
+              <el-form-item :label="t('backtest.positionSize') || '仓位比例'">
                 <el-slider
                   v-model="form.position_size_pct"
                   :min="1"
@@ -118,9 +118,9 @@
               </el-form-item>
 
               <!-- 风控参数 -->
-              <el-divider content-position="left">风控参数</el-divider>
+              <el-divider content-position="left">{{ t('backtest.riskParams') || '风控参数' }}</el-divider>
 
-              <el-form-item label="止损比例">
+              <el-form-item :label="t('backtest.stopLossPct') || '止损比例'">
                 <el-slider
                   v-model="form.stop_loss_pct"
                   :min="0.5"
@@ -131,7 +131,7 @@
                 <span class="slider-label">{{ form.stop_loss_pct }}%</span>
               </el-form-item>
 
-              <el-form-item label="止盈比例">
+              <el-form-item :label="t('backtest.takeProfitPct') || '止盈比例'">
                 <el-slider
                   v-model="form.take_profit_pct"
                   :min="1"
@@ -143,13 +143,13 @@
               </el-form-item>
 
               <!-- 移动止损 -->
-              <el-form-item label="移动止损">
+              <el-form-item :label="t('backtest.trailingStop') || '移动止损'">
                 <el-switch v-model="form.trailing_stop_enabled" />
-                <span class="switch-hint">{{ form.trailing_stop_enabled ? '已启用移动止损' : '不使用移动止损' }}</span>
+                <span class="switch-hint">{{ form.trailing_stop_enabled ? (t('backtest.trailingEnabled') || '已启用移动止损') : (t('backtest.trailingDisabled') || '不使用移动止损') }}</span>
               </el-form-item>
 
               <template v-if="form.trailing_stop_enabled">
-                <el-form-item label="止损距离">
+                <el-form-item :label="t('backtest.stopDistance') || '止损距离'">
                   <el-slider
                     v-model="form.trailing_stop_pct"
                     :min="0.5"
@@ -160,7 +160,7 @@
                   <span class="slider-label">{{ form.trailing_stop_pct }}%</span>
                 </el-form-item>
 
-                <el-form-item label="激活距离">
+                <el-form-item :label="t('backtest.activateDistance') || '激活距离'">
                   <el-slider
                     v-model="form.trailing_activate_pct"
                     :min="0.5"
@@ -183,13 +183,13 @@
           <el-row :gutter="16" class="stats-row">
             <el-col :span="6">
               <div class="stat-card" :class="result.statistics.total_pnl >= 0 ? 'profit' : 'loss'">
-                <div class="stat-label">总盈亏</div>
+                <div class="stat-label">{{ t('statistics.totalPnl') || '总盈亏' }}</div>
                 <div class="stat-value">{{ formatPnL(result.statistics.total_pnl) }}</div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-label">收益率</div>
+                <div class="stat-label">{{ t('statistics.totalReturn') || '收益率' }}</div>
                 <div class="stat-value" :class="result.statistics.total_pnl_percent >= 0 ? 'profit' : 'loss'">
                   {{ (result.statistics.total_pnl_percent * 100).toFixed(2) }}%
                 </div>
@@ -197,13 +197,13 @@
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-label">胜率</div>
+                <div class="stat-label">{{ t('statistics.winRate') || '胜率' }}</div>
                 <div class="stat-value rate">{{ (result.statistics.win_rate * 100).toFixed(1) }}%</div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-label">交易次数</div>
+                <div class="stat-label">{{ t('statistics.totalTrades') || '交易次数' }}</div>
                 <div class="stat-value">{{ result.statistics.total_trades }}</div>
               </div>
             </el-col>
@@ -212,25 +212,25 @@
           <el-row :gutter="16" class="stats-row">
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-label">盈亏比</div>
+                <div class="stat-label">{{ t('statistics.profitFactor') || '盈亏比' }}</div>
                 <div class="stat-value rate">{{ result.statistics.lose_trades > 0 ? result.statistics.profit_factor.toFixed(2) + ':1' : 'N/A' }}</div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stat-card" :class="result.statistics.max_drawdown_pct > 0.1 ? 'loss' : ''">
-                <div class="stat-label">最大回撤</div>
+                <div class="stat-label">{{ t('statistics.maxDrawdown') || '最大回撤' }}</div>
                 <div class="stat-value loss">{{ (result.statistics.max_drawdown_pct * 100).toFixed(2) }}%</div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-label">夏普比率</div>
+                <div class="stat-label">{{ t('statistics.sharpeRatio') || '夏普比率' }}</div>
                 <div class="stat-value rate">{{ result.statistics.sharpe_ratio.toFixed(2) }}</div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-label">最终资金</div>
+                <div class="stat-label">{{ t('backtest.finalCapital') || '最终资金' }}</div>
                 <div class="stat-value">{{ formatNumber(result.statistics.final_capital) }}</div>
               </div>
             </el-col>
@@ -238,7 +238,7 @@
 
           <!-- 权益曲线 -->
           <el-card v-if="equityData.length > 0" class="result-card">
-            <template #header>权益曲线</template>
+            <template #header>{{ t('dashboard.equityCurve') || '权益曲线' }}</template>
             <EquityCurve :data="equityData" />
           </el-card>
         </div>
@@ -247,18 +247,18 @@
         <el-card v-if="result" class="result-card" :class="{ 'chart-mode-card': signalViewMode === 'chart' && supportsChartMode }">
           <template #header>
             <div class="card-header">
-              <span>信号列表</span>
+              <span>{{ t('backtest.signalList') || '信号列表' }}</span>
               <div class="card-header-actions">
                 <span class="trade-count">
-                  共 {{ result.signals?.length || 0 }} 个信号
-                  <template v-if="result.trades?.length > 0"> / {{ result.trades.length }} 笔交易</template>
+                  {{ t('backtest.totalSignals') || '共' }} {{ result.signals?.length || 0 }} {{ t('backtest.signals') || '个信号' }}
+                  <template v-if="result.trades?.length > 0"> / {{ result.trades.length }} {{ t('backtest.trades') || '笔交易' }}</template>
                 </span>
                 <el-button-group v-if="supportsChartMode" size="small">
                   <el-button :type="signalViewMode === 'chart' ? 'primary' : ''" @click="signalViewMode = 'chart'">
-                    <el-icon><Histogram /></el-icon> 图表
+                    <el-icon><Histogram /></el-icon> {{ t('backtest.chart') || '图表' }}
                   </el-button>
                   <el-button :type="signalViewMode === 'list' ? 'primary' : ''" @click="signalViewMode = 'list'">
-                    <el-icon><List /></el-icon> 列表
+                    <el-icon><List /></el-icon> {{ t('backtest.list') || '列表' }}
                   </el-button>
                 </el-button-group>
               </div>
@@ -280,42 +280,42 @@
           <!-- 列表模式：表格 -->
           <el-table v-if="signalViewMode === 'list'" :data="result.signals || []" stripe style="width: 100%" max-height="300" @row-click="(row) => viewChart('signal', row)">
             <el-table-column prop="id" label="#" width="60" />
-            <el-table-column label="时间" width="160">
+            <el-table-column :label="t('signals.createdAt') || '时间'" width="160">
               <template #default="{ row }">
                 {{ formatTime(row.kline_time || row.created_at) }}
               </template>
             </el-table-column>
-            <el-table-column prop="signal_type" label="信号类型" width="140">
+            <el-table-column prop="signal_type" :label="t('signals.type') || '信号类型'" width="140">
               <template #default="{ row }">
                 <el-tag size="small">{{ getSignalTypeLabel(row.signal_type) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="direction" label="方向" width="80">
+            <el-table-column prop="direction" :label="t('signals.direction') || '方向'" width="80">
               <template #default="{ row }">
                 <el-tag :type="row.direction === 'long' ? 'success' : 'danger'" size="small">
-                  {{ row.direction === 'long' ? '做多' : '做空' }}
+                  {{ row.direction === 'long' ? (t('opportunities.long') || '做多') : (t('opportunities.short') || '做空') }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="price" label="信号价格" width="120">
+            <el-table-column prop="price" :label="t('signals.price') || '信号价格'" width="120">
               <template #default="{ row }">
                 {{ formatNumber(row.price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="strength" label="强度" width="80">
+            <el-table-column prop="strength" :label="t('signals.strength') || '强度'" width="80">
               <template #default="{ row }">
                 <el-rate :model-value="row.strength" disabled size="small" />
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" width="100">
+            <el-table-column prop="status" :label="t('signals.status') || '状态'" width="100">
               <template #default="{ row }">
                 <el-tag size="small" :type="getStatusType(row.status)">{{ getStatusLabel(row.status) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="80" fixed="right">
+            <el-table-column :label="t('common.actions') || '操作'" width="80" fixed="right">
               <template #default="{ row }">
                 <el-button type="primary" :icon="View" link @click.stop="viewChart('signal', row)">
-                  图表
+                  {{ t('backtest.chart') || '图表' }}
                 </el-button>
               </template>
             </el-table-column>
@@ -326,47 +326,47 @@
         <el-card v-if="result && result.boxes && result.boxes.length > 0" class="result-card">
           <template #header>
             <div class="card-header">
-              <span>箱体列表</span>
-              <span class="trade-count">共 {{ result.boxes.length }} 个箱体</span>
+              <span>{{ t('backtest.boxList') || '箱体列表' }}</span>
+              <span class="trade-count">{{ t('backtest.totalBoxes') || '共' }} {{ result.boxes.length }} {{ t('backtest.boxes') || '个箱体' }}</span>
             </div>
           </template>
           <el-table :data="result.boxes" stripe style="width: 100%" max-height="300" @row-click="(row) => viewChart('box', row)">
             <el-table-column prop="id" label="#" width="60" />
-            <el-table-column label="开始时间" width="160">
+            <el-table-column :label="t('backtest.startTime') || '开始时间'" width="160">
               <template #default="{ row }">
                 {{ formatTime(row.start_time) }}
               </template>
             </el-table-column>
-            <el-table-column prop="high_price" label="高点" width="120">
+            <el-table-column prop="high_price" :label="t('backtest.high') || '高点'" width="120">
               <template #default="{ row }">
                 {{ formatNumber(row.high_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="low_price" label="低点" width="120">
+            <el-table-column prop="low_price" :label="t('backtest.low') || '低点'" width="120">
               <template #default="{ row }">
                 {{ formatNumber(row.low_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="width_price" label="宽度" width="120">
+            <el-table-column prop="width_price" :label="t('backtest.width') || '宽度'" width="120">
               <template #default="{ row }">
                 {{ formatNumber(row.width_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="width_percent" label="幅度%" width="100">
+            <el-table-column prop="width_percent" :label="t('backtest.percent') || '幅度%'" width="100">
               <template #default="{ row }">
                 {{ row.width_percent?.toFixed(2) }}%
               </template>
             </el-table-column>
-            <el-table-column prop="klines_count" label="K线数" width="80" />
-            <el-table-column prop="status" label="状态" width="100">
+            <el-table-column prop="klines_count" :label="t('backtest.klineCount') || 'K线数'" width="80" />
+            <el-table-column prop="status" :label="t('signals.status') || '状态'" width="100">
               <template #default="{ row }">
                 <el-tag size="small" :type="getBoxStatusType(row.status)">{{ row.status }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="80" fixed="right">
+            <el-table-column :label="t('common.actions') || '操作'" width="80" fixed="right">
               <template #default="{ row }">
                 <el-button type="primary" :icon="View" link @click.stop="viewChart('box', row)">
-                  图表
+                  {{ t('backtest.chart') || '图表' }}
                 </el-button>
               </template>
             </el-table-column>
@@ -377,31 +377,31 @@
         <el-card v-if="result && result.trends && result.trends.length > 0" class="result-card">
           <template #header>
             <div class="card-header">
-              <span>趋势列表</span>
-              <span class="trade-count">共 {{ result.trends.length }} 条趋势</span>
+              <span>{{ t('backtest.trendList') || '趋势列表' }}</span>
+              <span class="trade-count">{{ t('backtest.totalTrends') || '共' }} {{ result.trends.length }} {{ t('backtest.trends') || '条趋势' }}</span>
             </div>
           </template>
           <el-table :data="result.trends" stripe style="width: 100%" max-height="300" @row-click="(row) => viewChart('trend', row)">
-            <el-table-column label="开始时间" width="160">
+            <el-table-column :label="t('backtest.startTime') || '开始时间'" width="160">
               <template #default="{ row }">
                 {{ formatTime(row.start_time) }}
               </template>
             </el-table-column>
-            <el-table-column label="结束时间" width="160">
+            <el-table-column :label="t('backtest.endTime') || '结束时间'" width="160">
               <template #default="{ row }">
                 {{ formatTime(row.end_time) }}
               </template>
             </el-table-column>
-            <el-table-column prop="trend_type" label="趋势类型" width="120">
+            <el-table-column prop="trend_type" :label="t('backtest.trendType') || '趋势类型'" width="120">
               <template #default="{ row }">
                 <el-tag size="small" :type="getTrendType(row.trend_type)">{{ getTrendLabel(row.trend_type) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="period" label="周期" width="80" />
-            <el-table-column label="操作" width="80" fixed="right">
+            <el-table-column prop="period" :label="t('signals.period') || '周期'" width="80" />
+            <el-table-column :label="t('common.actions') || '操作'" width="80" fixed="right">
               <template #default="{ row }">
                 <el-button type="primary" :icon="View" link @click.stop="viewChart('trend', row)">
-                  图表
+                  {{ t('backtest.chart') || '图表' }}
                 </el-button>
               </template>
             </el-table-column>
@@ -412,11 +412,11 @@
         <el-card v-if="result && form.enable_trade && hasTrades" class="result-card">
           <template #header>
             <div class="card-header">
-              <span>交易记录</span>
+              <span>{{ t('backtest.tradeHistory') || '交易记录' }}</span>
               <div class="card-header-actions">
-                <span class="trade-count">共 {{ result.trades.length }} 笔</span>
+                <span class="trade-count">{{ t('backtest.total') || '共' }} {{ result.trades.length }} {{ t('backtest.trades') || '笔' }}</span>
                 <el-button link size="small" @click="showTradeAnalysis = !showTradeAnalysis">
-                  {{ showTradeAnalysis ? '收起分析' : '展开分析' }}
+                  {{ showTradeAnalysis ? (t('backtest.collapse') || '收起分析') : (t('backtest.expand') || '展开分析') }}
                 </el-button>
               </div>
             </div>
@@ -427,25 +427,25 @@
             <el-row :gutter="16">
               <el-col :span="6">
                 <div class="analysis-item">
-                  <div class="analysis-label">多头胜率</div>
+                  <div class="analysis-label">{{ t('backtest.longWinRate') || '多头胜率' }}</div>
                   <div class="analysis-value">{{ tradeAnalysis.longWinRate }}</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="analysis-item">
-                  <div class="analysis-label">空头胜率</div>
+                  <div class="analysis-label">{{ t('backtest.shortWinRate') || '空头胜率' }}</div>
                   <div class="analysis-value">{{ tradeAnalysis.shortWinRate }}</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="analysis-item">
-                  <div class="analysis-label">平均持仓</div>
+                  <div class="analysis-label">{{ t('backtest.avgHold') || '平均持仓' }}</div>
                   <div class="analysis-value">{{ tradeAnalysis.avgHoldHours }}h</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="analysis-item">
-                  <div class="analysis-label">最大连胜/连亏</div>
+                  <div class="analysis-label">{{ t('backtest.maxStreak') || '最大连胜/连亏' }}</div>
                   <div class="analysis-value">
                     <span class="text-success">{{ tradeAnalysis.maxWinStreak }}</span> /
                     <span class="text-danger">{{ tradeAnalysis.maxLoseStreak }}</span>
@@ -456,25 +456,25 @@
             <el-row :gutter="16" style="margin-top: 12px">
               <el-col :span="6">
                 <div class="analysis-item">
-                  <div class="analysis-label">最佳交易</div>
+                  <div class="analysis-label">{{ t('backtest.bestTrade') || '最佳交易' }}</div>
                   <div class="analysis-value text-success">{{ formatPnL(tradeAnalysis.bestTrade) }}</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="analysis-item">
-                  <div class="analysis-label">最差交易</div>
+                  <div class="analysis-label">{{ t('backtest.worstTrade') || '最差交易' }}</div>
                   <div class="analysis-value text-danger">{{ formatPnL(tradeAnalysis.worstTrade) }}</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="analysis-item">
-                  <div class="analysis-label">平均盈利</div>
+                  <div class="analysis-label">{{ t('backtest.avgWin') || '平均盈利' }}</div>
                   <div class="analysis-value text-success">{{ formatPnL(tradeAnalysis.avgWin) }}</div>
                 </div>
               </el-col>
               <el-col :span="6">
                 <div class="analysis-item">
-                  <div class="analysis-label">平均亏损</div>
+                  <div class="analysis-label">{{ t('backtest.avgLoss') || '平均亏损' }}</div>
                   <div class="analysis-value text-danger">{{ formatPnL(tradeAnalysis.avgLoss) }}</div>
                 </div>
               </el-col>
@@ -490,55 +490,55 @@
             @row-click="(row) => viewChart('trade', row)"
           >
             <el-table-column prop="id" label="#" width="50" />
-            <el-table-column label="入场时间" width="150">
+            <el-table-column :label="t('backtest.entryTime') || '入场时间'" width="150">
               <template #default="{ row }">
                 {{ formatTime(row.entry_time) }}
               </template>
             </el-table-column>
-            <el-table-column prop="direction" label="方向" width="70">
+            <el-table-column prop="direction" :label="t('signals.direction') || '方向'" width="70">
               <template #default="{ row }">
                 <el-tag :type="row.direction === 'long' ? 'success' : 'danger'" size="small">
-                  {{ row.direction === 'long' ? '多' : '空' }}
+                  {{ row.direction === 'long' ? (t('positions.long') || '多') : (t('positions.short') || '空') }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="entry_price" label="入场价" width="110">
+            <el-table-column prop="entry_price" :label="t('opportunities.entryPrice') || '入场价'" width="110">
               <template #default="{ row }">
                 {{ formatNumber(row.entry_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="exit_price" label="出场价" width="110">
+            <el-table-column prop="exit_price" :label="t('opportunities.exitPrice') || '出场价'" width="110">
               <template #default="{ row }">
                 {{ formatNumber(row.exit_price) }}
               </template>
             </el-table-column>
-            <el-table-column prop="pnl_percent" label="收益率" width="90">
+            <el-table-column prop="pnl_percent" :label="t('statistics.totalReturn') || '收益率'" width="90">
               <template #default="{ row }">
                 <span :class="row.pnl_percent >= 0 ? 'text-success' : 'text-danger'">
                   {{ (row.pnl_percent * 100).toFixed(2) }}%
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="pnl" label="盈亏" width="110">
+            <el-table-column prop="pnl" :label="t('opportunities.pnl') || '盈亏'" width="110">
               <template #default="{ row }">
                 <span :class="row.pnl >= 0 ? 'text-success' : 'text-danger'">
                   {{ formatPnL(row.pnl) }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="cum_pnl" label="累计盈亏" width="110">
+            <el-table-column prop="cum_pnl" :label="t('backtest.cumPnl') || '累计盈亏'" width="110">
               <template #default="{ row }">
                 <span :class="row.cum_pnl >= 0 ? 'text-success' : 'text-danger'">
                   {{ formatPnL(row.cum_pnl) }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="hold_hours" label="持仓" width="80">
+            <el-table-column prop="hold_hours" :label="t('backtest.hold') || '持仓'" width="80">
               <template #default="{ row }">
                 {{ row.hold_hours?.toFixed(1) || 0 }}h
               </template>
             </el-table-column>
-            <el-table-column prop="exit_reason" label="出场" width="80">
+            <el-table-column prop="exit_reason" :label="t('backtest.exit') || '出场'" width="80">
               <template #default="{ row }">
                 <el-tag size="small" :type="getExitReasonType(row.exit_reason)">
                   {{ getExitReasonLabel(row.exit_reason) }}
@@ -550,25 +550,25 @@
 
         <!-- 启用了交易但没有产生交易记录 -->
         <el-card v-else-if="result && form.enable_trade && !hasTrades" class="result-card">
-          <el-empty description="该时间段未产生交易信号" :image-size="80" />
+          <el-empty :description="t('backtest.noTrades') || '该时间段未产生交易信号'" :image-size="80" />
         </el-card>
 
         <!-- 回测信息 -->
         <el-card v-if="result" class="result-card info-card">
-          <template #header>回测信息</template>
+          <template #header>{{ t('backtest.backtestInfo') || '回测信息' }}</template>
           <el-descriptions :column="3" border>
-            <el-descriptions-item label="标的">{{ currentSymbolName }}</el-descriptions-item>
-            <el-descriptions-item label="周期">{{ result.request.period }}</el-descriptions-item>
-            <el-descriptions-item label="策略">{{ getStrategyLabel(result.request.strategy_type) }}</el-descriptions-item>
-            <el-descriptions-item label="开始时间">{{ result.request.start_time }}</el-descriptions-item>
-            <el-descriptions-item label="结束时间">{{ result.request.end_time }}</el-descriptions-item>
-            <el-descriptions-item label="运行时间">{{ result.run_time_ms }}ms</el-descriptions-item>
+            <el-descriptions-item :label="t('backtest.symbol') || '标的'">{{ currentSymbolName }}</el-descriptions-item>
+            <el-descriptions-item :label="t('signals.period') || '周期'">{{ result.request.period }}</el-descriptions-item>
+            <el-descriptions-item :label="t('backtest.strategy') || '策略'">{{ getStrategyLabel(result.request.strategy_type) }}</el-descriptions-item>
+            <el-descriptions-item :label="t('backtest.startTime') || '开始时间'">{{ result.request.start_time }}</el-descriptions-item>
+            <el-descriptions-item :label="t('backtest.endTime') || '结束时间'">{{ result.request.end_time }}</el-descriptions-item>
+            <el-descriptions-item :label="t('backtest.runTime') || '运行时间'">{{ result.run_time_ms }}ms</el-descriptions-item>
           </el-descriptions>
         </el-card>
 
         <!-- 空状态 -->
         <div v-if="!result" class="empty-state">
-          <el-empty description="点击左侧「开始回测」按钮执行回测">
+          <el-empty :description="t('backtest.clickToStart') || '点击左侧「开始回测」按钮执行回测'">
             <template #image>
               <div class="empty-icon">📊</div>
             </template>
@@ -582,6 +582,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { VideoPlay, View, List, Histogram } from '@element-plus/icons-vue'
 import { backtestApi } from '@/api/backtest'
@@ -589,6 +590,7 @@ import { symbolApi } from '@/api/symbols'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
 import BacktestChart from '@/components/charts/BacktestChart.vue'
 
+const { t } = useI18n()
 const router = useRouter()
 
 const loading = ref(false)
@@ -891,10 +893,10 @@ const runBacktest = async () => {
     // 保存结果到 sessionStorage
     saveToSession()
 
-    ElMessage.success('回测完成')
+    ElMessage.success(t('backtest.complete') || '回测完成')
   } catch (error) {
     console.error('Backtest failed:', error)
-    ElMessage.error(error.message || '回测失败，请检查参数配置')
+    ElMessage.error(error.message || (t('backtest.failed') || '回测失败，请检查参数配置'))
   } finally {
     loading.value = false
   }
@@ -993,7 +995,7 @@ const getExitReasonLabel = (reason) => {
 const viewChart = (type, item) => {
   // 验证symbol_code是否存在
   if (!form.value.symbol_code) {
-    ElMessage.warning('请先选择交易标的')
+    ElMessage.warning(t('backtest.selectSymbolFirst') || '请先选择交易标的')
     return
   }
 
@@ -1295,4 +1297,4 @@ onMounted(() => {
     }
   }
 }
-</style>}
+</style>

@@ -158,6 +158,20 @@
     <div class="chart-container-wrap" style="position:relative">
       <div class="chart-container" ref="chartContainer"></div>
       <canvas ref="overlayCanvas" style="position:absolute;top:0;left:0;pointer-events:none;z-index:2"></canvas>
+      <!-- 持仓止盈止损区域 -->
+      <PositionLevelOverlay
+        v-if="showPositionLevels"
+        ref="positionOverlayRef"
+        :chart="chart"
+        :candlestickSeries="candlestickSeries"
+        :entryPrice="entryPrice"
+        :entryTime="normalizedEntryTime"
+        :stopLossPrice="stopLossPrice"
+        :takeProfitPrice="takeProfitPrice"
+        :direction="positionDirection"
+        :period="period"
+        :exitTime="normalizedExitTime"
+      />
     </div>
 
     <!-- AI 分析结果对话框 -->
@@ -182,6 +196,7 @@ import { trendApi } from '@/api/trends'
 import { formatPrice, formatNumber } from '@/utils/formatters'
 import { ArrowLeft, Clock, DataLine, Lightning, TrendCharts } from '@element-plus/icons-vue'
 import AIAnalysisDialog from '@/components/common/AIAnalysisDialog.vue'
+import PositionLevelOverlay from '@/components/chart/PositionLevelOverlay.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -190,6 +205,7 @@ const symbolCode = ref(route.params.symbol || route.query.symbol || 'BTCUSDT')
 const symbolId = ref(route.query.symbolId ? parseInt(route.query.symbolId) : null)
 const signalId = ref(route.query.signalId ? parseInt(route.query.signalId) : null)
 const opportunityId = ref(route.query.opportunityId ? parseInt(route.query.opportunityId) : null)
+const trackId = ref(route.query.trackId ? parseInt(route.query.trackId) : null) // 持仓ID，标识从持仓监控进入
 const opportunityData = ref(null) // 交易机会详情数据
 
 // 通过 symbolCode 获取 symbolId
@@ -228,6 +244,47 @@ const tradeDirection = ref(route.query.tradeDirection || null)
 const entryPrice = ref(route.query.entryPrice ? parseFloat(route.query.entryPrice) : null)
 const exitPrice = ref(route.query.exitPrice ? parseFloat(route.query.exitPrice) : null)
 const tradePnl = ref(route.query.pnl ? parseFloat(route.query.pnl) : null)
+const positionDirection = ref(route.query.positionDirection || null)
+const stopLossPrice = ref(route.query.stopLossPrice ? parseFloat(route.query.stopLossPrice) : null)
+const takeProfitPrice = ref(route.query.takeProfitPrice ? parseFloat(route.query.takeProfitPrice) : null)
+// 解析时间参数：支持数字时间戳（秒/毫秒）和 ISO 日期字符串
+const parseTimeParam = (value) => {
+  if (!value) return null
+  const num = Number(value)
+  if (!isNaN(num) && isFinite(num)) {
+    return num // 纯数字时间戳
+  }
+  // ISO 日期字符串，如 "2026-04-20T10:00:00Z"
+  const d = new Date(value)
+  if (!isNaN(d.getTime())) {
+    return d.getTime() // 返回毫秒
+  }
+  return null
+}
+
+const entryTime = ref(parseTimeParam(route.query.entryTime)) // 入场时间戳
+const exitTime = ref(parseTimeParam(route.query.exitTime)) // 出场时间戳
+const exitReason = ref(route.query.exitReason || null) // 出场原因
+
+// 规范化的出场时间（秒级）
+const normalizedExitTime = computed(() => {
+  if (!exitTime.value) return null
+  if (exitTime.value > 1e11) {
+    return Math.floor(exitTime.value / 1000)
+  }
+  return exitTime.value
+})
+
+// 规范化的入场时间（秒级）
+const normalizedEntryTime = computed(() => {
+  if (!entryTime.value) return null
+  // 如果是毫秒级（超过1万亿），转换为秒
+  if (entryTime.value > 1e11) {
+    return Math.floor(entryTime.value / 1000)
+  }
+  return entryTime.value
+})
+
 const boxHigh = ref(route.query.boxHigh ? parseFloat(route.query.boxHigh) : null)
 const boxLow = ref(route.query.boxLow ? parseFloat(route.query.boxLow) : null)
 const boxStart = ref(null)
@@ -295,6 +352,12 @@ let overlayData = { boxes: [], keyLevels: [], signals: [] } // overlay 绘制数
 let emaShortSeries = null // EMA 短期均线
 let emaMediumSeries = null // EMA 中期均线
 let emaLongSeries = null // EMA 长期均线
+
+// 持仓止盈止损覆盖层
+const positionOverlayRef = ref(null)
+const showPositionLevels = computed(() => {
+  return trackId.value && entryPrice.value && (stopLossPrice.value || takeProfitPrice.value)
+})
 
 const priceClass = computed(() => {
   if (priceChange.value > 0) return 'price-up'
@@ -615,6 +678,14 @@ const fetchKlines = async () => {
       params.start_time = signalTime.value - SIGNAL_CONTEXT_BARS * periodSeconds
       params.end_time = signalTime.value + SIGNAL_CONTEXT_BARS * periodSeconds
       console.log('信号模式 - K线请求时间范围:', new Date(params.start_time * 1000).toISOString(), '到', new Date(params.end_time * 1000).toISOString(), '信号时间:', new Date(signalTime.value * 1000).toISOString())
+    } else if (normalizedEntryTime.value && normalizedExitTime.value) {
+      // 历史交易模式：覆盖入场到出场的完整区间，前后各加上下文
+      const periodSeconds = getPeriodSeconds(period.value)
+      const contextOffset = SIGNAL_CONTEXT_BARS * periodSeconds
+      params.start_time = normalizedEntryTime.value - contextOffset
+      params.end_time = normalizedExitTime.value + contextOffset
+      params.limit = 1000
+      console.log('历史交易模式 - K线请求时间范围:', new Date(params.start_time * 1000).toISOString(), '到', new Date(params.end_time * 1000).toISOString(), '入场:', new Date(normalizedEntryTime.value * 1000).toISOString(), '出场:', new Date(normalizedExitTime.value * 1000).toISOString())
     }
 
     const res = await klineApi.list(params)
@@ -798,6 +869,9 @@ const updateKlineData = (klines) => {
   } else if (keyLevelTypes.includes(sourceType.value)) {
     // 关键价位信号：绘制价位线
     fetchKeyLevels()
+  } else if (entryPrice.value && (stopLossPrice.value || takeProfitPrice.value)) {
+    // 持仓模式：不显示支撑阻力，只显示持仓价格线
+    // drawPositionPriceLines() 已在前面调用
   } else {
     // 其他模式：始终获取并显示支撑阻力
     fetchKeyLevels()
@@ -816,14 +890,20 @@ const updateKlineData = (klines) => {
   // 处理回测传递的数据
   handleBacktestData(klines)
 
-  // 处理交易机会数据
-  if (opportunityData.value) {
+  // 处理交易机会数据（如果有持仓价格线则跳过，因为会绘制重复）
+  if (opportunityData.value && !trackId.value) {
     drawOpportunityPriceLines()
   }
 
   // 最后触发重绘，确保所有 overlay 都绘制完成
   requestAnimationFrame(drawOverlay)
   setTimeout(drawOverlay, 300)
+
+  // 触发持仓止盈止损 overlay 重绘（等 chart 布局完成后再绘制）
+  if (positionOverlayRef.value) {
+    setTimeout(() => positionOverlayRef.value?.draw(), 100)
+    setTimeout(() => positionOverlayRef.value?.draw(), 500)
+  }
 }
 
 // ─── 交易机会相关 ──────────────────────────────────────────────────────────
@@ -1028,19 +1108,10 @@ const handleBacktestData = (klines) => {
     const isLong = tradeDirection.value === 'long'
     const entryColor = isLong ? '#00C853' : '#EF5350'
 
-    // 入场线
-    if (signalTime.value) {
-      const entryLine = candlestickSeries.createPriceLine({
-        price: entryPrice.value,
-        color: entryColor,
-        lineWidth: 2,
-        lineStyle: 0,
-        axisLabelVisible: true,
-        title: `入场: ${formatPrice(entryPrice.value)}`
-      })
-      levelLines.push({ id: 'entry_price', line: entryLine })
-
-      // 出场线
+    // 如果有 trackId（持仓/历史交易），止盈止损区域由 PositionLevelOverlay 绘制
+    // 这里只绘制出场线（入场线由 overlay 绘制）
+    if (showPositionLevels.value) {
+      // 持仓/历史交易模式：只画出场景
       if (exitPrice.value) {
         const exitColor = tradePnl.value >= 0 ? '#00C853' : '#EF5350'
         const exitLine = candlestickSeries.createPriceLine({
@@ -1053,10 +1124,40 @@ const handleBacktestData = (klines) => {
         })
         levelLines.push({ id: 'exit_price', line: exitLine })
       }
+    } else {
+      // 回测模式：绘制入场线和出场线
+      const entryTimeToUse = signalTime.value || normalizedEntryTime.value
+      if (entryTimeToUse) {
+        const entryLine = candlestickSeries.createPriceLine({
+          price: entryPrice.value,
+          color: entryColor,
+          lineWidth: 2,
+          lineStyle: 0,
+          axisLabelVisible: true,
+          title: `入场: ${formatPrice(entryPrice.value)}`
+        })
+        levelLines.push({ id: 'entry_price', line: entryLine })
+
+        if (exitPrice.value) {
+          const exitColor = tradePnl.value >= 0 ? '#00C853' : '#EF5350'
+          const exitLine = candlestickSeries.createPriceLine({
+            price: exitPrice.value,
+            color: exitColor,
+            lineWidth: 2,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: `出场: ${formatPrice(exitPrice.value)}`
+          })
+          levelLines.push({ id: 'exit_price', line: exitLine })
+        }
+      }
+    }
+
+    // 历史交易场景：滚动到出场时间点
+    if (exitReason.value && normalizedExitTime.value) {
+      scrollToTime(normalizedExitTime.value)
     }
   }
-
-    // 滚动已在 updateKlineData 中根据 sourceType 处理，无需重复滚动
 }
 
 // 绘制箱体：顶部线 + 底部线，背景用半透明矩形系列模拟
@@ -1650,6 +1751,24 @@ watch(
     if (newQuery.pnl) {
       tradePnl.value = parseFloat(newQuery.pnl)
     }
+    if (newQuery.positionDirection) {
+      positionDirection.value = newQuery.positionDirection
+    }
+    if (newQuery.stopLossPrice) {
+      stopLossPrice.value = parseFloat(newQuery.stopLossPrice)
+    }
+    if (newQuery.takeProfitPrice) {
+      takeProfitPrice.value = parseFloat(newQuery.takeProfitPrice)
+    }
+    if (newQuery.entryTime) {
+      entryTime.value = parseTimeParam(newQuery.entryTime)
+    }
+    if (newQuery.exitTime) {
+      exitTime.value = parseTimeParam(newQuery.exitTime)
+    }
+    if (newQuery.exitReason) {
+      exitReason.value = newQuery.exitReason
+    }
     if (newQuery.boxHigh) {
       boxHigh.value = parseFloat(newQuery.boxHigh)
     }
@@ -1761,6 +1880,24 @@ onMounted(async () => {
   if (route.query.pnl) {
     tradePnl.value = parseFloat(route.query.pnl)
   }
+  if (route.query.positionDirection) {
+    positionDirection.value = route.query.positionDirection
+  }
+  if (route.query.stopLossPrice) {
+    stopLossPrice.value = parseFloat(route.query.stopLossPrice)
+  }
+  if (route.query.takeProfitPrice) {
+    takeProfitPrice.value = parseFloat(route.query.takeProfitPrice)
+  }
+  if (route.query.entryTime) {
+    entryTime.value = parseTimeParam(route.query.entryTime)
+  }
+  if (route.query.exitTime) {
+    exitTime.value = parseTimeParam(route.query.exitTime)
+  }
+  if (route.query.exitReason) {
+    exitReason.value = route.query.exitReason
+  }
   if (route.query.boxHigh) {
     boxHigh.value = parseFloat(route.query.boxHigh)
   }
@@ -1798,8 +1935,8 @@ onMounted(async () => {
   // 打印所有路由参数用于调试
   console.log('Route params:', route.query)
 
-  // 如果有交易机会ID，先获取机会详情再加载K线
-  if (opportunityId.value) {
+  // 如果有交易机会ID且不是从持仓进入，先获取机会详情再加载K线
+  if (opportunityId.value && !trackId.value) {
     await fetchOpportunityData()
   }
 

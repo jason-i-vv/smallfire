@@ -43,15 +43,22 @@ func (s *VolumePriceStrategy) Analyze(symbolID int, symbolCode, period string, k
 	latestKline := klines[len(klines)-1]
 	historicalKlines := klines[len(klines)-s.config.LookbackKlines : len(klines)-1]
 
+	// 计算 ATR（供两个子函数共用）
+	atrPeriod := 14
+	if s.config.ATRPeriod > 0 {
+		atrPeriod = int(s.config.ATRPeriod)
+	}
+	atr := CalculateATR(klines, atrPeriod)
+
 	var signals []models.Signal
 
 	// 1. 检查价格波动异常（带冷却）
-	if sig := s.checkPriceAnomaly(symbolID, latestKline, historicalKlines); sig != nil {
+	if sig := s.checkPriceAnomaly(symbolID, latestKline, historicalKlines, atr); sig != nil {
 		signals = append(signals, *sig)
 	}
 
 	// 2. 检查成交量异常（带冷却）
-	if sig := s.checkVolumeAnomaly(symbolID, latestKline, historicalKlines); sig != nil {
+	if sig := s.checkVolumeAnomaly(symbolID, latestKline, historicalKlines, atr); sig != nil {
 		signals = append(signals, *sig)
 	}
 
@@ -80,7 +87,7 @@ func (s *VolumePriceStrategy) cooldownDuration() time.Duration {
 }
 
 // checkPriceAnomaly 检查价格波动异常（带冷却）
-func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Kline, historical []models.Kline) *models.Signal {
+func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Kline, historical []models.Kline, atr float64) *models.Signal {
 	s.mu.Lock()
 	if !s.lastPriceKlineTime.IsZero() && latest.OpenTime.Sub(s.lastPriceKlineTime) < s.cooldownDuration() {
 		s.mu.Unlock()
@@ -118,6 +125,12 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 		strength := calculateStrength(priceAmplification, s.config.VolatilityMultiplier)
 		expireTime := time.Now().Add(6 * time.Hour)
 
+		// 基于 ATR 计算止盈止损
+		var stopLoss, takeProfit float64
+		if atr > 0 {
+			stopLoss, takeProfit = CalculateSLTP(latest.ClosePrice, direction, atr, s.config.ATRMultiplier, s.config.RiskRewardRatio)
+		}
+
 		return &models.Signal{
 			SymbolID:   symbolID,
 			SignalType: signalType,
@@ -137,6 +150,8 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 			NotificationSent: false,
 			CreatedAt:        time.Now(),
 			KlineTime:        ptrTime(latest.OpenTime),
+			StopLossPrice:    &stopLoss,
+			TargetPrice:      &takeProfit,
 		}
 	}
 
@@ -144,7 +159,7 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 }
 
 // checkVolumeAnomaly 检查成交量异常（带冷却 + 量能基准去重）
-func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kline, historical []models.Kline) *models.Signal {
+func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kline, historical []models.Kline, atr float64) *models.Signal {
 	s.mu.Lock()
 	// 冷却期检查：基于K线时间
 	if !s.lastVolumeKlineTime.IsZero() && latest.OpenTime.Sub(s.lastVolumeKlineTime) < s.cooldownDuration() {
@@ -195,6 +210,12 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 		strength := calculateStrength(volumeAmplification, s.config.VolumeMultiplier)
 		expireTime := time.Now().Add(6 * time.Hour)
 
+		// 基于传入的 ATR 计算止盈止损
+		var stopLoss, takeProfit float64
+		if atr > 0 {
+			stopLoss, takeProfit = CalculateSLTP(latest.ClosePrice, direction, atr, s.config.ATRMultiplier, s.config.RiskRewardRatio)
+		}
+
 		return &models.Signal{
 			SymbolID:   symbolID,
 			SignalType: signalType,
@@ -215,6 +236,8 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 			NotificationSent: false,
 			CreatedAt:        time.Now(),
 			KlineTime:        ptrTime(latest.OpenTime),
+			StopLossPrice:    &stopLoss,
+			TargetPrice:      &takeProfit,
 		}
 	}
 

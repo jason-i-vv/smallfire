@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/smallfire/starfire/internal/models"
+	"github.com/smallfire/starfire/internal/repository"
 )
 
 // mockOppNotifier implements OpportunityNotifier for testing
@@ -65,7 +66,7 @@ func (m *mockOppRepo) ExpireBySymbol(symbolID int, exceptID int) error {
 func (m *mockOppRepo) ExpireStaleOpportunities() error {
 	return nil
 }
-func (m *mockOppRepo) List(status string, page, size int) ([]*models.TradingOpportunity, int, error) {
+func (m *mockOppRepo) List(filter *repository.OpportunityListFilter) ([]*models.TradingOpportunity, int, error) {
 	return nil, 0, nil
 }
 

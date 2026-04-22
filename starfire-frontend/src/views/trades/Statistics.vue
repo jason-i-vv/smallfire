@@ -11,18 +11,18 @@
         value-format="YYYY-MM-DD"
         @change="fetchData"
       />
-      <el-button @click="resetFilter">重置</el-button>
+      <el-button @click="resetFilter">{{ t('common.reset') }}</el-button>
     </div>
 
     <!-- 加载状态 -->
     <div v-if="loading" class="loading-state">
       <el-icon class="is-loading"><Loading /></el-icon>
-      <span>加载中...</span>
+      <span>{{ t('common.loading') }}</span>
     </div>
 
     <!-- 空状态 -->
     <div v-else-if="!loading && noData" class="empty-state">
-      <p>暂无交易数据</p>
+      <p>{{ t('statistics.noData') }}</p>
     </div>
 
     <!-- 数据面板 -->
@@ -41,13 +41,13 @@
       <el-row :gutter="20">
         <el-col :span="12">
           <el-card>
-            <template #header>权益曲线</template>
+            <template #header>{{ t('dashboard.equityCurve') }}</template>
             <EquityCurveChart :data="equityData" />
           </el-card>
         </el-col>
         <el-col :span="12">
           <el-card>
-            <template #header>盈亏统计</template>
+            <template #header>{{ t('statistics.distribution') }}</template>
             <PnLByPeriodChart
               :data="periodPnLData"
               v-model:period="selectedPeriod"
@@ -56,21 +56,15 @@
         </el-col>
       </el-row>
 
-      <!-- 多/空方向 + 出场原因 -->
+      <!-- 多/空方向分析 -->
       <el-row :gutter="20" class="mt-20">
-        <el-col :span="12">
+        <el-col :span="24">
           <el-card>
-            <template #header>多/空方向分析</template>
+            <template #header>{{ t('statistics.byDirection') || '多/空方向分析' }}</template>
             <DirectionAnalysisPanel
               :longData="directionData.long"
               :shortData="directionData.short"
             />
-          </el-card>
-        </el-col>
-        <el-col :span="12">
-          <el-card>
-            <template #header>出场原因分析</template>
-            <ExitReasonPanel :data="exitReasonData" />
           </el-card>
         </el-col>
       </el-row>
@@ -79,13 +73,13 @@
       <el-row :gutter="20" class="mt-20">
         <el-col :span="12">
           <el-card>
-            <template #header>盈亏分布</template>
+            <template #header>{{ t('statistics.pnlDistribution') || '盈亏分布' }}</template>
             <PnLDistributionChart :data="pnlDistData" />
           </el-card>
         </el-col>
         <el-col :span="12">
           <el-card>
-            <template #header>信号类型分析</template>
+            <template #header>{{ t('statistics.signalAnalysis') || '信号类型分析' }}</template>
             <SignalAnalysisTable :data="signalDetailData" />
           </el-card>
         </el-col>
@@ -95,8 +89,18 @@
       <el-row :gutter="20" class="mt-20">
         <el-col :span="24">
           <el-card>
-            <template #header>按标的统计</template>
+            <template #header>{{ t('statistics.bySymbol') || '按标的统计' }}</template>
             <SymbolAnalysisTable :data="symbolData" />
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 评分区间分析 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>{{ t('statistics.byScore') || '评分区间胜率分析' }}</template>
+            <ScoreAnalysisTable :data="scoreAnalysisData" />
           </el-card>
         </el-col>
       </el-row>
@@ -105,7 +109,7 @@
       <el-row :gutter="20" class="mt-20">
         <el-col :span="24">
           <el-card>
-            <template #header>近期交易</template>
+            <template #header>{{ t('statistics.recentTrades') || '近期交易' }}</template>
             <TradeTable :trades="recentTrades" />
           </el-card>
         </el-col>
@@ -116,18 +120,20 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Loading } from '@element-plus/icons-vue'
 import EquityCurveChart from '@/components/charts/EquityCurveChart.vue'
 import PnLByPeriodChart from '@/components/charts/PnLByPeriodChart.vue'
 import PnLDistributionChart from '@/components/charts/PnLDistributionChart.vue'
 import SymbolAnalysisTable from '@/components/trades/SymbolAnalysisTable.vue'
 import DirectionAnalysisPanel from '@/components/trades/DirectionAnalysisPanel.vue'
-import ExitReasonPanel from '@/components/trades/ExitReasonPanel.vue'
 import SignalAnalysisTable from '@/components/trades/SignalAnalysisTable.vue'
 import TradeTable from '@/components/trades/TradeTable.vue'
+import ScoreAnalysisTable from '@/components/trades/ScoreAnalysisTable.vue'
 import { tradeApi } from '@/api/trades'
 import { formatPnL, formatPercent } from '@/utils/formatters'
 
+const { t } = useI18n()
 const loading = ref(false)
 const dateRange = ref(null)
 const selectedPeriod = ref('daily')
@@ -136,11 +142,11 @@ const stats = ref(null)
 const equityData = ref([])
 const symbolData = ref([])
 const directionData = ref({ long: null, short: null })
-const exitReasonData = ref([])
 const periodPnLData = ref([])
 const pnlDistData = ref({ buckets: [] })
 const signalDetailData = ref([])
 const recentTrades = ref([])
+const scoreAnalysisData = ref([])
 
 const noData = computed(() => {
   return stats.value && stats.value.total_trades === 0
@@ -150,18 +156,18 @@ const summaryStats = computed(() => {
   if (!stats.value) return []
   const s = stats.value
   return [
-    { label: '总收益率', value: formatPercent(s.total_return), class: s.total_return >= 0 ? 'stat-profit' : 'stat-loss' },
-    { label: '总盈亏', value: formatPnL(s.total_pnl), class: s.total_pnl >= 0 ? 'stat-profit' : 'stat-loss' },
-    { label: '胜率', value: formatPercent(s.win_rate), class: 'stat-rate' },
-    { label: '盈亏比', value: s.profit_factor > 0 ? s.profit_factor.toFixed(2) + ':1' : '-', class: 'stat-rate' },
-    { label: '最大回撤', value: formatPercent(-s.max_drawdown_pct), class: 'stat-loss' },
-    { label: '交易次数', value: s.total_trades.toString(), class: 'stat-neutral' },
-    { label: '夏普比率', value: s.sharpe_ratio.toFixed(2), class: s.sharpe_ratio >= 0 ? 'stat-profit' : 'stat-loss' },
-    { label: '卡玛比率', value: s.calmar_ratio.toFixed(2), class: s.calmar_ratio >= 0 ? 'stat-profit' : 'stat-loss' },
-    { label: '平均盈利', value: formatPnL(s.avg_win), class: 'stat-profit' },
-    { label: '平均亏损', value: formatPnL(-s.avg_loss), class: 'stat-loss' },
-    { label: '期望值', value: formatPnL(s.expectancy), class: s.expectancy >= 0 ? 'stat-profit' : 'stat-loss' },
-    { label: '平均持仓(h)', value: s.avg_holding_hours.toFixed(1), class: 'stat-neutral' },
+    { label: t('statistics.totalReturn') || '总收益率', value: formatPercent(s.total_return), class: s.total_return >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.totalPnl'), value: formatPnL(s.total_pnl), class: s.total_pnl >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.winRate'), value: formatPercent(s.win_rate), class: 'stat-rate' },
+    { label: t('statistics.profitFactor'), value: s.profit_factor > 0 ? s.profit_factor.toFixed(2) + ':1' : '-', class: 'stat-rate' },
+    { label: t('statistics.maxDrawdown'), value: formatPercent(-s.max_drawdown_pct), class: 'stat-loss' },
+    { label: t('statistics.totalTrades') || '交易次数', value: s.total_trades.toString(), class: 'stat-neutral' },
+    { label: t('statistics.sharpeRatio') || '夏普比率', value: s.sharpe_ratio.toFixed(2), class: s.sharpe_ratio >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.calmarRatio') || '卡玛比率', value: s.calmar_ratio.toFixed(2), class: s.calmar_ratio >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.avgWin') || '平均盈利', value: formatPnL(s.avg_win), class: 'stat-profit' },
+    { label: t('statistics.avgLoss') || '平均亏损', value: formatPnL(-s.avg_loss), class: 'stat-loss' },
+    { label: t('statistics.expectancy') || '期望值', value: formatPnL(s.expectancy), class: s.expectancy >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.avgHoldingHours') || '平均持仓(h)', value: s.avg_holding_hours.toFixed(1), class: 'stat-neutral' },
   ]
 })
 
@@ -176,24 +182,23 @@ const fetchData = async () => {
     const params = getDateParams()
     const [
       statsRes, equityRes, symbolRes, directionRes,
-      exitRes, periodRes, distRes, signalRes, historyRes
+      periodRes, distRes, signalRes, historyRes, scoreRes
     ] = await Promise.all([
       tradeApi.stats(params),
       tradeApi.equity(params),
       tradeApi.symbolAnalysis(params),
       tradeApi.directionAnalysis(params),
-      tradeApi.exitReasonAnalysis(params),
       tradeApi.periodPnL({ ...params, period: selectedPeriod.value }),
       tradeApi.pnlDistribution(params),
       tradeApi.signalAnalysisDetail(params),
-      tradeApi.history({ page: 1, size: 10, ...params })
+      tradeApi.history({ page: 1, size: 10, ...params }),
+      tradeApi.scoreAnalysis(params)
     ])
 
     stats.value = statsRes.data || null
     equityData.value = equityRes.data || []
     symbolData.value = symbolRes.data || []
     directionData.value = directionRes.data || { long: null, short: null }
-    exitReasonData.value = exitRes.data || []
     periodPnLData.value = periodRes.data || []
     pnlDistData.value = distRes.data || { buckets: [] }
     signalDetailData.value = signalRes.data || []
@@ -207,6 +212,7 @@ const fetchData = async () => {
       pnl: t.pnl,
       pnl_percent: t.pnl_percent
     }))
+    scoreAnalysisData.value = scoreRes.data || []
   } catch (error) {
     console.error('Failed to fetch statistics:', error)
   } finally {

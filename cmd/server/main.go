@@ -26,6 +26,7 @@ import (
 	aiservice "github.com/smallfire/starfire/internal/service/ai"
 	"github.com/smallfire/starfire/internal/service/scoring"
 	"github.com/smallfire/starfire/internal/service/strategy"
+	trendService "github.com/smallfire/starfire/internal/service/trend"
 	"github.com/smallfire/starfire/internal/service/trading"
 	"github.com/smallfire/starfire/pkg/utils"
 )
@@ -110,7 +111,7 @@ func main() {
 	utils.Info("交易执行器初始化成功")
 
 	// 初始化统计分析服务
-	statsService := trading.NewStatisticsService(trackRepo, signalRepo, symbolRepo, &cfg.Trading)
+	statsService := trading.NewStatisticsService(trackRepo, signalRepo, oppRepo, symbolRepo, &cfg.Trading)
 	utils.Info("统计分析服务初始化成功")
 
 	// 初始化通知服务
@@ -141,7 +142,7 @@ func main() {
 	utils.Info("通知服务初始化成功")
 
 	// 初始化持仓监控服务
-	positionMonitor := trading.NewPositionMonitor(tradeExecutor, trackRepo, symbolRepo, utils.Logger)
+	positionMonitor := trading.NewPositionMonitor(tradeExecutor, trackRepo, symbolRepo, klineRepo, utils.Logger)
 
 	// 注入价格提供者（基于 K 线最新收盘价）
 	priceProvider := trading.NewKlinePriceProvider(klineRepo)
@@ -187,7 +188,9 @@ func main() {
 	if cfg.Strategies.RunnerInterval > 0 {
 		runnerInterval = time.Duration(cfg.Strategies.RunnerInterval) * time.Second
 	}
-	strategyRunner := strategy.NewRunner(strategyFactory, klineRepo, symbolRepo, signalRepo, runnerInterval, cfg.Strategies.MaxConcurrentAnalysis, utils.Logger)
+	// 初始化趋势服务
+	trendSvc := trendService.NewService(trendRepo, utils.Logger)
+	strategyRunner := strategy.NewRunner(strategyFactory, klineRepo, symbolRepo, signalRepo, trendSvc, runnerInterval, cfg.Strategies.MaxConcurrentAnalysis, utils.Logger)
 	utils.Info("策略运行器初始化成功")
 
 	// 初始化评分引擎
@@ -472,6 +475,7 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				tradesGroup.GET("/period-pnl", tradeHandler.GetPeriodPnL)
 				tradesGroup.GET("/pnl-distribution", tradeHandler.GetPnLDistribution)
 				tradesGroup.GET("/signal-analysis-detail", tradeHandler.GetDetailedSignalAnalysis)
+				tradesGroup.GET("/score-analysis", tradeHandler.GetScoreAnalysis)
 				tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
 				tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
 			}

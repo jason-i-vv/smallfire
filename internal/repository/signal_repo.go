@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smallfire/starfire/internal/database"
 	"github.com/smallfire/starfire/internal/models"
 )
@@ -251,6 +253,7 @@ func (r *SignalRepoPG) Create(signal *models.Signal) error {
 		                    target_price, stop_loss_price, period, description, signal_data,
 		                    status, confirmed_at, expired_at, triggered_at, notification_sent, kline_time, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+		ON CONFLICT (symbol_id, signal_type, period, kline_time) DO NOTHING
 		RETURNING id
 	`
 
@@ -262,6 +265,10 @@ func (r *SignalRepoPG) Create(signal *models.Signal) error {
 		signal.TriggeredAt, signal.NotificationSent, signal.KlineTime,
 	).Scan(&signal.ID)
 	if err != nil {
+		// pgx.ErrNoRows 表示 ON CONFLICT DO NOTHING 跳过了插入（已有重复），这是预期行为
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		return fmt.Errorf("创建信号失败: %w", err)
 	}
 

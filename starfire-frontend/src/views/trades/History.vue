@@ -1,6 +1,6 @@
 <template>
   <div class="history">
-    <h1 class="page-title">交易历史</h1>
+    <h1 class="page-title">{{ t('trades.title') }}</h1>
 
     <!-- 筛选栏 -->
     <div class="filter-bar">
@@ -13,7 +13,7 @@
         value-format="YYYY-MM-DD"
         @change="fetchData"
       />
-      <el-button @click="resetFilter">重置</el-button>
+      <el-button @click="resetFilter">{{ t('common.reset') }}</el-button>
     </div>
 
     <!-- 数据表格 -->
@@ -33,16 +33,18 @@
 
     <!-- 空状态 -->
     <div v-if="!loading && trades.length === 0" class="empty-state">
-      <p>暂无交易历史记录</p>
+      <p>{{ t('trades.noTrades') }}</p>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import TradeTable from '@/components/trades/TradeTable.vue'
 import { tradeApi } from '@/api/trades'
 
+const { t } = useI18n()
 const loading = ref(false)
 const trades = ref([])
 const total = ref(0)
@@ -69,14 +71,21 @@ const fetchData = async () => {
     const res = await tradeApi.history(params)
     const data = res.data || {}
     trades.value = (data.list || []).map(t => ({
+      id: t.id,
+      symbol_id: t.symbol_id,
       exit_time: t.exit_time,
       symbol_code: t.symbol_code || '',
       direction: t.direction,
       entry_price: t.entry_price,
+      entry_time: t.entry_time,
       exit_price: t.exit_price,
+      exit_time: t.exit_time,
+      exit_reason: t.exit_reason,
       quantity: t.quantity,
       pnl: t.pnl,
       pnl_percent: t.pnl_percent,
+      stop_loss_price: t.stop_loss_price,
+      take_profit_price: t.take_profit_price,
       opportunity_id: t.opportunity_id
     }))
     total.value = data.total || 0

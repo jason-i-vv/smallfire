@@ -79,6 +79,30 @@ type StrategiesConfig struct {
 	VolumePrice            VolumePriceStrategyConfig `mapstructure:"volume_price"`
 	Wick                   WickStrategyConfig        `mapstructure:"wick"`
 	Candlestick            CandlestickStrategyConfig `mapstructure:"candlestick"`
+	MACD                   MACDStrategyConfig        `mapstructure:"macd"`
+}
+
+// MACDStrategyConfig MACD策略配置
+type MACDStrategyConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+
+	// MACD 参数（标准参数：12, 26, 9）
+	FastPeriod   int `mapstructure:"fast_period"`   // 快线EMA周期（默认12）
+	SlowPeriod   int `mapstructure:"slow_period"`   // 慢线EMA周期（默认26）
+	SignalPeriod int `mapstructure:"signal_period"` // 信号线EMA周期（默认9）
+
+	// 信号确认参数
+	HistThreshold float64 `mapstructure:"hist_threshold"` // MACD柱阈值（默认0，表示零轴交叉）
+
+	// ATR 止盈止损参数
+	ATRPeriod       float64 `mapstructure:"atr_period"`        // ATR 计算周期，默认 14
+	ATRMultiplier   float64 `mapstructure:"atr_multiplier"`    // 止损 = ATR × 倍数，默认 2.0
+	RiskRewardRatio float64 `mapstructure:"risk_reward_ratio"` // 盈亏比，默认 2.0
+
+	// 信号冷却
+	SignalCooldown int `mapstructure:"signal_cooldown"` // 信号冷却时间（分钟，默认30）
+
+	CheckInterval int `mapstructure:"check_interval"` // 检查间隔（秒）
 }
 
 type BoxStrategyConfig struct {
@@ -104,6 +128,11 @@ type TrendStrategyConfig struct {
 	Enabled       bool  `mapstructure:"enabled"`
 	EMAPeriods    []int `mapstructure:"ema_periods"`    // [30, 60, 90]
 	CheckInterval int   `mapstructure:"check_interval"` // 检查间隔(秒)
+
+	// ATR 止盈止损参数
+	ATRPeriod       float64 `mapstructure:"atr_period"`        // ATR 计算周期，默认 14
+	ATRMultiplier   float64 `mapstructure:"atr_multiplier"`    // 止损 = ATR × 倍数，默认 2.0
+	RiskRewardRatio float64 `mapstructure:"risk_reward_ratio"` // 盈亏比（止盈距离 / 止损距离），默认 2.0
 }
 
 type KeyLevelStrategyConfig struct {
@@ -112,6 +141,11 @@ type KeyLevelStrategyConfig struct {
 	LevelDistance  float64 `mapstructure:"level_distance"`    // 突破阈值(%)
 	MinBreakoutAge int     `mapstructure:"min_breakout_age"`  // 价位最小成熟期(K线数)
 	CheckInterval  int     `mapstructure:"check_interval"`
+
+	// ATR 止盈止损参数
+	ATRPeriod       float64 `mapstructure:"atr_period"`        // ATR 计算周期，默认 14
+	ATRMultiplier   float64 `mapstructure:"atr_multiplier"`    // 止损 = ATR × 倍数，默认 2.0
+	RiskRewardRatio float64 `mapstructure:"risk_reward_ratio"` // 盈亏比，默认 2.0
 }
 
 type VolumePriceStrategyConfig struct {
@@ -120,6 +154,11 @@ type VolumePriceStrategyConfig struct {
 	VolumeMultiplier     float64 `mapstructure:"volume_multiplier"`     // 成交量倍数
 	LookbackKlines       int     `mapstructure:"lookback_klines"`       // 回溯K线数
 	CheckInterval        int     `mapstructure:"check_interval"`
+
+	// ATR 止盈止损参数
+	ATRPeriod       float64 `mapstructure:"atr_period"`        // ATR 计算周期，默认 14
+	ATRMultiplier   float64 `mapstructure:"atr_multiplier"`    // 止损 = ATR × 倍数，默认 2.0
+	RiskRewardRatio float64 `mapstructure:"risk_reward_ratio"` // 盈亏比，默认 2.0
 }
 
 // WickStrategyConfig 上下引线策略配置
@@ -161,6 +200,10 @@ type CandlestickStrategyConfig struct {
 	ATRPeriod        int     `mapstructure:"atr_period"`          // ATR 周期（默认14）
 	BodyATRThreshold float64 `mapstructure:"body_atr_threshold"` // 实体最小 ATR 倍数（默认0.5）
 
+	// ATR 止盈止损参数
+	ATRMultiplier   float64 `mapstructure:"atr_multiplier"`    // 止损 = ATR × 倍数，默认 2.0
+	RiskRewardRatio float64 `mapstructure:"risk_reward_ratio"` // 盈亏比，默认 2.0
+
 	// 三连K参数
 	MomentumMinCount int `mapstructure:"momentum_min_count"` // 最少连续K线数（默认3）
 
@@ -190,10 +233,13 @@ type TradingConfig struct {
 	MaxOpenPositions   int     `mapstructure:"max_open_positions"`   // 最大持仓数: 5
 	MaxDrawdownPercent float64 `mapstructure:"max_drawdown_percent"` // 最大回撤: 0.10
 	MaxLossPerTrade    float64 `mapstructure:"max_loss_per_trade"`   // 单笔最大亏损: 0.02
+	MaxStopLossPercent float64 `mapstructure:"max_stop_loss_percent"`  // 最大止损比例（ATR止损上限）: 0.05
+	MinRiskRewardRatio float64 `mapstructure:"min_risk_reward_ratio"`  // 最低盈亏比: 1.5
 
 	// 移动止损
 	TrailingStopEnabled bool    `mapstructure:"trailing_stop"`
-	TrailingDistance    float64 `mapstructure:"trailing_distance"` // 移动止损距离: 0.015
+	TrailingDistance    float64 `mapstructure:"trailing_distance"`    // 移动止损距离: 0.02
+	TrailingActivatePct float64 `mapstructure:"trailing_activate_pct"` // 移动止损激活阈值，默认 0.03(盈利3%后激活)
 
 	// 信号有效期
 	SignalExpireMinutes int `mapstructure:"signal_expire_minutes"` // 信号过期分钟数: 60
@@ -268,7 +314,7 @@ type Config struct {
 }
 
 func (c DatabaseConfig) DSN() string {
-	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s TimeZone='UTC'",
 		c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode)
 }
 

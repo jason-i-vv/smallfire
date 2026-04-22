@@ -299,10 +299,11 @@ func (a *OpportunityAggregator) createOpportunity(signals []*models.Signal, ctx 
 	entry := signals[0].Price
 	var stopLoss, takeProfit *float64
 	for _, sig := range signals {
-		if sig.StopLossPrice != nil {
+		// 优先保留已有的有效值，nil 不覆盖
+		if stopLoss == nil && sig.StopLossPrice != nil {
 			stopLoss = sig.StopLossPrice
 		}
-		if sig.TargetPrice != nil {
+		if takeProfit == nil && sig.TargetPrice != nil {
 			takeProfit = sig.TargetPrice
 		}
 	}
@@ -410,12 +411,12 @@ func (a *OpportunityAggregator) updateOpportunity(opp *models.TradingOpportunity
 		}
 	}
 
-	// 更新建议价格（取最新信号的值）
+	// 更新建议价格（取最新信号的值，nil 不覆盖已有值）
 	for _, sig := range newSignals {
-		if sig.StopLossPrice != nil {
+		if opp.SuggestedStopLoss == nil && sig.StopLossPrice != nil {
 			opp.SuggestedStopLoss = sig.StopLossPrice
 		}
-		if sig.TargetPrice != nil {
+		if opp.SuggestedTakeProfit == nil && sig.TargetPrice != nil {
 			opp.SuggestedTakeProfit = sig.TargetPrice
 		}
 		opp.SuggestedEntry = &sig.Price

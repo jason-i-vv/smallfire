@@ -6,6 +6,7 @@ import (
 
 	"github.com/smallfire/starfire/internal/models"
 	"github.com/smallfire/starfire/internal/repository"
+	trendService "github.com/smallfire/starfire/internal/service/trend"
 	"go.uber.org/zap"
 )
 
@@ -15,6 +16,7 @@ type Runner struct {
 	klineRepo     repository.KlineRepo
 	symbolRepo    repository.SymbolRepo
 	signalRepo    repository.SignalRepo
+	trendService  *trendService.Service
 	aggregator    OpportunityAggregator
 	interval      time.Duration
 	maxConcurrent int
@@ -31,6 +33,7 @@ type OpportunityAggregator interface {
 // NewRunner 创建策略运行器
 func NewRunner(factory *Factory, klineRepo repository.KlineRepo,
 	symbolRepo repository.SymbolRepo, signalRepo repository.SignalRepo,
+	trendSvc *trendService.Service,
 	interval time.Duration, maxConcurrent int, logger *zap.Logger) *Runner {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 20
@@ -40,6 +43,7 @@ func NewRunner(factory *Factory, klineRepo repository.KlineRepo,
 		klineRepo:     klineRepo,
 		symbolRepo:    symbolRepo,
 		signalRepo:    signalRepo,
+		trendService:  trendSvc,
 		aggregator:    nil, // 聚合器可选，通过 SetAggregator 设置
 		interval:      interval,
 		maxConcurrent: maxConcurrent,
@@ -243,6 +247,16 @@ func (r *Runner) analyzeSymbol(symbol *repository.TrackedSymbol) {
 			if err := r.aggregator.AggregateSignals(allNewSignals); err != nil {
 				r.logger.Error("聚合交易机会失败",
 					zap.String("symbol", symbol.Code),
+					zap.Error(err))
+			}
+		}
+
+		// 更新趋势数据
+		if r.trendService != nil {
+			if err := r.trendService.UpdateTrend(symbol.ID, period, klines); err != nil {
+				r.logger.Error("更新趋势失败",
+					zap.String("symbol", symbol.Code),
+					zap.String("period", period),
 					zap.Error(err))
 			}
 		}

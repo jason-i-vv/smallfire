@@ -42,6 +42,9 @@ func NewFactory(cfg *config.StrategiesConfig, deps Dependency, logger *zap.Logge
 	if registerAll || cfg.Candlestick.Enabled {
 		f.strategies["candlestick"] = NewCandlestickStrategy(cfg.Candlestick, deps)
 	}
+	if registerAll || cfg.MACD.Enabled {
+		f.strategies["macd"] = NewMACDStrategy(cfg.MACD, deps)
+	}
 
 	logger.Info("策略工厂初始化成功", zap.Int("strategy_count", len(f.strategies)))
 	return f
@@ -67,6 +70,8 @@ func (f *Factory) NewStrategy(name string) (Strategy, bool) {
 		return NewWickStrategy(f.config.Wick, f.deps), true
 	case "candlestick":
 		return NewCandlestickStrategy(f.config.Candlestick, f.deps), true
+	case "macd":
+		return NewMACDStrategy(f.config.MACD, f.deps), true
 	default:
 		return nil, false
 	}
@@ -98,6 +103,8 @@ func (f *Factory) IsEnabled(name string) bool {
 		return f.config.Wick.Enabled
 	case "candlestick":
 		return f.config.Candlestick.Enabled
+	case "macd":
+		return f.config.MACD.Enabled
 	default:
 		return false
 	}

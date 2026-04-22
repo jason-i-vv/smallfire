@@ -101,9 +101,72 @@ func verifySignal(
 	switch strategyType {
 	case "candlestick":
 		return verifyCandlestickSignal(sig, klines, klineIdx, cfg)
+	case "trend":
+		return verifyTrendSignal(sig, klines, klineIdx)
 	default:
 		return models.VerificationSkipped, fmt.Sprintf("未实现 %s 策略的验证", strategyType)
 	}
+}
+
+// verifyTrendSignal 验证趋势回撤信号
+func verifyTrendSignal(
+	sig *models.Signal,
+	klines []models.Kline,
+	klineIdx int,
+) (models.VerificationStatus, string) {
+	if klineIdx < 10 {
+		return models.VerificationInvalid, "K 线索引不足（需要至少 10 根 K 线计算 EMA 斜率）"
+	}
+
+	kline := klines[klineIdx]
+	emaShort := kline.EMAShort
+	emaMedium := kline.EMAMedium
+	emaLong := kline.EMALong
+
+	if emaShort == nil || emaMedium == nil || emaLong == nil ||
+		*emaShort == 0 || *emaMedium == 0 || *emaLong == 0 {
+		return models.VerificationInvalid, "K 线缺少 EMA 数据"
+	}
+
+	// 计算 EMA 斜率（与 TrendStrategy.checkPullback 一致）
+	prevEma := klines[klineIdx-10]
+	prevEmaShort := prevEma.EMAShort
+	if prevEmaShort == nil || *prevEmaShort == 0 {
+		return models.VerificationInvalid, "前 10 根 K 线缺少 EMA 数据"
+	}
+
+	emaSlope := (*emaShort - *prevEmaShort) / *prevEmaShort
+
+	// 检查方向一致性
+	if sig.Direction == models.DirectionLong {
+		// 做多信号要求 EMA 斜率 > 0（大趋势多头）
+		// 同时要求 EMA 三线多头排列
+		if *emaShort <= *emaMedium || *emaMedium <= *emaLong {
+			return models.VerificationInvalid, fmt.Sprintf("EMA 非多头排列（短%.2f 中%.2f 长%.2f）", *emaShort, *emaMedium, *emaLong)
+		}
+		if emaSlope <= 0 {
+			return models.VerificationInvalid, fmt.Sprintf("EMA 斜率 %.4f <= 0，不应发做多信号", emaSlope)
+		}
+	} else if sig.Direction == models.DirectionShort {
+		// 做空信号要求 EMA 斜率 < 0（大趋势空头）
+		// 同时要求 EMA 三线空头排列
+		if *emaShort >= *emaMedium || *emaMedium >= *emaLong {
+			return models.VerificationInvalid, fmt.Sprintf("EMA 非空头排列（短%.2f 中%.2f 长%.2f）", *emaShort, *emaMedium, *emaLong)
+		}
+		if emaSlope >= 0 {
+			return models.VerificationInvalid, fmt.Sprintf("EMA 斜率 %.4f >= 0，不应发做空信号", emaSlope)
+		}
+	} else {
+		return models.VerificationInvalid, fmt.Sprintf("信号方向异常: %s", sig.Direction)
+	}
+
+	// 检查价格是否在 EMA 附近（回撤信号的价格应在 EMA 附近）
+	priceNearEMA := math.Abs(kline.ClosePrice-*emaShort) / *emaShort
+	if priceNearEMA > 0.05 { // 超过 5% 不合理
+		return models.VerificationInvalid, fmt.Sprintf("信号价格 %.2f 偏离 EMA %.2f 超过 5%%", kline.ClosePrice, *emaShort)
+	}
+
+	return models.VerificationValid, ""
 }
 
 // verifyCandlestickSignal 验证 K 线形态信号

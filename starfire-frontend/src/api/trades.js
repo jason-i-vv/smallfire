@@ -1,8 +1,8 @@
 import api from './index'
 
 export const tradeApi = {
-  // 持仓列表
-  positions: () => api.get('/trades/positions'),
+  // 持仓列表（分页）
+  positions: (params) => api.get('/trades/positions', { params }),
 
   // 平仓
   closePosition: (id, data) => api.post(`/trades/${id}/close`, data),
@@ -41,5 +41,8 @@ export const tradeApi = {
   pnlDistribution: (params) => api.get('/trades/pnl-distribution', { params }),
 
   // 详细信号分析
-  signalAnalysisDetail: (params) => api.get('/trades/signal-analysis-detail', { params })
+  signalAnalysisDetail: (params) => api.get('/trades/signal-analysis-detail', { params }),
+
+  // 评分区间分析
+  scoreAnalysis: (params) => api.get('/trades/score-analysis', { params })
 }

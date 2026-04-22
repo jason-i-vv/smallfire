@@ -1,15 +1,19 @@
-// 格式化时间
+// 格式化时间（支持毫秒时间戳或 ISO 字符串）
 export const formatTime = (timestamp) => {
-  const date = new Date(timestamp)
-  return date.toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  })
+  if (!timestamp) return '--'
+
+  const date = new Date(typeof timestamp === 'number' ? timestamp : timestamp)
+  if (isNaN(date.getTime())) return '--'
+
+  // 直接使用本地时区显示
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  const second = String(date.getSeconds()).padStart(2, '0')
+
+  return `${year}/${month}/${day} ${hour}:${minute}:${second}`
 }
 
 // 格式化价格
@@ -37,7 +41,7 @@ export const formatPercent = (value) => {
   if (value === null || value === undefined) return '--'
   const num = Number(value)
   const sign = num >= 0 ? '+' : ''
-  // 后端返回的小数形式 (0.2018 = 20.18%)，需要乘以100
+  // 后端返回的是小数形式 (如 0.2018 = 20.18%)，需要乘以100
   const percent = num * 100
   return `${sign}${percent.toFixed(2)}%`
 }

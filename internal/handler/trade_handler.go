@@ -31,16 +31,36 @@ func NewTradeHandler(trackRepo repository.TradeTrackRepo, executor *trading.Trad
 	}
 }
 
-// GetOpenPositions 获取持仓列表
+// GetOpenPositions 获取持仓列表（分页）
 func (h *TradeHandler) GetOpenPositions(c *gin.Context) {
-	tracks, err := h.trackRepo.GetOpenPositions()
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	size, err := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if err != nil || size < 1 || size > 100 {
+		size = 20
+	}
+
+	tracks, total, err := h.trackRepo.GetOpenPositionsPaginated(page, size)
 	if err != nil {
 		h.logger.Error("获取持仓列表失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
 		return
 	}
 
-	HandleSuccess(c, tracks)
+	// 转换为 API 返回格式（使用毫秒时间戳）
+	items := make([]*models.TradeTrackResponse, len(tracks))
+	for i, track := range tracks {
+		items[i] = track.ToResponse()
+	}
+
+	HandleSuccess(c, gin.H{
+		"items": items,
+		"total": total,
+		"page":  page,
+		"size":  size,
+	})
 }
 
 // GetClosedPositions 获取已平仓记录
@@ -71,7 +91,13 @@ func (h *TradeHandler) GetClosedPositions(c *gin.Context) {
 		return
 	}
 
-	HandleSuccess(c, tracks)
+	// 转换为 API 返回格式（使用毫秒时间戳）
+	items := make([]*models.TradeTrackResponse, len(tracks))
+	for i, track := range tracks {
+		items[i] = track.ToResponse()
+	}
+
+	HandleSuccess(c, items)
 }
 
 // GetTradeHistory 获取交易历史（分页）
@@ -121,8 +147,14 @@ func (h *TradeHandler) GetTradeHistory(c *gin.Context) {
 		return
 	}
 
+	// 转换为 API 返回格式（使用毫秒时间戳）
+	items := make([]*models.TradeTrackResponse, len(tracks))
+	for i, track := range tracks {
+		items[i] = track.ToResponse()
+	}
+
 	HandleSuccess(c, gin.H{
-		"list":  tracks,
+		"list":  items,
 		"total": total,
 		"page":  page,
 		"size":  size,
@@ -192,7 +224,7 @@ func (h *TradeHandler) GetTradeDetail(c *gin.Context) {
 		return
 	}
 
-	HandleSuccess(c, track)
+	HandleSuccess(c, track.ToResponse())
 }
 
 // ClosePosition 平仓（手动）
@@ -232,7 +264,11 @@ func (h *TradeHandler) ClosePosition(c *gin.Context) {
 
 	// 重新查询获取更新后的数据
 	updated, _ := h.trackRepo.GetByID(id)
-	HandleSuccess(c, updated)
+	if updated != nil {
+		HandleSuccess(c, updated.ToResponse())
+	} else {
+		HandleSuccess(c, nil)
+	}
 }
 
 // parseDateRange 解析日期范围参数
@@ -337,6 +373,18 @@ func (h *TradeHandler) GetDetailedSignalAnalysis(c *gin.Context) {
 	data, err := h.statsService.GetDetailedSignalAnalysis(startDate, endDate)
 	if err != nil {
 		h.logger.Error("获取详细信号分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetScoreAnalysis 获取评分区间分析
+func (h *TradeHandler) GetScoreAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	data, err := h.statsService.GetScoreAnalysis(startDate, endDate)
+	if err != nil {
+		h.logger.Error("获取评分区间分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
 		return
 	}

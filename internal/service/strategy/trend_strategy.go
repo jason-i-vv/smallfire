@@ -67,10 +67,11 @@ func (s *TrendStrategy) Analyze(symbolID int, symbolCode, period string, klines 
 }
 
 // checkPullback 检测价格回撤到某条EMA附近
-// 三个条件：
+// 四个条件：
 // 1. EMA有方向性（倾斜）→ 确认存在趋势
-// 2. 价格触及EMA且收盘确认支撑/阻力 → 确认是回撤
-// 3. 之前价格曾远离EMA → 确认不是横盘震荡
+// 2. 大趋势方向与信号方向一致 → 避免逆势信号
+// 3. 价格触及EMA且收盘确认支撑/阻力 → 确认是回撤
+// 4. 之前价格曾远离EMA → 确认不是横盘震荡
 func (s *TrendStrategy) checkPullback(getEMA func(models.Kline) *float64, emaPeriod int, klines []models.Kline) *models.Signal {
 	last := klines[len(klines)-1]
 	emaPtr := getEMA(last)
@@ -98,28 +99,52 @@ func (s *TrendStrategy) checkPullback(getEMA func(models.Kline) *float64, emaPer
 		return nil
 	}
 
-	// 条件2：价格触及EMA
+	// 条件2：大趋势方向必须与信号方向一致
+	// 使用三条EMA的排列判断大趋势方向（与trend_calculator保持一致）
+	var trendDirection string
+	emaShort := last.EMAShort
+	emaMedium := last.EMAMedium
+	emaLong := last.EMALong
+	if emaShort != nil && emaMedium != nil && emaLong != nil &&
+		*emaShort > 0 && *emaMedium > 0 && *emaLong > 0 {
+		if *emaShort > *emaMedium && *emaMedium > *emaLong {
+			trendDirection = models.DirectionLong
+		} else if *emaShort < *emaMedium && *emaMedium < *emaLong {
+			trendDirection = models.DirectionShort
+		} else {
+			trendDirection = "" // 横盘
+		}
+	}
+
+	// 条件3：价格触及EMA
 	closePct := (last.ClosePrice - currentEMA) / currentEMA
 	lowPct := (last.LowPrice - currentEMA) / currentEMA
 	highPct := (last.HighPrice - currentEMA) / currentEMA
 
-	// 条件3：之前价格曾远离EMA
 	// 牛市回撤：EMA上升（slope>0），价格从上方回撤到EMA
 	// 要求Low必须触达或穿过EMA（lowPct<=0），收盘在EMA上方确认支撑
+	// 大趋势也必须是多头（EMAShort > EMAMedium > EMALong）
 	if emaSlope > 0 {
+		if trendDirection != models.DirectionLong {
+			return nil // 大趋势不是多头，不发做多信号
+		}
 		if lowPct <= 0 && lowPct >= -0.005 && closePct > 0 {
 			if s.wasFarFromEMA(getEMA, klines, true) {
-				return s.makeSignal(last, "long", emaPeriod)
+				return s.makeSignal(last, "long", emaPeriod, klines)
 			}
 		}
 	}
 
 	// 熊市回撤：EMA下降（slope<0），价格从下方反弹到EMA
 	// 要求High必须触达或穿过EMA（highPct>=0），收盘在EMA下方确认阻力
+	// 大趋势也必须是空头（EMAShort < EMAMedium < EMALong）
 	if emaSlope < 0 {
+		if trendDirection != models.DirectionShort {
+			return nil // 大趋势不是空头，不发做空信号
+		}
 		if highPct >= 0 && highPct <= 0.005 && closePct < 0 {
 			if s.wasFarFromEMA(getEMA, klines, false) {
-				return s.makeSignal(last, "short", emaPeriod)
+				return s.makeSignal(last, "short", emaPeriod, klines)
 			}
 		}
 	}
@@ -158,7 +183,9 @@ func (s *TrendStrategy) wasFarFromEMA(getEMA func(models.Kline) *float64, klines
 	return false
 }
 
-func (s *TrendStrategy) makeSignal(k models.Kline, direction string, emaPeriod int) *models.Signal {
+
+
+func (s *TrendStrategy) makeSignal(k models.Kline, direction string, emaPeriod int, klines []models.Kline) *models.Signal {
 	strength := 2
 	if emaPeriod >= 60 {
 		strength = 3
@@ -166,7 +193,7 @@ func (s *TrendStrategy) makeSignal(k models.Kline, direction string, emaPeriod i
 
 	expireTime := time.Now().Add(12 * time.Hour)
 
-	return &models.Signal{
+	signal := &models.Signal{
 		SignalType:       models.SignalTypeTrendRetracement,
 		SourceType:       models.SourceTypeTrend,
 		Direction:        direction,
@@ -180,6 +207,20 @@ func (s *TrendStrategy) makeSignal(k models.Kline, direction string, emaPeriod i
 		CreatedAt:        time.Now(),
 		KlineTime:        ptrTime(k.OpenTime),
 	}
+
+	// 基于 ATR 计算止盈止损
+	period := 14
+	if s.config.ATRPeriod > 0 {
+		period = int(s.config.ATRPeriod)
+	}
+	atr := CalculateATR(klines, period)
+	if atr > 0 {
+		stopLoss, takeProfit := CalculateSLTP(k.ClosePrice, direction, atr, s.config.ATRMultiplier, s.config.RiskRewardRatio)
+		signal.StopLossPrice = &stopLoss
+		signal.TargetPrice = &takeProfit
+	}
+
+	return signal
 }
 
 func getBarDuration(period string) time.Duration {

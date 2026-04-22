@@ -1,7 +1,7 @@
-// 星火量化 - 浅色绿色主题
-$primary: #00C853;
-$primary-light: #69F0AE;
-$primary-dark: #00A843;
+// 星火量化 - 橙色主题
+$primary: #FF6B00;
+$primary-light: #FF8A3D;
+$primary-dark: #E55A00;
 
 // 浅色背景
 $background: #F5F7FA;
@@ -37,3 +37,10 @@ $sidebar-width: 240px;
 $sidebar-collapsed-width: 64px;
 $sidebar-header-height: 64px;
 $top-header-height: 64px;
+
+// Element Plus 主题覆盖
+$--colors-primary: (
+  "light": #FF8A3D,
+  "base": #FF6B00,
+  "dark": #E55A00
+);

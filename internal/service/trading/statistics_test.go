@@ -49,7 +49,7 @@ func TestStatisticsService_CalculateStatistics(t *testing.T) {
 	cfg := &config.TradingConfig{InitialCapital: 100000}
 
 	t.Run("空数据-返回零值", func(t *testing.T) {
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		stats, err := svc.GetStatistics(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -69,7 +69,7 @@ func TestStatisticsService_CalculateStatistics(t *testing.T) {
 			makeClosedTrack(2000, 10000, now.Add(-4*time.Hour), now.Add(-3*time.Hour)),
 		}
 		repo := &mockTrackRepoForStats{}
-		svc := NewStatisticsService(repo, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 
 		stats, err := svc.calculateStatistics(tracks)
 		if err != nil {
@@ -89,7 +89,7 @@ func TestStatisticsService_CalculateStatistics(t *testing.T) {
 			makeClosedTrack(-500, 10000, now.Add(-2*time.Hour), now.Add(-time.Hour)),
 			makeClosedTrack(-300, 10000, now.Add(-4*time.Hour), now.Add(-3*time.Hour)),
 		}
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		stats, err := svc.calculateStatistics(tracks)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -110,7 +110,7 @@ func TestStatisticsService_CalculateStatistics(t *testing.T) {
 			makeClosedTrack(300, 10000, now.Add(-3*time.Hour), now.Add(-2*time.Hour)),
 			makeClosedTrack(-100, 10000, now.Add(-2*time.Hour), now.Add(-time.Hour)),
 		}
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		stats, err := svc.calculateStatistics(tracks)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -126,7 +126,7 @@ func TestStatisticsService_CalculateStatistics(t *testing.T) {
 			makeClosedTrack(5000, 10000, now.Add(-3*time.Hour), now.Add(-2*time.Hour)),
 			makeClosedTrack(-3000, 10000, now.Add(-2*time.Hour), now.Add(-time.Hour)),
 		}
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		stats, err := svc.calculateStatistics(tracks)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -145,7 +145,7 @@ func TestStatisticsService_CalculateStatistics(t *testing.T) {
 			makeClosedTrack(-200, 10000, now.Add(-4*time.Hour), now.Add(-3*time.Hour)),
 			makeClosedTrack(300, 10000, now.Add(-6*time.Hour), now.Add(-5*time.Hour)),
 		}
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		stats, err := svc.calculateStatistics(tracks)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -170,7 +170,7 @@ func TestStatisticsService_GetSignalType(t *testing.T) {
 				2: {SourceType: "trend"},
 			},
 		}
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, repo, nil, &config.TradingConfig{})
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  repo, nil,  nil,  &config.TradingConfig{})
 
 		track1 := &models.TradeTrack{SignalID: ptrIntPtr(1)}
 		if svc.getSignalType(track1) != "box" {
@@ -184,14 +184,14 @@ func TestStatisticsService_GetSignalType(t *testing.T) {
 	})
 
 	t.Run("nil SignalRepo-返回 unknown", func(t *testing.T) {
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, nil, nil, &config.TradingConfig{})
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  nil, nil,  nil,  &config.TradingConfig{})
 		if svc.getSignalType(&models.TradeTrack{SignalID: ptrIntPtr(1)}) != "unknown" {
 			t.Error("expected 'unknown' with nil signalRepo")
 		}
 	})
 
 	t.Run("信号不存在-返回 unknown", func(t *testing.T) {
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, &mockSignalRepoForStats{signals: map[int]*models.Signal{}}, nil, &config.TradingConfig{})
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{signals: map[int]*models.Signal{}}, nil,  nil,  &config.TradingConfig{})
 		if svc.getSignalType(&models.TradeTrack{SignalID: ptrIntPtr(999)}) != "unknown" {
 			t.Error("expected 'unknown' for missing signal")
 		}
@@ -205,7 +205,10 @@ type mockTrackRepoForStats struct {
 
 var _ repository.TradeTrackRepo = (*mockTrackRepoForStats)(nil)
 
-func (m *mockTrackRepoForStats) GetOpenPositions() ([]*models.TradeTrack, error)     { return nil, nil }
+func (m *mockTrackRepoForStats) GetOpenPositions() ([]*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepoForStats) GetOpenPositionsPaginated(page, size int) ([]*models.TradeTrack, int, error) {
+	return nil, 0, nil
+}
 func (m *mockTrackRepoForStats) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForStats) GetBySignalID(signalID int) (*models.TradeTrack, error)  { return nil, nil }
 func (m *mockTrackRepoForStats) CountClosedSince(startTime time.Time) (int, error)  { return 0, nil }
@@ -236,7 +239,7 @@ func TestStatisticsService_GetEquityCurve(t *testing.T) {
 	cfg := &config.TradingConfig{InitialCapital: 100000}
 
 	t.Run("空数据-返回起始资金点", func(t *testing.T) {
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		points, err := svc.GetEquityCurve(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -252,7 +255,7 @@ func TestStatisticsService_GetEquityCurve(t *testing.T) {
 			makeClosedTrackFull(1000, 1, "long", now.Add(-2*time.Hour), now.Add(-time.Hour), "take_profit"),
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
-		svc := NewStatisticsService(repo, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		points, err := svc.GetEquityCurve(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -272,7 +275,7 @@ func TestStatisticsService_GetEquityCurve(t *testing.T) {
 			makeClosedTrackFull(-500, 2, "short", now.Add(-2*time.Hour), now.Add(-time.Hour), "stop_loss"),
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
-		svc := NewStatisticsService(repo, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		points, err := svc.GetEquityCurve(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -297,7 +300,7 @@ func TestStatisticsService_GetDirectionAnalysis(t *testing.T) {
 			makeClosedTrackFull(300, 1, "long", now.Add(-6*time.Hour), now.Add(-5*time.Hour), "take_profit"),
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
-		svc := NewStatisticsService(repo, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		analysis, err := svc.GetDirectionAnalysis(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -328,7 +331,7 @@ func TestStatisticsService_GetExitReasonAnalysis(t *testing.T) {
 			makeClosedTrackFull(300, 1, "long", now.Add(-6*time.Hour), now.Add(-5*time.Hour), "take_profit"),
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
-		svc := NewStatisticsService(repo, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		result, err := svc.GetExitReasonAnalysis(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -356,7 +359,7 @@ func TestStatisticsService_GetPeriodPnL(t *testing.T) {
 			makeClosedTrackFull(-500, 2, "short", now.Add(-2*time.Hour), now.Add(-time.Hour), "stop_loss"),
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
-		svc := NewStatisticsService(repo, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		result, err := svc.GetPeriodPnL(nil, nil, "daily")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -377,7 +380,7 @@ func TestStatisticsService_GetPnLDistribution(t *testing.T) {
 	cfg := &config.TradingConfig{InitialCapital: 100000}
 
 	t.Run("空数据", func(t *testing.T) {
-		svc := NewStatisticsService(&mockTrackRepoForStats{}, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		dist, err := svc.GetPnLDistribution(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -395,7 +398,7 @@ func TestStatisticsService_GetPnLDistribution(t *testing.T) {
 			makeClosedTrackFull(300, 1, "long", now.Add(-6*time.Hour), now.Add(-5*time.Hour), "take_profit"),
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
-		svc := NewStatisticsService(repo, &mockSignalRepoForStats{}, nil, cfg)
+		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
 		dist, err := svc.GetPnLDistribution(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -433,7 +436,7 @@ func TestStatisticsService_GetDetailedSignalAnalysis(t *testing.T) {
 				2: {SignalType: "trend_retracement", SourceType: "trend"},
 			},
 		}
-		svc := NewStatisticsService(repo, sigRepo, nil, cfg)
+		svc := NewStatisticsService(repo,  sigRepo, nil,  nil,  cfg)
 		result, err := svc.GetDetailedSignalAnalysis(nil, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

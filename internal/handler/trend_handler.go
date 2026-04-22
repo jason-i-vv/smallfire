@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/smallfire/starfire/internal/repository"
 	"go.uber.org/zap"
 )
@@ -33,6 +35,11 @@ func (h *TrendHandler) GetTrendsBySymbol(c *gin.Context) {
 
 	trend, err := h.trendRepo.GetActive(symbolID, period)
 	if err != nil {
+		// 没有趋势数据是正常情况，返回空而不是错误
+		if errors.Is(err, pgx.ErrNoRows) {
+			HandleSuccess(c, nil)
+			return
+		}
 		h.logger.Error("获取趋势失败",
 			zap.Int("symbol_id", symbolID),
 			zap.String("period", period),

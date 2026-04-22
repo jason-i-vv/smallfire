@@ -129,6 +129,7 @@ func (s *CandlestickStrategy) detectEngulfing(klines []models.Kline, atr float64
 
 	strength := s.engulfingStrength(currBody, atr)
 	stopLoss := s.calculateStopLoss(curr, direction)
+	_, takeProfit := CalculateSLTP(curr.ClosePrice, direction, atr, s.config.ATRMultiplier, s.config.RiskRewardRatio)
 
 	data := map[string]interface{}{
 		"pattern":             signalType,
@@ -138,7 +139,7 @@ func (s *CandlestickStrategy) detectEngulfing(klines []models.Kline, atr float64
 		"atr":                 atr,
 	}
 
-	return s.newSignal(signalType, direction, desc, strength, curr, symbolID, symbolCode, period, stopLoss, data)
+	return s.newSignal(signalType, direction, desc, strength, curr, symbolID, symbolCode, period, stopLoss, takeProfit, data)
 }
 
 func (s *CandlestickStrategy) engulfingStrength(bodySize, atr float64) int {
@@ -214,6 +215,7 @@ func (s *CandlestickStrategy) detectMomentum(klines []models.Kline, atr float64,
 	strength := s.momentumStrength(candles, atr, actualCount)
 	latestKline := klines[n-1]
 	stopLoss := s.calculateStopLoss(latestKline, direction)
+	_, takeProfit := CalculateSLTP(latestKline.ClosePrice, direction, atr, s.config.ATRMultiplier, s.config.RiskRewardRatio)
 
 	data := map[string]interface{}{
 		"pattern":         signalType,
@@ -224,7 +226,7 @@ func (s *CandlestickStrategy) detectMomentum(klines []models.Kline, atr float64,
 		"atr":             atr,
 	}
 
-	return s.newSignal(signalType, direction, desc, strength, latestKline, symbolID, symbolCode, period, stopLoss, data)
+	return s.newSignal(signalType, direction, desc, strength, latestKline, symbolID, symbolCode, period, stopLoss, takeProfit, data)
 }
 
 func (s *CandlestickStrategy) momentumStrength(candles []models.Kline, _ float64, count int) int {
@@ -327,6 +329,7 @@ func (s *CandlestickStrategy) detectStar(klines []models.Kline, atr float64, tre
 
 	strength := s.starStrength(firstBody, starBody, thirdBody, atr, trendStrength)
 	stopLoss := s.calculateStopLoss(third, direction)
+	_, takeProfit := CalculateSLTP(third.ClosePrice, direction, atr, s.config.ATRMultiplier, s.config.RiskRewardRatio)
 
 	data := map[string]interface{}{
 		"pattern":                       signalType,
@@ -338,7 +341,7 @@ func (s *CandlestickStrategy) detectStar(klines []models.Kline, atr float64, tre
 		"atr":                           atr,
 	}
 
-	return s.newSignal(signalType, direction, desc, strength, third, symbolID, symbolCode, period, stopLoss, data)
+	return s.newSignal(signalType, direction, desc, strength, third, symbolID, symbolCode, period, stopLoss, takeProfit, data)
 }
 
 func (s *CandlestickStrategy) starStrength(_ float64, starBody, thirdBody, atr float64, trendStrength int) int {
@@ -372,7 +375,7 @@ func (s *CandlestickStrategy) starStrength(_ float64, starBody, thirdBody, atr f
 
 // ---- 公共方法 ----
 
-func (s *CandlestickStrategy) newSignal(signalType, direction, desc string, strength int, kline models.Kline, symbolID int, symbolCode, period string, stopLoss float64, data map[string]interface{}) *models.Signal {
+func (s *CandlestickStrategy) newSignal(signalType, direction, desc string, strength int, kline models.Kline, symbolID int, symbolCode, period string, stopLoss, takeProfit float64, data map[string]interface{}) *models.Signal {
 	sig := &models.Signal{
 		SymbolID:    symbolID,
 		SymbolCode:  symbolCode,
@@ -395,12 +398,25 @@ func (s *CandlestickStrategy) newSignal(signalType, direction, desc string, stre
 	if stopLoss > 0 {
 		sig.StopLossPrice = &stopLoss
 	}
+	if takeProfit > 0 {
+		sig.TargetPrice = &takeProfit
+	}
 
 	return sig
 }
 
 func (s *CandlestickStrategy) calculateStopLoss(kline models.Kline, direction string) float64 {
-	buffer := (kline.HighPrice - kline.LowPrice) * 0.1
+	klineRange := kline.HighPrice - kline.LowPrice
+	// 最小波动率检查：如果K线范围小于价格的0.3%，使用固定百分比止损
+	minRangePercent := 0.003
+	minRange := kline.ClosePrice * minRangePercent
+
+	var buffer float64
+	if klineRange < minRange {
+		buffer = kline.ClosePrice * minRangePercent
+	} else {
+		buffer = klineRange * 0.1
+	}
 
 	if direction == models.DirectionLong {
 		return kline.LowPrice - buffer

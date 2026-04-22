@@ -28,6 +28,12 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*DB, error) {
 		return nil, fmt.Errorf("创建数据库连接池失败: %w", err)
 	}
 
+	// 数据库使用 UTC 时区，不做任何时区转换
+	if _, err := pool.Exec(context.Background(), "SET TimeZone = 'UTC'"); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("设置时区失败: %w", err)
+	}
+
 	if err := pool.Ping(context.Background()); err != nil {
 		return nil, fmt.Errorf("数据库连接测试失败: %w", err)
 	}

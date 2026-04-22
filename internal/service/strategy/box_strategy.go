@@ -759,7 +759,18 @@ func (s *BoxStrategy) calculateStrength(box models.Box) int {
 
 // calculateStopLoss 计算止损价格
 func (s *BoxStrategy) calculateStopLoss(box models.Box, direction string) float64 {
-	buffer := (box.HighPrice - box.LowPrice) * 0.005 // 0.5%缓冲
+	width := box.HighPrice - box.LowPrice
+	// 最小波动率检查：如果箱体宽度小于入场价的0.3%，使用固定百分比止损
+	minRangePercent := 0.003
+	minRange := box.HighPrice * minRangePercent
+
+	var buffer float64
+	if width < minRange {
+		buffer = box.HighPrice * minRangePercent
+	} else {
+		buffer = width * 0.005
+	}
+
 	if direction == "long" {
 		return box.LowPrice - buffer
 	}
@@ -769,6 +780,19 @@ func (s *BoxStrategy) calculateStopLoss(box models.Box, direction string) float6
 // calculateTarget 计算目标价格
 func (s *BoxStrategy) calculateTarget(box models.Box, direction string) float64 {
 	width := box.HighPrice - box.LowPrice
+	// 最小波动率检查：如果箱体宽度小于入场价的0.5%，使用固定百分比目标
+	minRangePercent := 0.005
+	minRange := box.HighPrice * minRangePercent
+
+	if width < minRange {
+		// 低波动：使用固定的1.5%目标
+		entryPrice := box.HighPrice
+		if direction == "long" {
+			return entryPrice * 1.015
+		}
+		return entryPrice * 0.985
+	}
+
 	if direction == "long" {
 		return box.HighPrice + width*1.5
 	}

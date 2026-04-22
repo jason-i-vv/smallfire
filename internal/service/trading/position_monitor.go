@@ -14,6 +14,7 @@ type PositionMonitor struct {
 	executor      *TradeExecutor
 	trackRepo     repository.TradeTrackRepo
 	symbolRepo    repository.SymbolRepo
+	klineRepo     repository.KlineRepo
 	logger        *zap.Logger
 	trailingState map[int]*TrailingState // trackID -> trailing state
 	mu            sync.RWMutex
@@ -27,11 +28,12 @@ type PriceProvider interface {
 }
 
 // NewPositionMonitor 创建持仓监控服务
-func NewPositionMonitor(executor *TradeExecutor, trackRepo repository.TradeTrackRepo, symbolRepo repository.SymbolRepo, logger *zap.Logger) *PositionMonitor {
+func NewPositionMonitor(executor *TradeExecutor, trackRepo repository.TradeTrackRepo, symbolRepo repository.SymbolRepo, klineRepo repository.KlineRepo, logger *zap.Logger) *PositionMonitor {
 	return &PositionMonitor{
 		executor:      executor,
 		trackRepo:     trackRepo,
 		symbolRepo:    symbolRepo,
+		klineRepo:     klineRepo,
 		logger:        logger,
 		trailingState: make(map[int]*TrailingState),
 		stopChan:      make(chan struct{}),
@@ -94,20 +96,18 @@ func (m *PositionMonitor) checkPosition(track *models.TradeTrack) {
 		return
 	}
 
-	// 检查止损
-	if m.executor.stopLoss.ShouldTriggerStopLoss(track, currentPrice) {
-		m.logger.Info("触发止损", zap.Int("track_id", track.ID), zap.Float64("current_price", currentPrice))
-		if err := m.executor.CloseByStopLoss(track, currentPrice); err != nil {
-			m.logger.Error("止损平仓失败", zap.Error(err))
-		}
-		return
-	}
-
-	// 检查止盈
-	if m.executor.stopLoss.ShouldTriggerTakeProfit(track, currentPrice) {
-		m.logger.Info("触发止盈", zap.Int("track_id", track.ID), zap.Float64("current_price", currentPrice))
-		if err := m.executor.CloseByTakeProfit(track, currentPrice); err != nil {
-			m.logger.Error("止盈平仓失败", zap.Error(err))
+	// 检查止损止盈：使用持仓期间K线最高/最低价判断
+	exitInfo := m.checkStopLossTakeProfitWithKlines(track)
+	if exitInfo != nil {
+		if exitInfo.triggered {
+			m.logger.Info(exitInfo.reason,
+				zap.Int("track_id", track.ID),
+				zap.Float64("exit_price", exitInfo.exitPrice),
+				zap.Float64("high_price", exitInfo.highPrice),
+				zap.Float64("low_price", exitInfo.lowPrice))
+			if err := m.executor.ClosePosition(track, exitInfo.exitReason, exitInfo.exitPrice); err != nil {
+				m.logger.Error("平仓失败", zap.Error(err))
+			}
 		}
 		return
 	}
@@ -116,6 +116,143 @@ func (m *PositionMonitor) checkPosition(track *models.TradeTrack) {
 	if track.TrailingStopEnabled {
 		m.checkTrailingStop(track, currentPrice)
 	}
+}
+
+// exitCheckInfo 平仓检查结果
+type exitCheckInfo struct {
+	triggered  bool
+	exitReason string
+	exitPrice  float64
+	highPrice  float64
+	lowPrice   float64
+	reason     string
+}
+
+// checkStopLossTakeProfitWithKlines 使用K线数据检查止损止盈
+// 检查持仓期间内K线的最高价和最低价是否触及止损止盈
+func (m *PositionMonitor) checkStopLossTakeProfitWithKlines(track *models.TradeTrack) *exitCheckInfo {
+	if track.EntryTime == nil {
+		return nil
+	}
+
+	// 查询持仓期间内的K线（使用15分钟周期，更精确）
+	klines, err := m.klineRepo.GetBySymbolPeriod(int64(track.SymbolID), "15m",
+		track.EntryTime, nil, 500) // 最多取500根15分钟K线，足够覆盖3天
+	if err != nil || len(klines) == 0 {
+		// 如果查询失败，回退到使用当前价格判断
+		return m.checkStopLossTakeProfitWithPrice(track)
+	}
+
+	// 找出持仓期间的最高价和最低价
+	var periodHigh, periodLow float64
+	periodHigh = klines[0].HighPrice
+	periodLow = klines[0].LowPrice
+	for _, k := range klines {
+		if k.HighPrice > periodHigh {
+			periodHigh = k.HighPrice
+		}
+		if k.LowPrice < periodLow {
+			periodLow = k.LowPrice
+		}
+	}
+
+	// 多头：止损看最低价，止盈看最高价
+	if track.Direction == "long" {
+		// 检查止损：持仓期间最低价 <= 止损价
+		if track.StopLossPrice != nil && periodLow <= *track.StopLossPrice {
+			return &exitCheckInfo{
+				triggered:  true,
+				exitReason: models.ExitReasonStopLoss,
+				exitPrice:  *track.StopLossPrice,
+				highPrice:  periodHigh,
+				lowPrice:   periodLow,
+				reason:     "触发止损（K线最低价）",
+			}
+		}
+		// 检查止盈：持仓期间最高价 >= 止盈价
+		if track.TakeProfitPrice != nil && periodHigh >= *track.TakeProfitPrice {
+			return &exitCheckInfo{
+				triggered:  true,
+				exitReason: models.ExitReasonTakeProfit,
+				exitPrice:  *track.TakeProfitPrice,
+				highPrice:  periodHigh,
+				lowPrice:   periodLow,
+				reason:     "触发止盈（K线最高价）",
+			}
+		}
+	} else if track.Direction == "short" {
+		// 空头：止损看最高价，止盈看最低价
+		// 检查止损：持仓期间最高价 >= 止损价
+		if track.StopLossPrice != nil && periodHigh >= *track.StopLossPrice {
+			return &exitCheckInfo{
+				triggered:  true,
+				exitReason: models.ExitReasonStopLoss,
+				exitPrice:  *track.StopLossPrice,
+				highPrice:  periodHigh,
+				lowPrice:   periodLow,
+				reason:     "触发止损（K线最高价）",
+			}
+		}
+		// 检查止盈：持仓期间最低价 <= 止盈价
+		if track.TakeProfitPrice != nil && periodLow <= *track.TakeProfitPrice {
+			return &exitCheckInfo{
+				triggered:  true,
+				exitReason: models.ExitReasonTakeProfit,
+				exitPrice:  *track.TakeProfitPrice,
+				highPrice:  periodHigh,
+				lowPrice:   periodLow,
+				reason:     "触发止盈（K线最低价）",
+			}
+		}
+	}
+
+	return nil
+}
+
+// checkStopLossTakeProfitWithPrice 使用当前价格检查止损止盈（回退方案）
+func (m *PositionMonitor) checkStopLossTakeProfitWithPrice(track *models.TradeTrack) *exitCheckInfo {
+	currentPrice, err := m.getCurrentPrice(track.SymbolID)
+	if err != nil || currentPrice == 0 {
+		return nil
+	}
+
+	if track.Direction == "long" {
+		if m.executor.stopLoss.ShouldTriggerStopLoss(track, currentPrice) {
+			return &exitCheckInfo{
+				triggered:  true,
+				exitReason: models.ExitReasonStopLoss,
+				exitPrice:  currentPrice,
+				reason:     "触发止损（当前价格）",
+			}
+		}
+		if m.executor.stopLoss.ShouldTriggerTakeProfit(track, currentPrice) {
+			return &exitCheckInfo{
+				triggered:  true,
+				exitReason: models.ExitReasonTakeProfit,
+				exitPrice:  currentPrice,
+				reason:     "触发止盈（当前价格）",
+			}
+		}
+	} else if track.Direction == "short" {
+		if m.executor.stopLoss.ShouldTriggerStopLoss(track, currentPrice) {
+			return &exitCheckInfo{
+				triggered:  true,
+				exitReason: models.ExitReasonStopLoss,
+				exitPrice:  currentPrice,
+				reason:     "触发止损（当前价格）",
+			}
+		}
+		if m.executor.stopLoss.ShouldTriggerTakeProfit(track, currentPrice) {
+			return &exitCheckInfo{
+				triggered:  true,
+				exitReason: models.ExitReasonTakeProfit,
+				exitPrice:  currentPrice,
+				reason:     "触发止盈（当前价格）",
+			}
+		}
+	}
+
+	return nil
 }
 
 func (m *PositionMonitor) checkTrailingStop(track *models.TradeTrack, currentPrice float64) {
@@ -159,6 +296,16 @@ func (m *PositionMonitor) checkTrailingTrigger(track *models.TradeTrack, current
 
 func (m *PositionMonitor) updatePositionPnL(track *models.TradeTrack, currentPrice float64) error {
 	track.CurrentPrice = &currentPrice
+
+	// 检查必要的字段
+	if track.EntryPrice == nil || track.Quantity == nil || track.PositionValue == nil || *track.PositionValue == 0 {
+		m.logger.Warn("持仓数据不完整，无法计算未实现盈亏",
+			zap.Int("track_id", track.ID),
+			zap.Any("entry_price", track.EntryPrice),
+			zap.Any("quantity", track.Quantity),
+			zap.Any("position_value", track.PositionValue))
+		return nil
+	}
 
 	var unrealizedPnL float64
 	if track.Direction == "long" {
