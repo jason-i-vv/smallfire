@@ -165,6 +165,10 @@ trading:
   stop_loss_percent: 0.02              # 止损比例: 0.02
   take_profit_percent: 0.05            # 止盈比例: 0.05
 
+  # ATR 动态止盈止损（策略未提供建议值时使用）
+  atr_period: 14                       # ATR 计算周期
+  atr_multiplier: 2.0                  # 止损距离 = ATR × 2.0
+
   # 风控参数
   max_daily_trades: 10                 # 每日最大交易: 10
   max_open_positions: 5                # 最大持仓数: 5

@@ -60,3 +60,22 @@ export const formatNumber = (num, decimalPlaces = 2) => {
     return number.toFixed(decimalPlaces)
   }
 }
+
+// 格式化持仓时间（毫秒差值 -> 可读字符串）
+export const formatDuration = (entryTime, exitTime) => {
+  if (!entryTime || !exitTime) return '--'
+  const entryMs = typeof entryTime === 'number' ? entryTime : new Date(entryTime).getTime()
+  const exitMs = typeof exitTime === 'number' ? exitTime : new Date(exitTime).getTime()
+  if (isNaN(entryMs) || isNaN(exitMs)) return '--'
+
+  let diffMs = exitMs - entryMs
+  if (diffMs < 0) diffMs = 0
+
+  const days = Math.floor(diffMs / 86400000)
+  const hours = Math.floor((diffMs % 86400000) / 3600000)
+  const minutes = Math.floor((diffMs % 3600000) / 60000)
+
+  if (days > 0) return `${days}天${hours}小时`
+  if (hours > 0) return `${hours}小时${minutes}分`
+  return `${minutes}分钟`
+}

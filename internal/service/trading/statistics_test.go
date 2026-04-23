@@ -217,7 +217,7 @@ func (m *mockTrackRepoForStats) GetClosedTracks(startDate, endDate *time.Time) (
 }
 func (m *mockTrackRepoForStats) Create(trade *models.TradeTrack) error                 { return nil }
 func (m *mockTrackRepoForStats) Update(trade *models.TradeTrack) error                 { return nil }
-func (m *mockTrackRepoForStats) GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error) {
+func (m *mockTrackRepoForStats) GetHistory(startDate, endDate time.Time, page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
 	return nil, 0, nil
 }
 func (m *mockTrackRepoForStats) GetByID(id int) (*models.TradeTrack, error)            { return nil, nil }

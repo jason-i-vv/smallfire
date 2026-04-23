@@ -143,7 +143,16 @@ func (m *PositionMonitor) checkStopLossTakeProfitWithKlines(track *models.TradeT
 		return m.checkStopLossTakeProfitWithPrice(track)
 	}
 
-	// 找出持仓期间的最高价和最低价
+	// 跳过包含入场时刻的K线：第一根K线的时间范围覆盖了入场前的行情，
+	// 其高低点可能包含入场前的价格波动，会导致误触发止损止盈
+	if len(klines) > 1 {
+		klines = klines[1:]
+	} else {
+		// 只有入场K线一根，无法判断入场后的走势，回退到当前价格判断
+		return m.checkStopLossTakeProfitWithPrice(track)
+	}
+
+	// 找出入场后K线的最高价和最低价
 	var periodHigh, periodLow float64
 	periodHigh = klines[0].HighPrice
 	periodLow = klines[0].LowPrice

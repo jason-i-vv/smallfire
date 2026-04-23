@@ -49,6 +49,8 @@ type TradeTrackResponse struct {
 	UnrealizedPnL *float64 `json:"unrealized_pnl,omitempty"`
 	UnrealizedPnLPct *float64 `json:"unrealized_pnl_pct,omitempty"`
 	Status        string  `json:"status"`
+	SignalType    string  `json:"signal_type,omitempty"`   // 关联信号类型
+	SourceType    string  `json:"source_type,omitempty"`   // 关联信号来源
 	CreatedAt     int64   `json:"created_at"` // 毫秒时间戳
 	UpdatedAt     int64   `json:"updated_at"` // 毫秒时间戳
 }
@@ -84,6 +86,8 @@ func (t *TradeTrack) ToResponse() *TradeTrackResponse {
 	}
 	resp.CreatedAt = t.CreatedAt.UnixMilli()
 	resp.UpdatedAt = t.UpdatedAt.UnixMilli()
+	resp.SignalType = t.SignalType
+	resp.SourceType = t.SourceType
 	return resp
 }
 
@@ -132,6 +136,10 @@ type TradeTrack struct {
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+
+	// 关联字段（JOIN 查询填充）
+	SignalType string `json:"signal_type,omitempty" db:"-"` // 关联信号的 signal_type
+	SourceType string `json:"source_type,omitempty" db:"-"` // 关联信号的 source_type
 }
 
 const (

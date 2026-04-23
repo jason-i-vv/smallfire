@@ -290,7 +290,17 @@
     "noTrades": "暂无交易记录",
     "long": "多",
     "short": "空",
-    "closeTime": "平仓时间"
+    "closeTime": "平仓时间",
+    "holdingTime": "持仓时间",
+    "market": "市场",
+    "aStock": "A股",
+    "usStock": "美股",
+    "reasonStopLoss": "止损",
+    "reasonTakeProfit": "止盈",
+    "reasonTrailingStop": "移动止损",
+    "reasonManual": "手动",
+    "reasonExpired": "过期",
+    "dateRange": "日期范围"
   },
   "statistics": {
     "title": "交易统计",

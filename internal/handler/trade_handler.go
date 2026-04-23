@@ -140,7 +140,15 @@ func (h *TradeHandler) GetTradeHistory(c *gin.Context) {
 		endDate = now
 	}
 
-	tracks, total, err := h.trackRepo.GetHistory(startDate, endDate, page, size)
+	// 构建筛选条件
+	filters := map[string]string{
+		"market":      c.Query("market"),
+		"symbol_id":   c.Query("symbol_id"),
+		"direction":   c.Query("direction"),
+		"exit_reason": c.Query("exit_reason"),
+	}
+
+	tracks, total, err := h.trackRepo.GetHistory(startDate, endDate, page, size, filters)
 	if err != nil {
 		h.logger.Error("获取交易历史失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)

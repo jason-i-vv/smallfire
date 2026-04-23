@@ -14,7 +14,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -22,14 +22,13 @@ services:
       retries: 5
     networks:
       - starfire-network
+    restart: unless-stopped
 
   # ============================================
   # 后端 API 服务
   # ============================================
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${REGISTRY:-registry.cn-hangzhou.aliyuncs.com/deepcoin}/starfire-backend:${IMAGE_TAG:-latest}
     container_name: starfire-backend
     depends_on:
       postgres:
@@ -39,9 +38,24 @@ services:
     environment:
       DB_HOST: postgres
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      JWT_SECRET: ${JWT_SECRET:-your-secret-key}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      AI_API_KEY: ${AI_API_KEY:-}
     volumes:
       - ./config:/root/config:ro
+    networks:
+      - starfire-network
+    restart: unless-stopped
+
+  # ============================================
+  # 前端服务 (Nginx)
+  # ============================================
+  frontend:
+    image: ${REGISTRY:-registry.cn-hangzhou.aliyuncs.com/deepcoin}/starfire-frontend:${IMAGE_TAG:-latest}
+    container_name: starfire-frontend
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
     networks:
       - starfire-network
     restart: unless-stopped
@@ -50,3 +64,5 @@ networks:
   starfire-network:
     driver: bridge
 
+volumes:
+  postgres_data:

@@ -289,7 +289,17 @@
     "noTrades": "No trade history",
     "long": "Long",
     "short": "Short",
-    "closeTime": "Close Time"
+    "closeTime": "Close Time",
+    "holdingTime": "Holding Time",
+    "market": "Market",
+    "aStock": "A-Share",
+    "usStock": "US Stock",
+    "reasonStopLoss": "Stop Loss",
+    "reasonTakeProfit": "Take Profit",
+    "reasonTrailingStop": "Trailing Stop",
+    "reasonManual": "Manual",
+    "reasonExpired": "Expired",
+    "dateRange": "Date Range"
   },
   "statistics": {
     "title": "Statistics",

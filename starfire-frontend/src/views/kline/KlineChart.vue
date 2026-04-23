@@ -686,6 +686,10 @@ const fetchKlines = async () => {
       params.end_time = normalizedExitTime.value + contextOffset
       params.limit = 1000
       console.log('历史交易模式 - K线请求时间范围:', new Date(params.start_time * 1000).toISOString(), '到', new Date(params.end_time * 1000).toISOString(), '入场:', new Date(normalizedEntryTime.value * 1000).toISOString(), '出场:', new Date(normalizedExitTime.value * 1000).toISOString())
+    } else if (normalizedEntryTime.value && !normalizedExitTime.value) {
+      // 持仓监控模式：加载足够多的K线覆盖入场时间到最新
+      params.limit = 1000
+      console.log('持仓监控模式 - 加载K线 limit=1000, 入场:', new Date(normalizedEntryTime.value * 1000).toISOString())
     }
 
     const res = await klineApi.list(params)
@@ -870,8 +874,10 @@ const updateKlineData = (klines) => {
     // 关键价位信号：绘制价位线
     fetchKeyLevels()
   } else if (entryPrice.value && (stopLossPrice.value || takeProfitPrice.value)) {
-    // 持仓模式：不显示支撑阻力，只显示持仓价格线
-    // drawPositionPriceLines() 已在前面调用
+    // 持仓模式：滚动到入场时间附近，确保入场线可见
+    if (normalizedEntryTime.value) {
+      scrollToTime(normalizedEntryTime.value)
+    }
   } else {
     // 其他模式：始终获取并显示支撑阻力
     fetchKeyLevels()
@@ -1153,8 +1159,11 @@ const handleBacktestData = (klines) => {
       }
     }
 
-    // 历史交易场景：滚动到出场时间点
-    if (exitReason.value && normalizedExitTime.value) {
+    // 历史交易场景：滚动到入场和出场时间的中间位置，确保两者都可见
+    if (exitReason.value && normalizedExitTime.value && normalizedEntryTime.value) {
+      const midTime = Math.floor((normalizedEntryTime.value + normalizedExitTime.value) / 2)
+      scrollToTime(midTime)
+    } else if (exitReason.value && normalizedExitTime.value) {
       scrollToTime(normalizedExitTime.value)
     }
   }

@@ -30,6 +30,11 @@
           {{ row.exit_price ? formatPrice(row.exit_price) : '--' }}
         </template>
       </el-table-column>
+      <el-table-column :label="t('trades.holdingTime') || '持仓时间'" width="120">
+        <template #default="{ row }">
+          {{ formatDuration(row.entry_time, row.exit_time) }}
+        </template>
+      </el-table-column>
       <el-table-column prop="stop_loss_price" :label="t('positions.stopLoss') || '止损'" width="100">
         <template #default="{ row }">
           {{ row.stop_loss_price ? formatPrice(row.stop_loss_price) : '-' }}
@@ -142,7 +147,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { opportunityApi } from '@/api/opportunities'
-import { formatTime, formatPrice, formatPnL } from '@/utils/formatters'
+import { formatTime, formatPrice, formatPnL, formatDuration } from '@/utils/formatters'
 
 const { t } = useI18n()
 const router = useRouter()

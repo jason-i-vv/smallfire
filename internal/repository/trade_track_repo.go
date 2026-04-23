@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -353,30 +355,66 @@ func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 	return nil
 }
 
-func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error) {
+func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
 	var count int
 
-	countQuery := `SELECT COUNT(*) FROM trade_tracks WHERE status = 'closed' AND created_at BETWEEN $1 AND $2`
-	err := r.db.QueryRow(context.Background(), countQuery, startDate, endDate).Scan(&count)
+	// 构建动态 WHERE 条件
+	whereClauses := []string{"t.status = 'closed'", "t.created_at BETWEEN $1 AND $2"}
+	args := []interface{}{startDate, endDate}
+	argIdx := 3
+
+	if v, ok := filters["market"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("s2.market_code = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+	if v, ok := filters["symbol_id"]; ok && v != "" {
+		sid, _ := strconv.Atoi(v)
+		if sid > 0 {
+			whereClauses = append(whereClauses, fmt.Sprintf("t.symbol_id = $%d", argIdx))
+			args = append(args, sid)
+			argIdx++
+		}
+	}
+	if v, ok := filters["direction"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("t.direction = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+	if v, ok := filters["exit_reason"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("t.exit_reason = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+
+	whereStr := strings.Join(whereClauses, " AND ")
+
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM trade_tracks t LEFT JOIN symbols s2 ON t.symbol_id = s2.id WHERE %s`, whereStr)
+	err := r.db.QueryRow(context.Background(), countQuery, args...).Scan(&count)
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询交易历史总数失败: %w", err)
 	}
 
 	offset := (page - 1) * size
-	dataQuery := `
+	dataQuery := fmt.Sprintf(`
 		SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
 		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
 		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
 		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
 		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
 		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
-		       COALESCE(s.symbol_code, '') as symbol_code
+		       COALESCE(s.symbol_code, '') as symbol_code,
+		       COALESCE(sig.signal_type, '') as signal_type,
+		       COALESCE(sig.source_type, '') as source_type
 		FROM trade_tracks t
 		LEFT JOIN symbols s ON t.symbol_id = s.id
-		WHERE t.status = 'closed' AND t.created_at BETWEEN $1 AND $2
-		ORDER BY t.created_at DESC LIMIT $3 OFFSET $4`
+		LEFT JOIN symbols s2 ON t.symbol_id = s2.id
+		LEFT JOIN signals sig ON t.signal_id = sig.id
+		WHERE %s
+		ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d`, whereStr, argIdx, argIdx+1)
 
-	rows, err := r.db.Query(context.Background(), dataQuery, startDate, endDate, size, offset)
+	dataArgs := append(args, size, offset)
+	rows, err := r.db.Query(context.Background(), dataQuery, dataArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询交易历史失败: %w", err)
 	}
@@ -385,7 +423,7 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 	var tracks []*models.TradeTrack
 	for rows.Next() {
 		var track models.TradeTrack
-		var symbolCode string
+		var symbolCode, signalType, sourceType string
 		if err := rows.Scan(
 			&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
 			&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
@@ -395,11 +433,13 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 			&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
 			&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 			&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-			&track.UpdatedAt, &symbolCode,
+			&track.UpdatedAt, &symbolCode, &signalType, &sourceType,
 		); err != nil {
 			return nil, 0, err
 		}
 		track.SymbolCode = symbolCode
+		track.SignalType = signalType
+		track.SourceType = sourceType
 		tracks = append(tracks, &track)
 	}
 
@@ -409,6 +449,7 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 
 	return tracks, count, nil
 }
+
 
 func (r *TradeTrackRepoPG) GetByID(id int) (*models.TradeTrack, error) {
 	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE id = $1"

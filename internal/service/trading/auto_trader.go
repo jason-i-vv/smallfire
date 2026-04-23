@@ -8,6 +8,8 @@ import (
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
 	"github.com/smallfire/starfire/internal/repository"
+	"github.com/smallfire/starfire/internal/service/strategy"
+	"github.com/smallfire/starfire/internal/service/strategy/helpers"
 	"go.uber.org/zap"
 )
 
@@ -95,9 +97,8 @@ func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, currentPr
 	quantity := tradeAmount / currentPrice
 	fees := tradeAmount * 0.0004 * 2 // 双向手续费
 
-	// 止损止盈：优先用 opportunity 建议值，没有就用固定百分比
-	stopLossPrice := t.calcStopLoss(currentPrice, opp)
-	takeProfitPrice := t.calcTakeProfit(currentPrice, opp)
+	// 止损止盈：优先用 opportunity 建议值，其次 ATR 动态计算，最后固定百分比
+	stopLossPrice, takeProfitPrice := t.calcSLTP(currentPrice, opp)
 	// 校验盈亏比，确保不低于最低阈值
 	stopLossPrice, takeProfitPrice = t.validateRiskReward(currentPrice, opp.Direction, stopLossPrice, takeProfitPrice)
 
@@ -132,78 +133,113 @@ func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, currentPr
 	return track, nil
 }
 
-// calcStopLoss 计算止损价
-func (t *AutoTrader) calcStopLoss(entryPrice float64, opp *models.TradingOpportunity) float64 {
+// calcSLTP 计算止盈止损价格
+// 优先级：1. opportunity 建议值 → 2. ATR 动态计算 → 3. 固定百分比兜底
+func (t *AutoTrader) calcSLTP(entryPrice float64, opp *models.TradingOpportunity) (float64, float64) {
+	sl, tp := 0.0, 0.0
+
+	// 1. 尝试使用 opportunity 建议值
 	if opp.SuggestedStopLoss != nil && *opp.SuggestedStopLoss > 0 {
-		suggested := *opp.SuggestedStopLoss
-		// 验证建议止损价是否距离入场价足够远（至少 1%）
-		minLossDistance := entryPrice * 0.01
-		maxLossDistance := entryPrice * t.maxStopLossDistance()
-		if opp.Direction == models.DirectionLong && suggested < entryPrice-minLossDistance {
-			// 校验最大距离
-			if entryPrice-suggested > maxLossDistance {
-				t.logger.Warn("止损距离超过上限，使用上限值",
-					zap.Float64("entry_price", entryPrice),
-					zap.Float64("suggested_stop_loss", suggested),
-					zap.Float64("max_distance", maxLossDistance))
-				return entryPrice - maxLossDistance
-			}
-			return suggested
+		minDist := entryPrice * 0.01
+		if opp.Direction == models.DirectionLong && *opp.SuggestedStopLoss < entryPrice-minDist {
+			sl = *opp.SuggestedStopLoss
+		} else if opp.Direction == models.DirectionShort && *opp.SuggestedStopLoss > entryPrice+minDist {
+			sl = *opp.SuggestedStopLoss
 		}
-		if opp.Direction == models.DirectionShort && suggested > entryPrice+minLossDistance {
-			// 对于做空，止损价应该在入场价上方
-			// 但如果建议止损价超出合理范围（超过2倍入场价），重新计算
-			if suggested > entryPrice*2 {
-				t.logger.Warn("做空止损价超出合理范围，重新计算",
-					zap.Float64("entry_price", entryPrice),
-					zap.Float64("suggested_stop_loss", suggested))
-				return entryPrice * (1 + t.config.StopLossPercent)
-			}
-			// 校验最大距离
-			if suggested-entryPrice > maxLossDistance {
-				t.logger.Warn("止损距离超过上限，使用上限值",
-					zap.Float64("entry_price", entryPrice),
-					zap.Float64("suggested_stop_loss", suggested),
-					zap.Float64("max_distance", maxLossDistance))
-				return entryPrice + maxLossDistance
-			}
-			return suggested
+	}
+	if opp.SuggestedTakeProfit != nil && *opp.SuggestedTakeProfit > 0 {
+		minDist := entryPrice * 0.01
+		if opp.Direction == models.DirectionLong && *opp.SuggestedTakeProfit > entryPrice+minDist {
+			tp = *opp.SuggestedTakeProfit
+		} else if opp.Direction == models.DirectionShort && *opp.SuggestedTakeProfit < entryPrice-minDist {
+			tp = *opp.SuggestedTakeProfit
 		}
-		// 距离太近，使用默认值
-		t.logger.Warn("建议止损价距离入场价过近，使用默认值",
-			zap.Float64("entry_price", entryPrice),
-			zap.Float64("suggested_stop_loss", suggested),
-			zap.Float64("min_distance", minLossDistance))
 	}
-	// 默认固定百分比
-	if opp.Direction == models.DirectionLong {
-		return entryPrice * (1 - t.config.StopLossPercent)
+
+	// 2. 如果建议值不完整，用 ATR 动态计算
+	if sl == 0 || tp == 0 {
+		atrSL, atrTP := t.calcATRSLTP(entryPrice, opp)
+		if sl == 0 && atrSL > 0 {
+			sl = atrSL
+		}
+		if tp == 0 && atrTP > 0 {
+			tp = atrTP
+		}
 	}
-	return entryPrice * (1 + t.config.StopLossPercent)
+
+	// 3. 兜底：固定百分比
+	if sl == 0 {
+		if opp.Direction == models.DirectionLong {
+			sl = entryPrice * (1 - t.config.StopLossPercent)
+		} else {
+			sl = entryPrice * (1 + t.config.StopLossPercent)
+		}
+	}
+	if tp == 0 {
+		if opp.Direction == models.DirectionLong {
+			tp = entryPrice * (1 + t.config.TakeProfitPercent)
+		} else {
+			tp = entryPrice * (1 - t.config.TakeProfitPercent)
+		}
+	}
+
+	return sl, tp
 }
 
-// calcTakeProfit 计算止盈价
-func (t *AutoTrader) calcTakeProfit(entryPrice float64, opp *models.TradingOpportunity) float64 {
-	if opp.SuggestedTakeProfit != nil && *opp.SuggestedTakeProfit > 0 {
-		suggested := *opp.SuggestedTakeProfit
-		// 验证建议止盈价是否距离入场价足够远（至少 1%）
-		minProfitDistance := entryPrice * 0.01
-		if opp.Direction == models.DirectionLong && suggested > entryPrice+minProfitDistance {
-			return suggested
-		}
-		if opp.Direction == models.DirectionShort && suggested < entryPrice-minProfitDistance {
-			return suggested
-		}
-		// 距离太近，使用默认值
-		t.logger.Warn("建议止盈价距离入场价过近，使用默认值",
-			zap.Float64("entry_price", entryPrice),
-			zap.Float64("suggested_take_profit", suggested),
-			zap.Float64("min_distance", minProfitDistance))
+// calcATRSLTP 基于近期K线的ATR计算止盈止损
+func (t *AutoTrader) calcATRSLTP(entryPrice float64, opp *models.TradingOpportunity) (float64, float64) {
+	atrPeriod := t.config.ATRPeriod
+	if atrPeriod <= 0 {
+		atrPeriod = 14
 	}
-	if opp.Direction == models.DirectionLong {
-		return entryPrice * (1 + t.config.TakeProfitPercent)
+	atrMultiplier := t.config.ATRMultiplier
+	if atrMultiplier <= 0 {
+		atrMultiplier = 2.0
 	}
-	return entryPrice * (1 - t.config.TakeProfitPercent)
+	rrRatio := t.config.MinRiskRewardRatio
+	if rrRatio <= 0 {
+		rrRatio = 1.5
+	}
+
+	// 拉取K线数据（需要 atrPeriod+1 根）
+	periods := []string{opp.Period, "15m", "1h"}
+	var klines []models.Kline
+	for _, p := range periods {
+		if p == "" {
+			continue
+		}
+		ks, err := t.klineRepo.GetLatestN(opp.SymbolID, p, atrPeriod+1)
+		if err != nil || len(ks) < 2 {
+			continue
+		}
+		klines = ks
+		break
+	}
+
+	if len(klines) < 2 {
+		t.logger.Debug("ATR K线数据不足，回退固定百分比",
+			zap.Int("symbol_id", opp.SymbolID))
+		return 0, 0
+	}
+
+	atr := helpers.CalculateATR(klines, atrPeriod)
+	if atr <= 0 {
+		return 0, 0
+	}
+
+	sl, tp := strategy.CalculateSLTP(entryPrice, opp.Direction, atr, atrMultiplier, rrRatio)
+
+	t.logger.Info("ATR 动态止盈止损",
+		zap.String("symbol_code", opp.SymbolCode),
+		zap.Float64("entry_price", entryPrice),
+		zap.Float64("atr", atr),
+		zap.Float64("atr_pct", atr/entryPrice*100),
+		zap.Float64("stop_loss", sl),
+		zap.Float64("take_profit", tp),
+		zap.Float64("sl_pct", (entryPrice-sl)/entryPrice*100),
+		zap.Float64("tp_pct", (tp-entryPrice)/entryPrice*100))
+
+	return sl, tp
 }
 
 // maxStopLossDistance 返回最大允许的止损距离（相对于入场价的比例）

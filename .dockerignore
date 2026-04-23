@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Claude / AI
+.claude
+.gstack
+
+# Frontend dev files
+starfire-frontend/node_modules
+starfire-frontend/.vite
+starfire-frontend/dist
+
+# Backend dev files
+server
+*.exe
+*.test
+
+# Database data
+postgres_data
+
+# Backtest results
+backtest_results
+
+# Docs & scripts (not needed in image)
+docs
+pdms
+db-scripts
+*.md
+!README.md
+
+# Docker files (avoid recursion)
+docker-compose*.yml
+Dockerfile*
+.dockerignore

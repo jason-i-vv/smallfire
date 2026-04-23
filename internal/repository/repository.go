@@ -59,7 +59,7 @@ type TradeTrackRepo interface {
 	GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error)
 	Create(trade *models.TradeTrack) error
 	Update(trade *models.TradeTrack) error
-	GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error)
+	GetHistory(startDate, endDate time.Time, page, size int, filters map[string]string) ([]*models.TradeTrack, int, error)
 	GetByID(id int) (*models.TradeTrack, error)
 	GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error)
 }

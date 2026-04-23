@@ -25,7 +25,7 @@ func (m *mockTrackRepo) CountClosedSince(startTime time.Time) (int, error) { ret
 func (m *mockTrackRepo) GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepo) Create(trade *models.TradeTrack) error                               { return nil }
 func (m *mockTrackRepo) Update(trade *models.TradeTrack) error                               { return nil }
-func (m *mockTrackRepo) GetHistory(startDate, endDate time.Time, page, size int) ([]*models.TradeTrack, int, error) {
+func (m *mockTrackRepo) GetHistory(startDate, endDate time.Time, page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
 	return nil, 0, nil
 }
 func (m *mockTrackRepo) GetByID(id int) (*models.TradeTrack, error) { return nil, nil }

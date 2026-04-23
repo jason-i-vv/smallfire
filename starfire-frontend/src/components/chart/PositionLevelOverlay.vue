@@ -126,13 +126,18 @@ const draw = () => {
 
   let entryX = props.chart.timeScale().timeToCoordinate(entryTimeAligned)
 
-  // 如果入场时间超出数据范围，入场线不在屏幕上
-  if (entryX == null && visibleTimeRange) {
-    // 用可见范围的最左边作为左边界，让止盈止损区域覆盖整个可见区域
-    const visibleFromX = props.chart.timeScale().timeToCoordinate(visibleTimeRange.from)
-    if (visibleFromX != null) {
-      leftX = visibleFromX
-    }
+  // 如果对齐后的入场时间不在数据中（如当前未完成K线），尝试前一个周期
+  if (entryX == null) {
+    const periodMatch = props.period.match(/^(\d+)([mhd])$/)
+    const periodSec = periodMatch ? parseInt(periodMatch[1]) * { 'm': 60, 'h': 3600, 'd': 86400 }[periodMatch[2]] : 900
+    const prevPeriodTime = entryTimeAligned - periodSec
+    entryX = props.chart.timeScale().timeToCoordinate(prevPeriodTime)
+  }
+
+  // 如果入场时间超出数据范围或不在屏幕上，入场线不在屏幕上
+  if (entryX == null) {
+    // 入场时间在屏幕左侧之外，区域从 canvas 左边缘开始
+    leftX = 0
   } else if (entryX != null) {
     // 入场时间在数据范围内
     if (entryX >= leftX && entryX <= rightX) {

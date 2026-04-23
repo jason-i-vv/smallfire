@@ -246,6 +246,22 @@ func main() {
 			utils.Info("AI关键价位识别器启动",
 				zap.Int("interval_minutes", cfg.AI.KeyLevel.IntervalMinutes))
 		}
+
+		// 初始化 AI 每日简报服务
+		if cfg.AI.Briefing.Enabled {
+			briefingCfg := cfg.AI
+			briefingCfg.MaxTokens = cfg.AI.Briefing.MaxTokens
+			briefingClient := aiservice.NewAIClient(briefingCfg)
+			briefingSvc := aiservice.NewBriefingService(
+				briefingClient, statsService, trackRepo, signalRepo, oppRepo,
+				trendRepo, marketRepo, feishuNotifier, cfg.AI.Briefing, utils.Logger,
+			)
+			briefingSvc.Start()
+			defer briefingSvc.Stop()
+			utils.Info("AI每日简报服务启动",
+				zap.String("time", cfg.AI.Briefing.Time),
+				zap.Int("max_tokens", cfg.AI.Briefing.MaxTokens))
+		}
 	} else {
 		utils.Info("AI 分析服务未启用")
 	}

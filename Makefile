@@ -1,4 +1,7 @@
-.PHONY: dev backend frontend restart docker-dev docker-build docker-build-amd64 docker-up docker-down test lint fmt deps
+REGISTRY ?= registry.cn-hangzhou.aliyuncs.com/deepcoin
+IMAGE_TAG ?= latest
+
+.PHONY: dev backend frontend restart docker-dev docker-build docker-build-amd64 docker-push docker-deploy docker-up docker-down test lint fmt deps
 
 # ============================================
 # 开发模式
@@ -87,14 +90,37 @@ docker-dev-logs:
 # 构建后端镜像 (AMD64)
 docker-build-amd64:
 	@echo "Building backend Docker image (amd64)..."
-	@docker build --platform linux/amd64 -t starfire:latest .
+	@docker build --platform linux/amd64 \
+		-t starfire-backend:latest \
+		-t $(REGISTRY)/starfire-backend:$(IMAGE_TAG) .
+
+# 构建前端镜像 (AMD64)
+docker-build-frontend:
+	@echo "Building frontend Docker image (amd64)..."
+	@docker build --platform linux/amd64 -f Dockerfile.frontend \
+		-t starfire-frontend:latest \
+		-t $(REGISTRY)/starfire-frontend:$(IMAGE_TAG) .
+
+# 构建所有镜像 (AMD64)
+docker-build-all: docker-build-amd64 docker-build-frontend
 
 # 构建后端镜像
 docker-build:
 	@echo "Building backend Docker image..."
-	@docker build -t starfire:latest .
+	@docker build \
+		-t starfire-backend:latest \
+		-t $(REGISTRY)/starfire-backend:$(IMAGE_TAG) .
 
-# Docker 部署（仅后端+数据库）
+# 推送到阿里云 ACR
+docker-push: docker-build-all
+	@echo "Pushing images to $(REGISTRY) ..."
+	@docker push $(REGISTRY)/starfire-backend:$(IMAGE_TAG)
+	@docker push $(REGISTRY)/starfire-frontend:$(IMAGE_TAG)
+	@echo "Done! Images pushed:"
+	@echo "  $(REGISTRY)/starfire-backend:$(IMAGE_TAG)"
+	@echo "  $(REGISTRY)/starfire-frontend:$(IMAGE_TAG)"
+
+# Docker 部署（后端+数据库+前端）
 docker-up:
 	@docker-compose up -d
 
@@ -136,6 +162,10 @@ deps:
 deps-list:
 	go list -m all
 
+# 清理交易数据（开平仓逻辑变更后使用）
+db-cleanup:
+	@bash scripts/cleanup_trading_data.sh "手动执行清理"
+
 # ============================================
 # 帮助
 # ============================================
@@ -157,13 +187,19 @@ help:
 	@echo "  make docker-dev-logs - 查看Docker服务日志"
 	@echo ""
 	@echo "Docker生产构建:"
-	@echo "  make docker-build   - 构建后端镜像"
-	@echo "  make docker-up      - 启动生产服务"
-	@echo "  make docker-down    - 停止生产服务"
+	@echo "  make docker-build-amd64    - 构建后端镜像 (amd64)"
+	@echo "  make docker-build-frontend - 构建前端镜像 (amd64)"
+	@echo "  make docker-build-all      - 构建所有镜像"
+	@echo "  make docker-push           - 构建+推送镜像到 ACR"
+	@echo "  make docker-up             - 启动生产服务"
+	@echo "  make docker-down           - 停止生产服务"
 	@echo ""
 	@echo "前端:"
 	@echo "  make frontend-install - 安装前端依赖"
 	@echo "  make frontend-build   - 构建前端"
+	@echo ""
+	@echo "数据清理:"
+	@echo "  make db-cleanup     - 清理交易数据（交互式确认）"
 	@echo ""
 	@echo "其他:"
 	@echo "  make test           - 运行测试"

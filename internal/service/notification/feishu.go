@@ -165,6 +165,8 @@ func (f *FeishuNotifier) getTemplateByType(msgType string) string {
 		return "green"
 	case "alert":
 		return "red"
+	case "briefing":
+		return "indigo"
 	default:
 		return "blue"
 	}

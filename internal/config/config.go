@@ -228,6 +228,10 @@ type TradingConfig struct {
 	StopLossPercent   float64 `mapstructure:"stop_loss_percent"`   // 止损比例: 0.02
 	TakeProfitPercent float64 `mapstructure:"take_profit_percent"` // 止盈比例: 0.05
 
+	// ATR 动态止盈止损
+	ATRPeriod     int     `mapstructure:"atr_period"`      // ATR 计算周期，默认 14
+	ATRMultiplier float64 `mapstructure:"atr_multiplier"`  // 止损距离 = ATR × 倍数，默认 2.0
+
 	// 风控参数
 	MaxDailyTrades     int     `mapstructure:"max_daily_trades"`     // 每日最大交易: 10
 	MaxOpenPositions   int     `mapstructure:"max_open_positions"`   // 最大持仓数: 5
