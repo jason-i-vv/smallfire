@@ -129,34 +129,45 @@ type exitCheckInfo struct {
 }
 
 // checkStopLossTakeProfitWithKlines 使用K线数据检查止损止盈
-// 检查持仓期间内K线的最高价和最低价是否触及止损止盈
+// 只使用已收盘的K线进行判断，持仓期间K线收盘后检查是否触发止损止盈
 func (m *PositionMonitor) checkStopLossTakeProfitWithKlines(track *models.TradeTrack) *exitCheckInfo {
 	if track.EntryTime == nil {
 		return nil
 	}
 
-	// 查询持仓期间内的K线（使用15分钟周期，更精确）
+	// 从入场时间之前一根K线开始查询，确保第一根查询到的K线是已收盘的
+	lookbackStart := track.EntryTime.Add(-15 * time.Minute)
 	klines, err := m.klineRepo.GetBySymbolPeriod(int64(track.SymbolID), "15m",
-		track.EntryTime, nil, 500) // 最多取500根15分钟K线，足够覆盖3天
+		&lookbackStart, nil, 500) // 最多取500根15分钟K线，足够覆盖3天
 	if err != nil || len(klines) == 0 {
-		// 如果查询失败，回退到使用当前价格判断
-		return m.checkStopLossTakeProfitWithPrice(track)
+		return nil
 	}
 
-	// 跳过包含入场时刻的K线：第一根K线的时间范围覆盖了入场前的行情，
-	// 其高低点可能包含入场前的价格波动，会导致误触发止损止盈
-	if len(klines) > 1 {
-		klines = klines[1:]
-	} else {
-		// 只有入场K线一根，无法判断入场后的走势，回退到当前价格判断
-		return m.checkStopLossTakeProfitWithPrice(track)
+	// 找到入场K线在数组中的位置：找第一根 OpenTime > EntryTime 的K线，它的前一根就是入场K线
+	entryIdx := -1
+	for i, k := range klines {
+		if k.OpenTime.After(*track.EntryTime) {
+			entryIdx = i
+			break
+		}
+	}
+
+	// entryIdx - 1 就是入场K线，它本身不参与平仓判断（无法判断极值点是在入场前还是入场后）
+	// 从入场K线的下一根开始判断
+	if entryIdx <= 0 || entryIdx >= len(klines) {
+		return nil
+	}
+	klinesToCheck := klines[entryIdx:]
+
+	if len(klinesToCheck) == 0 {
+		return nil
 	}
 
 	// 找出入场后K线的最高价和最低价
 	var periodHigh, periodLow float64
-	periodHigh = klines[0].HighPrice
-	periodLow = klines[0].LowPrice
-	for _, k := range klines {
+	periodHigh = klinesToCheck[0].HighPrice
+	periodLow = klinesToCheck[0].LowPrice
+	for _, k := range klinesToCheck {
 		if k.HighPrice > periodHigh {
 			periodHigh = k.HighPrice
 		}
