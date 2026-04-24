@@ -2,52 +2,76 @@
   <div class="history">
     <h1 class="page-title">{{ t('trades.title') }}</h1>
 
-    <!-- 筛选栏 -->
+    <!-- 方向筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('trades.direction') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in directionOptions"
+          :key="item.value"
+          :class="['filter-card', { active: filters.direction === item.value }]"
+          @click="toggleFilter('direction', item.value)"
+        >
+          <span class="card-icon" v-if="item.icon">{{ item.icon }}</span>
+          <span class="card-label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 出场原因筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('trades.exitType') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in exitReasonOptions"
+          :key="item.value"
+          :class="['filter-card', { active: filters.exit_reason === item.value }]"
+          @click="toggleFilter('exit_reason', item.value)"
+        >
+          <span class="card-label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 评分级别筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('trades.scoreLevel') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in scoreOptions"
+          :key="item.value"
+          :class="['filter-card', { active: filters.min_score === item.value }]"
+          @click="toggleFilter('min_score', item.value)"
+        >
+          <span class="card-label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 市场和交易对筛选 -->
     <div class="filter-bar">
-      <div class="filter-row">
-        <span class="filter-label">{{ t('trades.market') || '市场' }}</span>
-        <el-select v-model="filters.market" clearable style="width: 160px" @change="onMarketChange">
-          <el-option label="Bybit" value="bybit" />
-          <el-option :label="t('trades.aStock') || 'A股'" value="a_stock" />
-          <el-option :label="t('trades.usStock') || '美股'" value="us_stock" />
-        </el-select>
+      <el-select v-model="filters.market" clearable :placeholder="t('trades.market')" style="width: 150px" @change="onMarketChange">
+        <el-option label="Bybit" value="bybit" />
+        <el-option :label="t('trades.aStock')" value="a_stock" />
+        <el-option :label="t('trades.usStock')" value="us_stock" />
+      </el-select>
 
-        <span class="filter-label">{{ t('trades.symbol') || '交易对' }}</span>
-        <el-select v-model="filters.symbol_id" clearable filterable style="width: 180px" @focus="loadSymbols">
-          <el-option v-for="s in symbols" :key="s.id" :label="s.symbol_code" :value="s.id" />
-        </el-select>
+      <el-select v-model="filters.symbol_id" clearable filterable :placeholder="t('trades.symbol')" style="width: 180px" @focus="loadSymbols">
+        <el-option v-for="s in symbols" :key="s.id" :label="s.symbol_code" :value="s.id" />
+      </el-select>
 
-        <span class="filter-label">{{ t('trades.direction') || '方向' }}</span>
-        <el-select v-model="filters.direction" clearable style="width: 120px">
-          <el-option :label="t('trades.long') || '多'" value="long" />
-          <el-option :label="t('trades.short') || '空'" value="short" />
-        </el-select>
-      </div>
-      <div class="filter-row">
-        <span class="filter-label">{{ t('trades.exitReason') || '出场原因' }}</span>
-        <el-select v-model="filters.exit_reason" clearable style="width: 140px">
-          <el-option :label="t('trades.reasonStopLoss') || '止损'" value="stop_loss" />
-          <el-option :label="t('trades.reasonTakeProfit') || '止盈'" value="take_profit" />
-          <el-option :label="t('trades.reasonTrailingStop') || '移动止损'" value="trailing_stop" />
-          <el-option :label="t('trades.reasonManual') || '手动'" value="manual" />
-          <el-option :label="t('trades.reasonExpired') || '过期'" value="expired" />
-        </el-select>
+      <el-date-picker
+        v-model="dateRange"
+        type="daterange"
+        range-separator="-"
+        :start-placeholder="t('trades.dateRange')"
+        end-placeholder=""
+        value-format="YYYY-MM-DD"
+        style="width: 260px"
+        @change="fetchData"
+      />
 
-        <span class="filter-label">{{ t('trades.dateRange') || '日期范围' }}</span>
-        <el-date-picker
-          v-model="dateRange"
-          type="daterange"
-          range-separator="至"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
-          value-format="YYYY-MM-DD"
-          style="width: 280px"
-          @change="fetchData"
-        />
-
-        <el-button type="primary" @click="fetchData">{{ t('common.search') || '搜索' }}</el-button>
-        <el-button @click="resetFilter">{{ t('common.reset') || '重置' }}</el-button>
-      </div>
+      <el-button @click="resetFilter">{{ t('common.reset') }}</el-button>
     </div>
 
     <!-- 数据表格 -->
@@ -73,7 +97,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TradeTable from '@/components/trades/TradeTable.vue'
 import { tradeApi } from '@/api/trades'
@@ -92,8 +116,38 @@ const filters = reactive({
   market: '',
   symbol_id: '',
   direction: '',
-  exit_reason: ''
+  exit_reason: '',
+  min_score: ''
 })
+
+const directionOptions = computed(() => [
+  { label: t('common.all'), value: '', icon: '' },
+  { label: t('common.long'), value: 'long', icon: '▲' },
+  { label: t('common.short'), value: 'short', icon: '▼' }
+])
+
+const exitReasonOptions = computed(() => [
+  { label: t('common.all'), value: '' },
+  { label: t('trades.reasonTakeProfit'), value: 'take_profit' },
+  { label: t('trades.reasonStopLoss'), value: 'stop_loss' },
+  { label: t('trades.reasonTrailingStop'), value: 'trailing_stop' },
+  { label: t('trades.reasonManual'), value: 'manual' },
+  { label: t('trades.reasonExpired'), value: 'expired' }
+])
+
+const scoreOptions = computed(() => [
+  { label: t('trades.scoreAll'), value: '' },
+  { label: t('trades.scoreAbove60'), value: '60' },
+  { label: t('trades.scoreAbove70'), value: '70' },
+  { label: t('trades.scoreAbove80'), value: '80' },
+  { label: t('trades.scoreAbove90'), value: '90' }
+])
+
+const toggleFilter = (key, value) => {
+  filters[key] = filters[key] === value ? '' : value
+  currentPage.value = 1
+  fetchData()
+}
 
 const loadSymbols = async () => {
   if (symbols.value.length > 0) return
@@ -112,6 +166,8 @@ const onMarketChange = () => {
   filters.symbol_id = ''
   symbols.value = []
   if (filters.market) loadSymbols()
+  currentPage.value = 1
+  fetchData()
 }
 
 const formatDateRange = () => {
@@ -130,11 +186,11 @@ const fetchData = async () => {
       size: pageSize.value,
       ...formatDateRange()
     }
-    // 添加筛选参数（跳过空值）
     if (filters.market) params.market = filters.market
     if (filters.symbol_id) params.symbol_id = filters.symbol_id
     if (filters.direction) params.direction = filters.direction
     if (filters.exit_reason) params.exit_reason = filters.exit_reason
+    if (filters.min_score) params.min_score = filters.min_score
 
     const res = await tradeApi.history(params)
     const data = res.data || {}
@@ -147,7 +203,6 @@ const fetchData = async () => {
       entry_price: t.entry_price,
       entry_time: t.entry_time,
       exit_price: t.exit_price,
-      exit_time: t.exit_time,
       exit_reason: t.exit_reason,
       quantity: t.quantity,
       pnl: t.pnl,
@@ -171,6 +226,7 @@ const resetFilter = () => {
   filters.symbol_id = ''
   filters.direction = ''
   filters.exit_reason = ''
+  filters.min_score = ''
   dateRange.value = null
   currentPage.value = 1
   fetchData()
@@ -192,31 +248,73 @@ onMounted(() => {
     color: $text-primary;
   }
 
-  .filter-bar {
-    margin-bottom: 20px;
-    padding: 16px;
-    background: $surface;
-    border: 1px solid $border;
-    border-radius: $border-radius;
-  }
+  .filter-section {
+    margin-bottom: 16px;
 
-  .filter-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 12px;
+    .filter-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: $text-secondary;
+      margin-bottom: 10px;
+    }
 
-    &:last-child {
-      margin-bottom: 0;
+    .filter-cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .filter-card {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 18px;
+      background: $surface;
+      border: 1px solid $border;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+
+      &:hover {
+        border-color: $primary;
+        background: rgba($primary, 0.05);
+      }
+
+      &.active {
+        background: rgba($primary, 0.12);
+        border-color: $primary;
+      }
+
+      .card-icon {
+        font-size: 12px;
+      }
+
+      .card-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: $text-primary;
+      }
+
+      &.active .card-label {
+        color: $primary;
+      }
+
+      &.active .card-icon {
+        color: $primary;
+      }
     }
   }
 
-  .filter-label {
-    color: $text-secondary;
-    font-size: 13px;
-    white-space: nowrap;
-    min-width: 56px;
-    text-align: right;
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 14px 16px;
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: $border-radius;
   }
 
   .pagination {

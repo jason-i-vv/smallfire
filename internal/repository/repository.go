@@ -52,7 +52,7 @@ type KlineRepo interface {
 // TradeTrackRepo 交易跟踪数据访问接口
 type TradeTrackRepo interface {
 	GetOpenPositions() ([]*models.TradeTrack, error)
-	GetOpenPositionsPaginated(page, size int) ([]*models.TradeTrack, int, error)
+	GetOpenPositionsPaginated(page, size int, filters map[string]string) ([]*models.TradeTrack, int, error)
 	GetOpenBySymbol(symbolID int) (*models.TradeTrack, error)
 	GetBySignalID(signalID int) (*models.TradeTrack, error)
 	CountClosedSince(startTime time.Time) (int, error)
@@ -62,6 +62,7 @@ type TradeTrackRepo interface {
 	GetHistory(startDate, endDate time.Time, page, size int, filters map[string]string) ([]*models.TradeTrack, int, error)
 	GetByID(id int) (*models.TradeTrack, error)
 	GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error)
+	GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error)
 }
 
 // SignalRepo 信号数据访问接口

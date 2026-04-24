@@ -269,7 +269,13 @@
     "totalPositions": "Total Positions",
     "totalMargin": "Total Margin",
     "avgEntryPrice": "Avg Entry Price",
-    "buyAmount": "Buy Amount"
+    "buyAmount": "Buy Amount",
+    "scoreLevel": "Score Level",
+    "scoreAll": "All",
+    "scoreAbove60": "60+",
+    "scoreAbove70": "70+",
+    "scoreAbove80": "80+",
+    "scoreAbove90": "90+"
   },
   "trades": {
     "title": "Trade History",
@@ -299,7 +305,18 @@
     "reasonTrailingStop": "Trailing Stop",
     "reasonManual": "Manual",
     "reasonExpired": "Expired",
-    "dateRange": "Date Range"
+    "dateRange": "Date Range",
+    "scoreLevel": "Score Level",
+    "scoreAll": "All",
+    "scoreAbove60": "60+",
+    "scoreAbove70": "70+",
+    "scoreAbove80": "80+",
+    "scoreAbove90": "90+",
+    "score60": "60-70",
+    "score70": "70-80",
+    "score80": "80-90",
+    "score90": "90-100",
+    "exitType": "Exit Type"
   },
   "statistics": {
     "title": "Statistics",

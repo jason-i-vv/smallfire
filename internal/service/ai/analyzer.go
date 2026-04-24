@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -47,6 +49,7 @@ type OpportunityAnalyzer struct {
 	judgeCfg  config.AIJudgeConfig
 	cooldown  *CooldownTracker
 	logger    *zap.Logger
+	logDir    string
 }
 
 // NewOpportunityAnalyzer 创建交易机会分析器
@@ -57,6 +60,7 @@ func NewOpportunityAnalyzer(
 	judgeCfg config.AIJudgeConfig,
 	cooldown *CooldownTracker,
 	logger *zap.Logger,
+	logDir string,
 ) *OpportunityAnalyzer {
 	return &OpportunityAnalyzer{
 		client:    client,
@@ -65,6 +69,7 @@ func NewOpportunityAnalyzer(
 		judgeCfg:  judgeCfg,
 		cooldown:  cooldown,
 		logger:    logger,
+		logDir:    logDir,
 	}
 }
 
@@ -135,6 +140,11 @@ func (a *OpportunityAnalyzer) AnalyzeOpportunity(ctx context.Context, opp *model
 	response, err := a.client.ChatCompletion(ctx, messages)
 	if err != nil {
 		return nil, fmt.Errorf("AI API 调用失败: %w", err)
+	}
+
+	// 保存 AI 分析日志到文件
+	if a.logDir != "" {
+		a.saveAILog(opp, messages, response)
 	}
 
 	// 解析结果
@@ -287,6 +297,50 @@ func (a *OpportunityAnalyzer) buildUserPrompt(opp *models.TradingOpportunity, kl
 	sb.WriteString("\n请综合技术分析，判断上述信号和策略是否合理，给出你的独立判断。")
 
 	return sb.String()
+}
+
+// saveAILog 保存 AI 分析请求和响应到文件
+func (a *OpportunityAnalyzer) saveAILog(opp *models.TradingOpportunity, messages []ChatMessage, response string) {
+	if a.logDir == "" {
+		return
+	}
+
+	// 确保日志目录存在
+	if err := os.MkdirAll(a.logDir, 0755); err != nil {
+		a.logger.Warn("创建 AI 日志目录失败", zap.String("dir", a.logDir), zap.Error(err))
+		return
+	}
+
+	// 生成文件名: BTCUSDT_20260424_143052.json
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("%s_%s.json", opp.SymbolCode, timestamp)
+	filePath := filepath.Join(a.logDir, filename)
+
+	// 构建日志内容
+	logData := map[string]interface{}{
+		"symbol":       opp.SymbolCode,
+		"symbol_id":    opp.SymbolID,
+		"opp_id":       opp.ID,
+		"direction":    opp.Direction,
+		"period":       opp.Period,
+		"score":        opp.Score,
+		"request":      messages,
+		"response":     response,
+		"logged_at":    time.Now().Format(time.RFC3339),
+	}
+
+	jsonData, err := json.MarshalIndent(logData, "", "  ")
+	if err != nil {
+		a.logger.Warn("序列化 AI 日志失败", zap.Error(err))
+		return
+	}
+
+	if err := os.WriteFile(filePath, jsonData, 0644); err != nil {
+		a.logger.Warn("写入 AI 日志文件失败", zap.String("file", filePath), zap.Error(err))
+		return
+	}
+
+	a.logger.Info("AI 分析日志已保存", zap.String("file", filePath))
 }
 
 // saveResult 保存 AI 判定结果到数据库

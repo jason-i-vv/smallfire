@@ -6,3 +6,4 @@ postgres_data
 .vite/
 starfire-frontend/dist/
 server
+.env

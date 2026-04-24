@@ -206,7 +206,7 @@ type mockTrackRepoForStats struct {
 var _ repository.TradeTrackRepo = (*mockTrackRepoForStats)(nil)
 
 func (m *mockTrackRepoForStats) GetOpenPositions() ([]*models.TradeTrack, error) { return nil, nil }
-func (m *mockTrackRepoForStats) GetOpenPositionsPaginated(page, size int) ([]*models.TradeTrack, int, error) {
+func (m *mockTrackRepoForStats) GetOpenPositionsPaginated(page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
 	return nil, 0, nil
 }
 func (m *mockTrackRepoForStats) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) { return nil, nil }
@@ -222,6 +222,7 @@ func (m *mockTrackRepoForStats) GetHistory(startDate, endDate time.Time, page, s
 }
 func (m *mockTrackRepoForStats) GetByID(id int) (*models.TradeTrack, error)            { return nil, nil }
 func (m *mockTrackRepoForStats) GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepoForStats) GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error) { return nil, nil }
 
 func makeClosedTrackFull(pnl float64, symbolID int, direction string, entryTime, exitTime time.Time, exitReason string) *models.TradeTrack {
 	return &models.TradeTrack{

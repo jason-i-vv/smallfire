@@ -42,7 +42,10 @@ func (h *TradeHandler) GetOpenPositions(c *gin.Context) {
 		size = 20
 	}
 
-	tracks, total, err := h.trackRepo.GetOpenPositionsPaginated(page, size)
+	tracks, total, err := h.trackRepo.GetOpenPositionsPaginated(page, size, map[string]string{
+		"direction": c.Query("direction"),
+		"min_score": c.Query("min_score"),
+	})
 	if err != nil {
 		h.logger.Error("获取持仓列表失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -146,6 +149,7 @@ func (h *TradeHandler) GetTradeHistory(c *gin.Context) {
 		"symbol_id":   c.Query("symbol_id"),
 		"direction":   c.Query("direction"),
 		"exit_reason": c.Query("exit_reason"),
+		"min_score":   c.Query("min_score"),
 	}
 
 	tracks, total, err := h.trackRepo.GetHistory(startDate, endDate, page, size, filters)

@@ -57,17 +57,32 @@ func (t *AutoTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		return
 	}
 
-	// 3. 获取当前价格
-	currentPrice := t.getCurrentPrice(opp)
-	if currentPrice <= 0 {
-		t.logger.Warn("无法获取当前价格，跳过",
+	// 3. 检查该机会是否已有持仓，同一个机会只开一次仓
+	if opp.ID > 0 {
+		existing, err := t.trackRepo.GetOpenByOpportunityID(opp.ID)
+		if err != nil {
+			t.logger.Error("查询已有持仓失败", zap.Int("opportunity_id", opp.ID), zap.Error(err))
+			return
+		}
+		if existing != nil {
+			t.logger.Debug("该机会已有持仓，跳过",
+				zap.Int("opportunity_id", opp.ID),
+				zap.Int("existing_track_id", existing.ID))
+			return
+		}
+	}
+
+	// 4. 获取入场价格和时间（使用信号产生后下一根 K 线的开盘价）
+	entryPrice, entryTime := t.getEntryPriceAndTime(opp)
+	if entryPrice <= 0 {
+		t.logger.Warn("无法获取入场价格，跳过",
 			zap.String("symbol", opp.SymbolCode),
 			zap.Int("opportunity_id", opp.ID))
 		return
 	}
 
 	// 4. 固定金额开仓（不检查是否已有持仓，数据收集目的）
-	track, err := t.openFixedPosition(opp, currentPrice)
+	track, err := t.openFixedPosition(opp, entryPrice, entryTime)
 	if err != nil {
 		t.logger.Error("模拟开仓失败",
 			zap.String("symbol", opp.SymbolCode),
@@ -81,26 +96,27 @@ func (t *AutoTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		zap.String("direction", opp.Direction),
 		zap.Int("score", opp.Score),
 		zap.Int("opportunity_id", opp.ID),
-		zap.Float64("entry_price", currentPrice),
+		zap.Float64("entry_price", entryPrice),
+		zap.Time("entry_time", entryTime),
 		zap.Float64("quantity", *track.Quantity),
 		zap.Float64("position_value", *track.PositionValue))
 }
 
 // openFixedPosition 固定金额开仓，不走风控
-func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, currentPrice float64) (*models.TradeTrack, error) {
+func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, entryPrice float64, entryTime time.Time) (*models.TradeTrack, error) {
 	// 固定金额
 	tradeAmount := t.config.FixedTradeAmount
 	if tradeAmount <= 0 {
 		tradeAmount = 1000 // 默认 1000 USDT
 	}
 
-	quantity := tradeAmount / currentPrice
+	quantity := tradeAmount / entryPrice
 	fees := tradeAmount * 0.0004 * 2 // 双向手续费
 
 	// 止损止盈：优先用 opportunity 建议值，其次 ATR 动态计算，最后固定百分比
-	stopLossPrice, takeProfitPrice := t.calcSLTP(currentPrice, opp)
+	stopLossPrice, takeProfitPrice := t.calcSLTP(entryPrice, opp)
 	// 校验盈亏比，确保不低于最低阈值
-	stopLossPrice, takeProfitPrice = t.validateRiskReward(currentPrice, opp.Direction, stopLossPrice, takeProfitPrice)
+	stopLossPrice, takeProfitPrice = t.validateRiskReward(entryPrice, opp.Direction, stopLossPrice, takeProfitPrice)
 
 	now := time.Now()
 	oppID := opp.ID
@@ -108,8 +124,8 @@ func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, currentPr
 		OpportunityID:       &oppID,
 		SymbolID:            opp.SymbolID,
 		Direction:           opp.Direction,
-		EntryPrice:          &currentPrice,
-		EntryTime:           &now,
+		EntryPrice:          &entryPrice,
+		EntryTime:           &entryTime,
 		Quantity:            &quantity,
 		PositionValue:       &tradeAmount,
 		StopLossPrice:       &stopLossPrice,
@@ -293,20 +309,31 @@ func (t *AutoTrader) validateRiskReward(entryPrice float64, direction string, st
 	return stopLoss, takeProfit
 }
 
-// getCurrentPrice 从最新K线获取当前价格
-func (t *AutoTrader) getCurrentPrice(opp *models.TradingOpportunity) float64 {
+// getEntryPriceAndTime 获取入场价格和时间
+// 信号在 K 线收盘后产生，实际只能在下一根 K 线的开盘价入场
+// 所以使用最新（未收盘）K 线的开盘价作为入场价，开盘时间作为入场时间
+func (t *AutoTrader) getEntryPriceAndTime(opp *models.TradingOpportunity) (float64, time.Time) {
 	periods := []string{opp.Period, "1h", "15m", "1d"}
 	for _, period := range periods {
 		if period == "" {
 			continue
 		}
-		klines, err := t.klineRepo.GetLatestN(opp.SymbolID, period, 1)
-		if err != nil {
+		klines, err := t.klineRepo.GetLatestN(opp.SymbolID, period, 2)
+		if err != nil || len(klines) == 0 {
 			continue
 		}
-		if len(klines) > 0 && klines[0].ClosePrice > 0 {
-			return klines[0].ClosePrice
+
+		latest := klines[0] // GetLatestN 按 open_time DESC 返回，[0] 是最新的
+
+		// 优先使用未收盘 K 线的开盘价（即信号产生后的下一根 K 线）
+		if !latest.IsClosed && latest.OpenPrice > 0 {
+			return latest.OpenPrice, latest.OpenTime
+		}
+
+		// 兜底：如果最新 K 线已收盘，说明下一根还未入库，用收盘价
+		if latest.ClosePrice > 0 {
+			return latest.ClosePrice, latest.CloseTime
 		}
 	}
-	return 0
+	return 0, time.Time{}
 }

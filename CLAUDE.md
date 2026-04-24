@@ -5,6 +5,7 @@
 5. 所有的需求放在 pdms 目录
 6. 本地调试只有数据库用 docker 在运行，后端启动用 make backend，前端启动用 make frontend
 7. 交易数据清理：当开平仓逻辑变更后，使用 `make db-cleanup` 或 `./scripts/cleanup_trading_data.sh "原因"` 清理旧数据，脚本会自动归档到 db-scripts/
+8. 远程服务器地址： ssh ubuntu@150.109.233.168
 
 ## Skill routing
 

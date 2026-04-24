@@ -271,6 +271,7 @@ type AIConfig struct {
 	Model       string `mapstructure:"model"`         // 模型名称
 	MaxTokens   int    `mapstructure:"max_tokens"`    // 最大输出 token
 	Temperature float64 `mapstructure:"temperature"` // 温度
+	LogDir      string `mapstructure:"log_dir"`       // AI 分析日志目录
 	Judge       AIJudgeConfig    `mapstructure:"judge"`
 	Briefing    AIBriefingConfig `mapstructure:"briefing"`
 	KeyLevel    AIKeyLevelConfig `mapstructure:"key_level"`

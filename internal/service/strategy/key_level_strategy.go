@@ -84,10 +84,18 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 
 	var signals []models.Signal
 
-	// 阻力位突破（向上）
+	// 阻力位突破（向上）：要求开盘在阻力位下方，收盘在阻力位上方（穿越突破）
 	var closestBrokenResistance *models.KeyLevelEntry
 	for i := range v2Levels.Resistances {
 		level := &v2Levels.Resistances[i]
+		if latestKline.OpenPrice >= level.Price {
+			// 开盘已在阻力位上方，不算突破
+			continue
+		}
+		if latestPrice < level.Price {
+			// 收盘未站上阻力位，不算突破
+			continue
+		}
 		breakoutPrice := level.Price * (1 + threshold)
 		if latestPrice > breakoutPrice {
 			if !volumeConfirmed {
@@ -102,10 +110,18 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenResistance, models.LevelTypeResistance, latestKline, "long", atr))
 	}
 
-	// 支撑位突破（向下）
+	// 支撑位跌破（向下）：要求开盘在支撑位上方，收盘在支撑位下方（穿越跌破）
 	var closestBrokenSupport *models.KeyLevelEntry
 	for i := range v2Levels.Supports {
 		level := &v2Levels.Supports[i]
+		if latestKline.OpenPrice <= level.Price {
+			// 开盘已在支撑位下方，不算跌破
+			continue
+		}
+		if latestPrice > level.Price {
+			// 收盘未跌破支撑位，不算跌破
+			continue
+		}
 		breakoutPrice := level.Price * (1 - threshold)
 		if latestPrice < breakoutPrice {
 			if !volumeConfirmed {

@@ -9,7 +9,7 @@ services:
     container_name: starfire-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: starfire_quant
     ports:
       - "5432:5432"
@@ -30,6 +30,7 @@ services:
   backend:
     image: ${REGISTRY:-registry.cn-hangzhou.aliyuncs.com/deepcoin}/starfire-backend:${IMAGE_TAG:-latest}
     container_name: starfire-backend
+    pull_policy: always
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,6 +43,7 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
     volumes:
       - ./config:/root/config:ro
+      - ./ai_logs:/root/ai_logs
     networks:
       - starfire-network
     restart: unless-stopped
@@ -52,6 +54,7 @@ services:
   frontend:
     image: ${REGISTRY:-registry.cn-hangzhou.aliyuncs.com/deepcoin}/starfire-frontend:${IMAGE_TAG:-latest}
     container_name: starfire-frontend
+    pull_policy: always
     depends_on:
       - backend
     ports:

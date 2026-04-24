@@ -35,6 +35,7 @@
           <span class="filter-label">{{ t('opportunities.score') }}</span>
           <el-radio-group v-model="filters.scoreRange" size="small">
             <el-radio-button value="">{{ t('opportunities.all') }}</el-radio-button>
+            <el-radio-button value="80">80+</el-radio-button>
             <el-radio-button value="70">70+</el-radio-button>
             <el-radio-button value="60">60+</el-radio-button>
             <el-radio-button value="50">50+</el-radio-button>

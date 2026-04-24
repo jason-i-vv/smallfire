@@ -123,11 +123,40 @@ func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 	return tracks, nil
 }
 
-func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int) ([]*models.TradeTrack, int, error) {
+func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
+	// 构建 WHERE 条件
+	whereClauses := []string{"t.status = $1"}
+	args := []interface{}{models.TrackStatusOpen}
+	argIdx := 2
+
+	if v, ok := filters["direction"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("t.direction = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+
+	needOppJoin := false
+	if v, ok := filters["min_score"]; ok && v != "" {
+		minScore, _ := strconv.Atoi(v)
+		if minScore > 0 {
+			whereClauses = append(whereClauses, fmt.Sprintf("opp.score >= $%d", argIdx))
+			args = append(args, minScore)
+			argIdx++
+			needOppJoin = true
+		}
+	}
+
+	whereStr := strings.Join(whereClauses, " AND ")
+
+	oppJoin := ""
+	if needOppJoin {
+		oppJoin = " LEFT JOIN trading_opportunities opp ON t.opportunity_id = opp.id"
+	}
+
 	// 先获取总数
 	var total int
-	countQuery := `SELECT COUNT(*) FROM trade_tracks WHERE status = $1`
-	if err := r.db.QueryRow(context.Background(), countQuery, models.TrackStatusOpen).Scan(&total); err != nil {
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM trade_tracks t%s WHERE %s`, oppJoin, whereStr)
+	if err := r.db.QueryRow(context.Background(), countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("查询持仓总数失败: %w", err)
 	}
 
@@ -143,33 +172,35 @@ func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int) ([]*models.
 	}
 	offset := (page - 1) * size
 
-	query := `
-		SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
-		       t.entry_time entry_time,
-		       t.quantity,
-		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
-		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
-		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
-		       t.exit_time exit_time,
-		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
-		       t.unrealized_pnl,
-		       CASE WHEN t.direction = 'long' THEN
-		         (t.current_price - t.entry_price) * t.quantity / NULLIF(t.position_value, 0)
-		       ELSE
-		         (t.entry_price - t.current_price) * t.quantity / NULLIF(t.position_value, 0)
-		       END as unrealized_pnl_pct,
-		       t.subscriber_count,
-		       t.created_at created_at,
-		       t.updated_at updated_at,
-		       COALESCE(s.symbol_code, '') as symbol_code
-		FROM trade_tracks t
-		LEFT JOIN symbols s ON t.symbol_id = s.id
-		WHERE t.status = $1
-		ORDER BY t.created_at DESC
-		LIMIT $2 OFFSET $3
-	`
+	query := fmt.Sprintf(`
+			SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
+			       t.entry_time entry_time,
+			       t.quantity,
+			       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+			       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+			       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
+			       t.exit_time exit_time,
+			       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+			       t.unrealized_pnl,
+			       CASE WHEN t.direction = 'long' THEN
+			         (t.current_price - t.entry_price) * t.quantity / NULLIF(t.position_value, 0)
+			       ELSE
+			         (t.entry_price - t.current_price) * t.quantity / NULLIF(t.position_value, 0)
+			       END as unrealized_pnl_pct,
+			       t.subscriber_count,
+			       t.created_at created_at,
+			       t.updated_at updated_at,
+			       COALESCE(s.symbol_code, '') as symbol_code
+			FROM trade_tracks t
+			LEFT JOIN symbols s ON t.symbol_id = s.id
+			%s
+			WHERE %s
+			ORDER BY t.created_at DESC
+			LIMIT $%d OFFSET $%d
+		`, oppJoin, whereStr, argIdx, argIdx+1)
 
-	rows, err := r.db.Query(context.Background(), query, models.TrackStatusOpen, size, offset)
+	queryArgs := append(args, size, offset)
+	rows, err := r.db.Query(context.Background(), query, queryArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询持仓列表失败: %w", err)
 	}
@@ -191,6 +222,7 @@ func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int) ([]*models.
 
 	return tracks, total, nil
 }
+
 
 func (r *TradeTrackRepoPG) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) {
 	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE status = $1 AND symbol_id = $2"
@@ -386,10 +418,25 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 		args = append(args, v)
 		argIdx++
 	}
+	needOppJoin := false
+	if v, ok := filters["min_score"]; ok && v != "" {
+		minScore, _ := strconv.Atoi(v)
+		if minScore > 0 {
+			whereClauses = append(whereClauses, fmt.Sprintf("opp.score >= $%d", argIdx))
+			args = append(args, minScore)
+			argIdx++
+			needOppJoin = true
+		}
+	}
 
 	whereStr := strings.Join(whereClauses, " AND ")
 
-	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM trade_tracks t LEFT JOIN symbols s2 ON t.symbol_id = s2.id WHERE %s`, whereStr)
+	oppJoin := ""
+	if needOppJoin {
+		oppJoin = " LEFT JOIN trading_opportunities opp ON t.opportunity_id = opp.id"
+	}
+
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM trade_tracks t LEFT JOIN symbols s2 ON t.symbol_id = s2.id%s WHERE %s`, oppJoin, whereStr)
 	err := r.db.QueryRow(context.Background(), countQuery, args...).Scan(&count)
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询交易历史总数失败: %w", err)
@@ -410,8 +457,9 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 		LEFT JOIN symbols s ON t.symbol_id = s.id
 		LEFT JOIN symbols s2 ON t.symbol_id = s2.id
 		LEFT JOIN signals sig ON t.signal_id = sig.id
+		%s
 		WHERE %s
-		ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d`, whereStr, argIdx, argIdx+1)
+		ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d`, oppJoin, whereStr, argIdx, argIdx+1)
 
 	dataArgs := append(args, size, offset)
 	rows, err := r.db.Query(context.Background(), dataQuery, dataArgs...)
@@ -483,5 +531,21 @@ func (r *TradeTrackRepoPG) GetByOpportunityID(opportunityID int) ([]*models.Trad
 		tracks = append(tracks, track)
 	}
 	return tracks, rows.Err()
+}
+
+// GetOpenByOpportunityID 查询某个交易机会是否有未平仓的持仓
+func (r *TradeTrackRepoPG) GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error) {
+	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE opportunity_id = $1 AND status = $2 LIMIT 1"
+
+	row, err := r.db.Query(context.Background(), query, opportunityID, models.TrackStatusOpen)
+	if err != nil {
+		return nil, fmt.Errorf("查询交易记录失败: %w", err)
+	}
+	defer row.Close()
+
+	if row.Next() {
+		return scanTradeTrack(row)
+	}
+	return nil, row.Err()
 }
 

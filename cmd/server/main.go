@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 
 	"github.com/smallfire/starfire/internal/config"
@@ -32,6 +33,9 @@ import (
 )
 
 func main() {
+	// 加载 .env 文件
+	godotenv.Load()
+
 	// 加载配置
 	configPath := "config/config.yml"
 	if len(os.Args) > 1 {
@@ -220,7 +224,7 @@ func main() {
 			cfg.AI.Judge.CooldownMinutes,
 		)
 		aiAnalyzer = aiservice.NewOpportunityAnalyzer(
-			aiClient, oppRepo, klineRepo, cfg.AI.Judge, cooldownTracker, utils.Logger,
+			aiClient, oppRepo, klineRepo, cfg.AI.Judge, cooldownTracker, utils.Logger, cfg.AI.LogDir,
 		)
 		utils.Info("AI 分析服务初始化成功",
 			zap.String("model", cfg.AI.Model),

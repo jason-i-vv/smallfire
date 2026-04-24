@@ -1,16 +1,47 @@
 <template>
   <div class="positions">
+    <!-- 方向筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('positions.direction') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in directionOptions"
+          :key="item.value"
+          :class="['filter-card', { active: filters.direction === item.value }]"
+          @click="toggleFilter('direction', item.value)"
+        >
+          <span class="card-icon" v-if="item.icon">{{ item.icon }}</span>
+          <span class="card-label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 评分级别筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('positions.scoreLevel') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in scoreOptions"
+          :key="item.value"
+          :class="['filter-card', { active: filters.min_score === item.value }]"
+          @click="toggleFilter('min_score', item.value)"
+        >
+          <span class="card-label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 核心指标卡片 -->
     <el-row :gutter="20" class="stats-row">
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">{{ t('positions.totalPositions') || '总持仓' }}</div>
+          <div class="stat-label">{{ t('positions.totalPositions') }}</div>
           <div class="stat-value">{{ pagination.total }}</div>
         </div>
       </el-col>
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">{{ t('positions.unrealizedPnl') || '浮动盈亏' }}</div>
+          <div class="stat-label">{{ t('positions.unrealizedPnl') }}</div>
           <div class="stat-value" :class="totalPnL >= 0 ? 'profit' : 'loss'">
             {{ formatPnL(totalPnL) }}
           </div>
@@ -18,13 +49,13 @@
       </el-col>
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">{{ t('positions.totalMargin') || '总保证金' }}</div>
+          <div class="stat-label">{{ t('positions.totalMargin') }}</div>
           <div class="stat-value">{{ formatPnL(totalMargin) }}</div>
         </div>
       </el-col>
       <el-col :span="6">
         <div class="stat-item">
-          <div class="stat-label">{{ t('positions.avgEntryPrice') || '持仓均价' }}</div>
+          <div class="stat-label">{{ t('positions.avgEntryPrice') }}</div>
           <div class="stat-value">{{ positions.length > 0 ? formatPrice(avgEntryPrice) : '-' }}</div>
         </div>
       </el-col>
@@ -64,7 +95,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -76,11 +107,36 @@ const { t } = useI18n()
 const loading = ref(false)
 const positions = ref([])
 
+const filters = reactive({
+  direction: '',
+  min_score: ''
+})
+
 const pagination = ref({
   page: 1,
   pageSize: 20,
   total: 0
 })
+
+const directionOptions = computed(() => [
+  { label: t('common.all'), value: '', icon: '' },
+  { label: t('common.long'), value: 'long', icon: '▲' },
+  { label: t('common.short'), value: 'short', icon: '▼' }
+])
+
+const scoreOptions = computed(() => [
+  { label: t('positions.scoreAll'), value: '' },
+  { label: t('positions.scoreAbove60'), value: '60' },
+  { label: t('positions.scoreAbove70'), value: '70' },
+  { label: t('positions.scoreAbove80'), value: '80' },
+  { label: t('positions.scoreAbove90'), value: '90' }
+])
+
+const toggleFilter = (key, value) => {
+  filters[key] = filters[key] === value ? '' : value
+  pagination.value.page = 1
+  fetchPositions()
+}
 
 const totalPnL = computed(() => {
   return positions.value.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0)
@@ -99,10 +155,14 @@ const avgEntryPrice = computed(() => {
 const fetchPositions = async () => {
   loading.value = true
   try {
-    const res = await tradeApi.positions({
+    const params = {
       page: pagination.value.page,
       page_size: pagination.value.pageSize
-    })
+    }
+    if (filters.direction) params.direction = filters.direction
+    if (filters.min_score) params.min_score = filters.min_score
+
+    const res = await tradeApi.positions(params)
     positions.value = res.data?.items || []
     pagination.value.total = res.data?.total || 0
   } catch (error) {
@@ -154,6 +214,64 @@ onMounted(() => {
 
 .positions {
   padding: 24px;
+
+  .filter-section {
+    margin-bottom: 16px;
+
+    .filter-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: $text-secondary;
+      margin-bottom: 10px;
+    }
+
+    .filter-cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .filter-card {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 18px;
+      background: $surface;
+      border: 1px solid $border;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+
+      &:hover {
+        border-color: $primary;
+        background: rgba($primary, 0.05);
+      }
+
+      &.active {
+        background: rgba($primary, 0.12);
+        border-color: $primary;
+      }
+
+      .card-icon {
+        font-size: 12px;
+      }
+
+      .card-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: $text-primary;
+      }
+
+      &.active .card-label {
+        color: $primary;
+      }
+
+      &.active .card-icon {
+        color: $primary;
+      }
+    }
+  }
 
   .stats-row {
     margin-bottom: 24px;

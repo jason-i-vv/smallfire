@@ -122,7 +122,7 @@ let authCheckPromise = null
 
 async function checkAuthEnabled() {
   if (authCheckPromise) return authCheckPromise
-  authCheckPromise = fetch(`${import.meta.env.VITE_API_BASE_URL}/api/v1/health`)
+  authCheckPromise = fetch(`${import.meta.env.VITE_API_BASE_URL}/health`)
     .then(res => res.json())
     .then(data => {
       authEnabled = data?.data?.auth_enabled !== false

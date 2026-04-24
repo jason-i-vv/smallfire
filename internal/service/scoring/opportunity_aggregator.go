@@ -135,6 +135,24 @@ func (a *OpportunityAggregator) AggregateSignals(newSignals []*models.Signal) er
 			continue
 		}
 
+		if existing != nil {
+			// 检查新信号与已有机会的时间跨度是否过大
+			if a.isTimeGapTooLarge(existing, signals) {
+				a.logger.Info("信号时间跨度过大，过期旧机会",
+					zap.Int("existing_id", existing.ID),
+					zap.String("symbol", first.SymbolCode),
+				)
+				// 过期旧机会
+				existing.Status = models.OpportunityStatusExpired
+				expiredAt := time.Now()
+				existing.ExpiredAt = &expiredAt
+				if err := a.oppRepo.Update(existing); err != nil {
+					a.logger.Error("过期旧交易机会失败", zap.Error(err))
+				}
+				existing = nil
+			}
+		}
+
 		// 获取评分上下文
 		ctx := a.buildScoringContext(signals, symbolID, direction)
 
@@ -281,6 +299,33 @@ func (a *OpportunityAggregator) extractVolumeRatio(signals []*models.Signal) flo
 	return 0
 }
 
+// isTimeGapTooLarge 检查新信号与已有机会的时间跨度是否过大
+// 同一个交易机会的信号应该集中在一段时间窗口内，跨度过大说明不属于同一行情
+func (a *OpportunityAggregator) isTimeGapTooLarge(opp *models.TradingOpportunity, newSignals []*models.Signal) bool {
+	if opp.FirstSignalAt == nil || len(newSignals) == 0 {
+		return false
+	}
+
+	// 取新信号中最早的 klineTime
+	var newTime *time.Time
+	for _, sig := range newSignals {
+		if sig.KlineTime != nil {
+			if newTime == nil || sig.KlineTime.Before(*newTime) {
+				newTime = sig.KlineTime
+			}
+		}
+	}
+	if newTime == nil {
+		return false
+	}
+
+	// 计算允许的最大时间窗口（基于机会的周期，允许最多 3 根 K 线的跨度）
+	maxWindow := klineCountToDuration(opp.Period, 3)
+	gap := newTime.Sub(*opp.FirstSignalAt)
+
+	return gap > maxWindow
+}
+
 // createOpportunity 创建新交易机会
 func (a *OpportunityAggregator) createOpportunity(signals []*models.Signal, ctx *ScoringContext) {
 	result := a.scorer.ScoreOpportunity(signals, ctx)
@@ -411,12 +456,12 @@ func (a *OpportunityAggregator) updateOpportunity(opp *models.TradingOpportunity
 		}
 	}
 
-	// 更新建议价格（取最新信号的值，nil 不覆盖已有值）
+	// 更新建议价格：入场价跟随最新信号，止损/止盈同步更新
 	for _, sig := range newSignals {
-		if opp.SuggestedStopLoss == nil && sig.StopLossPrice != nil {
+		if sig.StopLossPrice != nil {
 			opp.SuggestedStopLoss = sig.StopLossPrice
 		}
-		if opp.SuggestedTakeProfit == nil && sig.TargetPrice != nil {
+		if sig.TargetPrice != nil {
 			opp.SuggestedTakeProfit = sig.TargetPrice
 		}
 		opp.SuggestedEntry = &sig.Price
