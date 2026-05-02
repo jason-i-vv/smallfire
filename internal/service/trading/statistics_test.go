@@ -44,13 +44,20 @@ func (m *mockSignalRepoForStats) CountBySourceType(string) (int, error)         
 func (m *mockSignalRepoForStats) UpdateStatus(int, string) error                      { return nil }
 func (m *mockSignalRepoForStats) SetTriggeredAt(int, *time.Time) error               { return nil }
 func (m *mockSignalRepoForStats) ExistsDuplicate(int, string, string, *time.Time) (bool, error) { return false, nil }
+func (m *mockSignalRepoForStats) GetSignalInfoByIDs(ids []int) (map[int]*repository.SignalBasicInfo, error) {
+	result := make(map[int]*repository.SignalBasicInfo)
+	for id, sig := range m.signals {
+		result[id] = &repository.SignalBasicInfo{SignalType: sig.SignalType, SourceType: sig.SourceType}
+	}
+	return result, nil
+}
 
 func TestStatisticsService_CalculateStatistics(t *testing.T) {
 	cfg := &config.TradingConfig{InitialCapital: 100000}
 
 	t.Run("空数据-返回零值", func(t *testing.T) {
 		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		stats, err := svc.GetStatistics(nil, nil)
+		stats, err := svc.GetStatistics(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -212,7 +219,7 @@ func (m *mockTrackRepoForStats) GetOpenPositionsPaginated(page, size int, filter
 func (m *mockTrackRepoForStats) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForStats) GetBySignalID(signalID int) (*models.TradeTrack, error)  { return nil, nil }
 func (m *mockTrackRepoForStats) CountClosedSince(startTime time.Time) (int, error)  { return 0, nil }
-func (m *mockTrackRepoForStats) GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error) {
+func (m *mockTrackRepoForStats) GetClosedTracks(startDate, endDate *time.Time, tradeSource string) ([]*models.TradeTrack, error) {
 	return m.tracks, nil
 }
 func (m *mockTrackRepoForStats) Create(trade *models.TradeTrack) error                 { return nil }
@@ -223,6 +230,8 @@ func (m *mockTrackRepoForStats) GetHistory(startDate, endDate time.Time, page, s
 func (m *mockTrackRepoForStats) GetByID(id int) (*models.TradeTrack, error)            { return nil, nil }
 func (m *mockTrackRepoForStats) GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForStats) GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepoForStats) GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepoForStats) GetOpenBySource(source string) ([]*models.TradeTrack, error) { return nil, nil }
 
 func makeClosedTrackFull(pnl float64, symbolID int, direction string, entryTime, exitTime time.Time, exitReason string) *models.TradeTrack {
 	return &models.TradeTrack{
@@ -241,7 +250,7 @@ func TestStatisticsService_GetEquityCurve(t *testing.T) {
 
 	t.Run("空数据-返回起始资金点", func(t *testing.T) {
 		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		points, err := svc.GetEquityCurve(nil, nil)
+		points, err := svc.GetEquityCurve(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -257,7 +266,7 @@ func TestStatisticsService_GetEquityCurve(t *testing.T) {
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
 		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		points, err := svc.GetEquityCurve(nil, nil)
+		points, err := svc.GetEquityCurve(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -277,7 +286,7 @@ func TestStatisticsService_GetEquityCurve(t *testing.T) {
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
 		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		points, err := svc.GetEquityCurve(nil, nil)
+		points, err := svc.GetEquityCurve(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -302,7 +311,7 @@ func TestStatisticsService_GetDirectionAnalysis(t *testing.T) {
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
 		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		analysis, err := svc.GetDirectionAnalysis(nil, nil)
+		analysis, err := svc.GetDirectionAnalysis(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -333,7 +342,7 @@ func TestStatisticsService_GetExitReasonAnalysis(t *testing.T) {
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
 		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		result, err := svc.GetExitReasonAnalysis(nil, nil)
+		result, err := svc.GetExitReasonAnalysis(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -361,7 +370,7 @@ func TestStatisticsService_GetPeriodPnL(t *testing.T) {
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
 		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		result, err := svc.GetPeriodPnL(nil, nil, "daily")
+		result, err := svc.GetPeriodPnL(nil, nil, "daily", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -382,7 +391,7 @@ func TestStatisticsService_GetPnLDistribution(t *testing.T) {
 
 	t.Run("空数据", func(t *testing.T) {
 		svc := NewStatisticsService(&mockTrackRepoForStats{},  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		dist, err := svc.GetPnLDistribution(nil, nil)
+		dist, err := svc.GetPnLDistribution(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -400,7 +409,7 @@ func TestStatisticsService_GetPnLDistribution(t *testing.T) {
 		}
 		repo := &mockTrackRepoForStats{tracks: tracks}
 		svc := NewStatisticsService(repo,  &mockSignalRepoForStats{}, nil,  nil,  cfg)
-		dist, err := svc.GetPnLDistribution(nil, nil)
+		dist, err := svc.GetPnLDistribution(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -438,7 +447,7 @@ func TestStatisticsService_GetDetailedSignalAnalysis(t *testing.T) {
 			},
 		}
 		svc := NewStatisticsService(repo,  sigRepo, nil,  nil,  cfg)
-		result, err := svc.GetDetailedSignalAnalysis(nil, nil)
+		result, err := svc.GetDetailedSignalAnalysis(nil, nil, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

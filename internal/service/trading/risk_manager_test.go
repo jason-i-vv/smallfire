@@ -16,13 +16,13 @@ type mockTrackRepo struct {
 }
 
 func (m *mockTrackRepo) GetOpenPositions() ([]*models.TradeTrack, error) { return m.openPositions, nil }
-func (m *mockTrackRepo) GetOpenPositionsPaginated(page, size int) ([]*models.TradeTrack, int, error) {
+func (m *mockTrackRepo) GetOpenPositionsPaginated(page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
 	return m.openPositions, len(m.openPositions), nil
 }
 func (m *mockTrackRepo) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) { return m.openBySymbol[symbolID], nil }
 func (m *mockTrackRepo) GetBySignalID(signalID int) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepo) CountClosedSince(startTime time.Time) (int, error) { return m.closedSince, nil }
-func (m *mockTrackRepo) GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepo) GetClosedTracks(startDate, endDate *time.Time, tradeSource string) ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepo) Create(trade *models.TradeTrack) error                               { return nil }
 func (m *mockTrackRepo) Update(trade *models.TradeTrack) error                               { return nil }
 func (m *mockTrackRepo) GetHistory(startDate, endDate time.Time, page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
@@ -31,6 +31,8 @@ func (m *mockTrackRepo) GetHistory(startDate, endDate time.Time, page, size int,
 func (m *mockTrackRepo) GetByID(id int) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepo) GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepo) GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepo) GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepo) GetOpenBySource(source string) ([]*models.TradeTrack, error) { return nil, nil }
 
 func TestRiskManager_CheckBeforeOpen(t *testing.T) {
 	cfg := &config.TradingConfig{

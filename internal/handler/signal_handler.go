@@ -165,43 +165,31 @@ func (h *SignalHandler) GetSignalCounts(c *gin.Context) {
 			h.logger.Warn("统计市场信号数量失败", zap.String("market", market), zap.Error(err))
 			count = 0
 		}
-		key := market
-		if market == "" {
-			key = "total"
-		}
-		marketCounts[key] = count
+		marketCounts[market] = count
 	}
 
 	// 获取各信号类型的数量
 	signalTypeCounts := make(map[string]int)
-	signalTypes := []string{"", "box_breakout", "box_breakdown", "trend_retracement", "resistance_break", "support_break", "volume_price_rise", "volume_price_fall", "price_surge_up", "price_surge_down", "upper_wick_reversal", "lower_wick_reversal", "fake_breakout_upper", "fake_breakout_lower", "engulfing_bullish", "engulfing_bearish", "momentum_bullish", "momentum_bearish", "morning_star", "evening_star"}
+	signalTypes := []string{"", "box_breakout", "box_breakdown", "trend_retracement", "trend_reversal", "resistance_break", "support_break", "volume_price_rise", "volume_price_fall", "volume_surge", "price_surge_up", "price_surge_down", "upper_wick_reversal", "lower_wick_reversal", "fake_breakout_upper", "fake_breakout_lower", "engulfing_bullish", "engulfing_bearish", "momentum_bullish", "momentum_bearish", "morning_star", "evening_star", "macd"}
 	for _, signalType := range signalTypes {
 		count, err := h.signalRepo.CountBySignalType(signalType)
 		if err != nil {
 			h.logger.Warn("统计信号类型数量失败", zap.String("signal_type", signalType), zap.Error(err))
 			count = 0
 		}
-		key := signalType
-		if signalType == "" {
-			key = "total"
-		}
-		signalTypeCounts[key] = count
+		signalTypeCounts[signalType] = count
 	}
 
 	// 获取各策略来源的数量
 	sourceTypeCounts := make(map[string]int)
-	sourceTypes := []string{"", "box", "trend", "key_level", "volume", "wick"}
+	sourceTypes := []string{"", "box", "trend", "key_level", "volume", "wick", "candlestick", "macd"}
 	for _, sourceType := range sourceTypes {
 		count, err := h.signalRepo.CountBySourceType(sourceType)
 		if err != nil {
 			h.logger.Warn("统计策略来源信号数量失败", zap.String("source_type", sourceType), zap.Error(err))
 			count = 0
 		}
-		key := sourceType
-		if sourceType == "" {
-			key = "total"
-		}
-		sourceTypeCounts[key] = count
+		sourceTypeCounts[sourceType] = count
 	}
 
 	HandleSuccess(c, gin.H{

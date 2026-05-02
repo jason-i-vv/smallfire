@@ -74,7 +74,6 @@ const getSignalTypeName = (type) => {
     box_breakout: t('signals.boxBreakout') || '箱体突破',
     box_breakdown: t('signals.boxBreakdown') || '箱体跌破',
     trend_retracement: t('signals.trendRetracement') || '趋势回撤',
-    trend_reversal: t('signals.trendReversal') || '趋势反转',
     resistance_break: t('signals.resistanceBreak') || '阻力突破',
     support_break: t('signals.supportBreak') || '支撑跌破',
     volume_surge: t('signals.volumeSurge') || '量能放大',

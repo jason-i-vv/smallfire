@@ -27,6 +27,7 @@ type SymbolRepo interface {
 	GetTrackingByMarket(marketCode string) ([]*models.Symbol, error)
 	FindByCode(marketCode, symbolCode string) (*models.Symbol, error)
 	GetByID(id int) (*models.Symbol, error)
+	GetByIDs(ids []int) ([]*models.Symbol, error)
 	Create(symbol *models.Symbol) error
 	Update(symbol *models.Symbol) error
 	DisableExpiredHot(cutoff time.Time) error
@@ -56,13 +57,21 @@ type TradeTrackRepo interface {
 	GetOpenBySymbol(symbolID int) (*models.TradeTrack, error)
 	GetBySignalID(signalID int) (*models.TradeTrack, error)
 	CountClosedSince(startTime time.Time) (int, error)
-	GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error)
+	GetClosedTracks(startDate, endDate *time.Time, tradeSource string) ([]*models.TradeTrack, error)
 	Create(trade *models.TradeTrack) error
 	Update(trade *models.TradeTrack) error
 	GetHistory(startDate, endDate time.Time, page, size int, filters map[string]string) ([]*models.TradeTrack, int, error)
 	GetByID(id int) (*models.TradeTrack, error)
 	GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error)
 	GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error)
+	GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error)
+	GetOpenBySource(source string) ([]*models.TradeTrack, error)
+}
+
+// SignalBasicInfo 信号基本信息（批量查询用）
+type SignalBasicInfo struct {
+	SignalType string
+	SourceType string
 }
 
 // SignalRepo 信号数据访问接口
@@ -84,6 +93,7 @@ type SignalRepo interface {
 	CountBySourceType(sourceType string) (int, error)
 	UpdateStatus(id int, status string) error
 	SetTriggeredAt(id int, triggeredAt *time.Time) error
+	GetSignalInfoByIDs(ids []int) (map[int]*SignalBasicInfo, error)
 }
 
 // BoxRepo 箱体数据访问接口
@@ -202,6 +212,12 @@ type OpportunityRepo interface {
 	GetActiveBySymbolAndDirection(symbolID int, direction string) (*models.TradingOpportunity, error)
 	ExpireBySymbol(symbolID int, excludeID int) error
 	List(filter *OpportunityListFilter) ([]*models.TradingOpportunity, int, error)
+	GetScoresByIDs(ids []int) (map[int]int, error)
+	GetConfluenceByIDs(ids []int) (map[int][]string, error)
 }
 
-
+// LimitStatRepo A股涨跌停统计数据访问接口
+type LimitStatRepo interface {
+	Upsert(stat *models.AStockLimitStat) error
+	GetRecent(days int) ([]*models.AStockLimitStat, error)
+}

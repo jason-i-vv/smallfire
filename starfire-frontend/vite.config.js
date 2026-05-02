@@ -14,11 +14,11 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://150.109.233.168',
+        target: 'http://150.109.233.168:80',
         changeOrigin: true
       },
       '/ws': {
-        target: 'ws://150.109.233.168',
+        target: 'ws://150.109.233.168:80',
         ws: true
       }
     }

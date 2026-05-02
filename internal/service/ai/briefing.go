@@ -198,7 +198,7 @@ func (s *BriefingService) collectBriefingData(_ context.Context) (*BriefingData,
 	data := &BriefingData{}
 
 	// 昨日交易统计
-	stats, err := s.statsSvc.GetStatistics(&yesterdayStart, &yesterdayEnd)
+	stats, err := s.statsSvc.GetStatistics(&yesterdayStart, &yesterdayEnd, "")
 	if err != nil {
 		s.logger.Warn("获取昨日交易统计失败", zap.Error(err))
 	} else {

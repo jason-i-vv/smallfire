@@ -42,6 +42,7 @@ type OpportunityAggregator struct {
 	oppRepo            repository.OpportunityRepo
 	signalRepo         repository.SignalRepo
 	statsRepo          repository.SignalTypeStatsRepo
+	trackRepo          repository.TradeTrackRepo
 	scorer             *SignalScorer
 	notifier           OpportunityNotifier
 	handlers           []OpportunityHandler
@@ -58,6 +59,7 @@ func NewOpportunityAggregator(
 	oppRepo repository.OpportunityRepo,
 	signalRepo repository.SignalRepo,
 	statsRepo repository.SignalTypeStatsRepo,
+	trackRepo repository.TradeTrackRepo,
 	scorer *SignalScorer,
 	validity SignalValidityConfig,
 	notifier OpportunityNotifier,
@@ -71,6 +73,7 @@ func NewOpportunityAggregator(
 		oppRepo:          oppRepo,
 		signalRepo:       signalRepo,
 		statsRepo:        statsRepo,
+		trackRepo:        trackRepo,
 		scorer:           scorer,
 		notifier:         notifier,
 		validity:         validity,
@@ -136,7 +139,28 @@ func (a *OpportunityAggregator) AggregateSignals(newSignals []*models.Signal) er
 		}
 
 		if existing != nil {
-			// 检查新信号与已有机会的时间跨度是否过大
+				// 如果该机会已触发过交易，则过期它，让新信号走新机会
+				trades, trackErr := a.trackRepo.GetByOpportunityID(existing.ID)
+				if trackErr != nil {
+					a.logger.Error("查询机会关联交易失败", zap.Int("opportunity_id", existing.ID), zap.Error(trackErr))
+				} else if len(trades) > 0 {
+					a.logger.Info("交易机会已触发过交易，过期旧机会",
+						zap.Int("existing_id", existing.ID),
+						zap.String("symbol", first.SymbolCode),
+						zap.Int("trade_count", len(trades)),
+					)
+					existing.Status = models.OpportunityStatusExpired
+					expiredAt := time.Now()
+					existing.ExpiredAt = &expiredAt
+					if err := a.oppRepo.Update(existing); err != nil {
+						a.logger.Error("过期已触发交易的交易机会失败", zap.Error(err))
+					}
+					existing = nil
+				}
+			}
+
+			if existing != nil {
+				// 检查新信号与已有机会的时间跨度是否过大
 			if a.isTimeGapTooLarge(existing, signals) {
 				a.logger.Info("信号时间跨度过大，过期旧机会",
 					zap.Int("existing_id", existing.ID),
@@ -289,7 +313,14 @@ func (a *OpportunityAggregator) getAverageWinRate(signals []*models.Signal) floa
 func (a *OpportunityAggregator) extractVolumeRatio(signals []*models.Signal) float64 {
 	for _, sig := range signals {
 		if sig.SignalData != nil {
+			// 优先查找 volume_ratio
 			if vr, ok := (*sig.SignalData)["volume_ratio"]; ok {
+				if f, ok := vr.(float64); ok {
+					return f
+				}
+			}
+			// fallback: 兼容 volume_amplification
+			if vr, ok := (*sig.SignalData)["volume_amplification"]; ok {
 				if f, ok := vr.(float64); ok {
 					return f
 				}

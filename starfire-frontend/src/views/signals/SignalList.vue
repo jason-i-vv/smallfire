@@ -201,7 +201,7 @@ const sourceTypeOptions = computed(() => [
 const sourceSignalTypeMap = {
   '': [], // 全部，显示所有信号类型
   'box': ['box_breakout', 'box_breakdown'],
-  'trend': ['trend_retracement', 'trend_reversal'],
+  'trend': ['trend_retracement'],
   'key_level': ['resistance_break', 'support_break'],
   'volume': ['volume_price_rise', 'volume_price_fall', 'price_surge', 'price_surge_up', 'price_surge_down', 'volume_surge'],
   'wick': ['upper_wick_reversal', 'lower_wick_reversal', 'fake_breakout_upper', 'fake_breakout_lower'],
@@ -215,7 +215,6 @@ const allSignalTypeOptions = ref([
   { label: t('signals.boxBreakout') || '箱体突破', value: 'box_breakout', count: 0 },
   { label: t('signals.boxBreakdown') || '箱体跌破', value: 'box_breakdown', count: 0 },
   { label: t('signals.trendRetracement') || '趋势回撤', value: 'trend_retracement', count: 0 },
-  { label: t('signals.trendReversal') || '趋势反转', value: 'trend_reversal', count: 0 },
   { label: t('signals.resistanceBreak') || '阻力突破', value: 'resistance_break', count: 0 },
   { label: t('signals.volumePriceRise') || '量价齐升', value: 'volume_price_rise', count: 0 },
   { label: t('signals.volumePriceFall') || '量价齐跌', value: 'volume_price_fall', count: 0 },
@@ -410,7 +409,6 @@ const getSignalTypeName = (type) => {
     box_breakout: t('signals.boxBreakout') || '箱体突破',
     box_breakdown: t('signals.boxBreakdown') || '箱体跌破',
     trend_retracement: t('signals.trendRetracement') || '趋势回撤',
-    trend_reversal: t('signals.trendReversal') || '趋势反转',
     resistance_break: t('signals.resistanceBreak') || '阻力突破',
     support_break: t('signals.supportBreak') || '支撑跌破',
     volume_surge: t('signals.volumeSurge') || '量能放大',

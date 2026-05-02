@@ -380,3 +380,23 @@ func getYahooPeriodEndTime(period string, openTime time.Time) time.Time {
 		return openTime.Add(24 * time.Hour)
 	}
 }
+
+// FetchAStockIndices 获取A股大盘指数（Yahoo不支持，返回错误）
+func (f *YahooFetcher) FetchAStockIndices() ([]AStockMarketIndex, error) {
+	return nil, fmt.Errorf("yahoo fetcher 不支持获取A股指数")
+}
+
+// FetchSectorList 获取板块涨跌榜（Yahoo不支持）
+func (f *YahooFetcher) FetchSectorList(sortField string, ascending bool, limit int) ([]SectorData, error) {
+	return nil, fmt.Errorf("yahoo fetcher 不支持获取板块数据")
+}
+
+// FetchLimitCount 获取涨跌停统计（Yahoo不支持）
+func (f *YahooFetcher) FetchLimitCount() (*LimitCount, error) {
+	return nil, fmt.Errorf("yahoo fetcher 不支持获取涨跌停统计")
+}
+
+// FetchIndexKlines 获取指数K线数据（Yahoo不支持）
+func (f *YahooFetcher) FetchIndexKlines(indexCode string, period string, limit int) ([]KlineData, error) {
+	return nil, fmt.Errorf("yahoo fetcher 不支持获取指数K线")
+}

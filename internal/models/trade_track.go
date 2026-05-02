@@ -51,6 +51,8 @@ type TradeTrackResponse struct {
 	Status        string  `json:"status"`
 	SignalType    string  `json:"signal_type,omitempty"`   // 关联信号类型
 	SourceType    string  `json:"source_type,omitempty"`   // 关联信号来源
+	TradeSource      string  `json:"trade_source,omitempty"`  // 交易来源: paper, testnet
+	ExchangeOrderID  string  `json:"exchange_order_id,omitempty"` // 交易所订单ID
 	CreatedAt     int64   `json:"created_at"` // 毫秒时间戳
 	UpdatedAt     int64   `json:"updated_at"` // 毫秒时间戳
 }
@@ -88,6 +90,8 @@ func (t *TradeTrack) ToResponse() *TradeTrackResponse {
 	resp.UpdatedAt = t.UpdatedAt.UnixMilli()
 	resp.SignalType = t.SignalType
 	resp.SourceType = t.SourceType
+	resp.TradeSource = t.TradeSource
+	resp.ExchangeOrderID = t.ExchangeOrderID
 	return resp
 }
 
@@ -140,6 +144,10 @@ type TradeTrack struct {
 	// 关联字段（JOIN 查询填充）
 	SignalType string `json:"signal_type,omitempty" db:"-"` // 关联信号的 signal_type
 	SourceType string `json:"source_type,omitempty" db:"-"` // 关联信号的 source_type
+
+	// 交易来源
+	TradeSource      string `json:"trade_source,omitempty" db:"trade_source"`           // paper, testnet
+	ExchangeOrderID  string `json:"exchange_order_id,omitempty" db:"exchange_order_id"` // 交易所订单ID
 }
 
 const (
@@ -152,4 +160,7 @@ const (
 	ExitReasonTrailingStop = "trailing_stop"
 	ExitReasonManual       = "manual"
 	ExitReasonExpired      = "expired"
+
+	TradeSourcePaper   = "paper"
+	TradeSourceTestnet = "testnet"
 )

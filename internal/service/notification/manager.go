@@ -242,7 +242,7 @@ func (s *SummaryService) getTodayStats() (*SummaryStats, error) {
 	now := time.Now().In(cstZone)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, cstZone)
 
-	stats, err := s.statsService.GetStatistics(&today, nil)
+	stats, err := s.statsService.GetStatistics(&today, nil, "")
 	if err != nil {
 		return nil, err
 	}

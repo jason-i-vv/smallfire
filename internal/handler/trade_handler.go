@@ -15,10 +15,11 @@ import (
 
 // TradeHandler 交易跟踪API处理器
 type TradeHandler struct {
-	trackRepo    repository.TradeTrackRepo
-	executor     *trading.TradeExecutor
-	statsService *trading.StatisticsService
-	logger       *zap.Logger
+	trackRepo     repository.TradeTrackRepo
+	executor      *trading.TradeExecutor
+	statsService  *trading.StatisticsService
+	testnetTrader *trading.TestnetTrader // 可选：testnet 交易服务
+	logger        *zap.Logger
 }
 
 // NewTradeHandler 创建交易跟踪API处理器
@@ -29,6 +30,11 @@ func NewTradeHandler(trackRepo repository.TradeTrackRepo, executor *trading.Trad
 		statsService: statsService,
 		logger:       logger,
 	}
+}
+
+// SetTestnetTrader 设置 Testnet 交易服务（可选）
+func (h *TradeHandler) SetTestnetTrader(trader *trading.TestnetTrader) {
+	h.testnetTrader = trader
 }
 
 // GetOpenPositions 获取持仓列表（分页）
@@ -43,8 +49,9 @@ func (h *TradeHandler) GetOpenPositions(c *gin.Context) {
 	}
 
 	tracks, total, err := h.trackRepo.GetOpenPositionsPaginated(page, size, map[string]string{
-		"direction": c.Query("direction"),
-		"min_score": c.Query("min_score"),
+		"direction":    c.Query("direction"),
+		"min_score":    c.Query("min_score"),
+		"trade_source": c.Query("trade_source"),
 	})
 	if err != nil {
 		h.logger.Error("获取持仓列表失败", zap.Error(err))
@@ -87,7 +94,7 @@ func (h *TradeHandler) GetClosedPositions(c *gin.Context) {
 		}
 	}
 
-	tracks, err := h.trackRepo.GetClosedTracks(startDate, endDate)
+	tracks, err := h.trackRepo.GetClosedTracks(startDate, endDate, "")
 	if err != nil {
 		h.logger.Error("获取平仓记录失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -145,11 +152,12 @@ func (h *TradeHandler) GetTradeHistory(c *gin.Context) {
 
 	// 构建筛选条件
 	filters := map[string]string{
-		"market":      c.Query("market"),
-		"symbol_id":   c.Query("symbol_id"),
-		"direction":   c.Query("direction"),
-		"exit_reason": c.Query("exit_reason"),
-		"min_score":   c.Query("min_score"),
+		"market":       c.Query("market"),
+		"symbol_id":    c.Query("symbol_id"),
+		"direction":    c.Query("direction"),
+		"exit_reason":  c.Query("exit_reason"),
+		"min_score":    c.Query("min_score"),
+		"trade_source": c.Query("trade_source"),
 	}
 
 	tracks, total, err := h.trackRepo.GetHistory(startDate, endDate, page, size, filters)
@@ -194,7 +202,9 @@ func (h *TradeHandler) GetTradeStats(c *gin.Context) {
 		}
 	}
 
-	stats, err := h.statsService.GetStatistics(startDate, endDate)
+	tradeSource := c.Query("trade_source")
+
+stats, err := h.statsService.GetStatistics(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取交易统计失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -206,7 +216,9 @@ func (h *TradeHandler) GetTradeStats(c *gin.Context) {
 
 // GetSignalAnalysis 获取信号分析统计
 func (h *TradeHandler) GetSignalAnalysis(c *gin.Context) {
-	analysis, err := h.statsService.GetSignalAnalysis()
+	tradeSource := c.Query("trade_source")
+
+analysis, err := h.statsService.GetSignalAnalysis(tradeSource)
 	if err != nil {
 		h.logger.Error("获取信号分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -268,10 +280,54 @@ func (h *TradeHandler) ClosePosition(c *gin.Context) {
 		return
 	}
 
-	if err := h.executor.CloseByManual(track, req.Price); err != nil {
-		h.logger.Error("平仓失败", zap.Int("id", id), zap.Error(err))
-		HandleError(c, http.StatusInternalServerError, err)
-		return
+	// Testnet 持仓：通过 Bybit API 平仓
+	if track.TradeSource == models.TradeSourceTestnet && h.testnetTrader != nil {
+		// 获取 symbol_code
+		var symbolCode string
+		if track.SymbolCode != "" {
+			symbolCode = track.SymbolCode
+		} else {
+			HandleError(c, http.StatusBadRequest, fmt.Errorf("无法获取标的代码"))
+			return
+		}
+		if err := h.testnetTrader.ClosePosition(track, symbolCode); err != nil {
+			h.logger.Error("Testnet 平仓失败", zap.Int("id", id), zap.Error(err))
+			HandleError(c, http.StatusInternalServerError, err)
+			return
+		}
+		// 更新本地记录
+		now := time.Now()
+		track.Status = models.TrackStatusClosed
+		track.ExitPrice = &req.Price
+		track.ExitTime = &now
+		track.ExitReason = func() *string { s := models.ExitReasonManual; return &s }()
+		track.UpdatedAt = now
+		if track.EntryPrice != nil && track.Quantity != nil {
+			var pnl float64
+			if track.Direction == "long" {
+				pnl = (req.Price - *track.EntryPrice) * *track.Quantity
+			} else {
+				pnl = (*track.EntryPrice - req.Price) * *track.Quantity
+			}
+			pnl -= track.Fees
+			track.PnL = &pnl
+			if track.PositionValue != nil && *track.PositionValue != 0 {
+				pnlPct := pnl / *track.PositionValue
+				track.PnLPercent = &pnlPct
+			}
+		}
+		if err := h.trackRepo.Update(track); err != nil {
+			h.logger.Error("更新平仓记录失败", zap.Int("id", id), zap.Error(err))
+			HandleError(c, http.StatusInternalServerError, err)
+			return
+		}
+	} else {
+		// Paper trading: 本地平仓
+		if err := h.executor.CloseByManual(track, req.Price); err != nil {
+			h.logger.Error("平仓失败", zap.Int("id", id), zap.Error(err))
+			HandleError(c, http.StatusInternalServerError, err)
+			return
+		}
 	}
 
 	// 重新查询获取更新后的数据
@@ -306,7 +362,9 @@ func (h *TradeHandler) parseDateRange(c *gin.Context) (startDate, endDate *time.
 // GetEquityCurve 获取权益曲线
 func (h *TradeHandler) GetEquityCurve(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
-	data, err := h.statsService.GetEquityCurve(startDate, endDate)
+	tradeSource := c.Query("trade_source")
+
+data, err := h.statsService.GetEquityCurve(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取权益曲线失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -318,7 +376,9 @@ func (h *TradeHandler) GetEquityCurve(c *gin.Context) {
 // GetSymbolAnalysis 获取标的分析
 func (h *TradeHandler) GetSymbolAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
-	data, err := h.statsService.GetSymbolAnalysis(startDate, endDate)
+	tradeSource := c.Query("trade_source")
+
+data, err := h.statsService.GetSymbolAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取标的分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -330,7 +390,9 @@ func (h *TradeHandler) GetSymbolAnalysis(c *gin.Context) {
 // GetDirectionAnalysis 获取方向分析
 func (h *TradeHandler) GetDirectionAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
-	data, err := h.statsService.GetDirectionAnalysis(startDate, endDate)
+	tradeSource := c.Query("trade_source")
+
+data, err := h.statsService.GetDirectionAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取方向分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -342,7 +404,9 @@ func (h *TradeHandler) GetDirectionAnalysis(c *gin.Context) {
 // GetExitReasonAnalysis 获取出场原因分析
 func (h *TradeHandler) GetExitReasonAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
-	data, err := h.statsService.GetExitReasonAnalysis(startDate, endDate)
+	tradeSource := c.Query("trade_source")
+
+data, err := h.statsService.GetExitReasonAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取出场原因分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -358,7 +422,9 @@ func (h *TradeHandler) GetPeriodPnL(c *gin.Context) {
 	if period != "daily" && period != "weekly" && period != "monthly" {
 		period = "daily"
 	}
-	data, err := h.statsService.GetPeriodPnL(startDate, endDate, period)
+	tradeSource := c.Query("trade_source")
+
+data, err := h.statsService.GetPeriodPnL(startDate, endDate, period, tradeSource)
 	if err != nil {
 		h.logger.Error("获取周期盈亏失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -370,7 +436,9 @@ func (h *TradeHandler) GetPeriodPnL(c *gin.Context) {
 // GetPnLDistribution 获取盈亏分布
 func (h *TradeHandler) GetPnLDistribution(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
-	data, err := h.statsService.GetPnLDistribution(startDate, endDate)
+	tradeSource := c.Query("trade_source")
+
+data, err := h.statsService.GetPnLDistribution(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取盈亏分布失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -382,7 +450,9 @@ func (h *TradeHandler) GetPnLDistribution(c *gin.Context) {
 // GetDetailedSignalAnalysis 获取详细信号分析
 func (h *TradeHandler) GetDetailedSignalAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
-	data, err := h.statsService.GetDetailedSignalAnalysis(startDate, endDate)
+	tradeSource := c.Query("trade_source")
+
+data, err := h.statsService.GetDetailedSignalAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取详细信号分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -394,9 +464,39 @@ func (h *TradeHandler) GetDetailedSignalAnalysis(c *gin.Context) {
 // GetScoreAnalysis 获取评分区间分析
 func (h *TradeHandler) GetScoreAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
-	data, err := h.statsService.GetScoreAnalysis(startDate, endDate)
+	tradeSource := c.Query("trade_source")
+
+data, err := h.statsService.GetScoreAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取评分区间分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetStrategyAnalysis 获取策略分析
+func (h *TradeHandler) GetStrategyAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	tradeSource := c.Query("trade_source")
+
+	data, err := h.statsService.GetStrategyAnalysis(startDate, endDate, tradeSource)
+	if err != nil {
+		h.logger.Error("获取策略分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetScoreEquityCurves 获取按评分等级的每日权益曲线
+func (h *TradeHandler) GetScoreEquityCurves(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	tradeSource := c.Query("trade_source")
+
+	data, err := h.statsService.GetScoreEquityCurves(startDate, endDate, tradeSource)
+	if err != nil {
+		h.logger.Error("获取评分权益曲线失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
 		return
 	}

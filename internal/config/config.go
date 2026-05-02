@@ -254,6 +254,22 @@ type TradingConfig struct {
 	PaperTrading            bool    `mapstructure:"paper_trading"`              // 模拟交易模式
 	FixedTradeAmount        float64 `mapstructure:"fixed_trade_amount"`          // 模拟交易每笔固定金额
 	MinNotifyScoreThreshold int     `mapstructure:"min_notify_score_threshold"` // 通知最低评分，低于此值不发送通知
+
+	// Bybit Testnet 实盘模拟
+	Testnet TestnetTradingConfig `mapstructure:"testnet"`
+}
+
+// TestnetTradingConfig Bybit Testnet 模拟交易配置
+type TestnetTradingConfig struct {
+	Enabled          bool    `mapstructure:"enabled"`
+	APIKey           string  `mapstructure:"api_key"`
+	APISecret        string  `mapstructure:"api_secret"`
+	BaseURL          string  `mapstructure:"base_url"`
+	ScoreThreshold   int     `mapstructure:"score_threshold"`
+	FixedTradeAmount float64 `mapstructure:"fixed_trade_amount"`
+	MaxOpenPositions int     `mapstructure:"max_open_positions"`
+	Leverage         int     `mapstructure:"leverage"`
+	RecvWindow       string  `mapstructure:"recv_window"`
 }
 
 type MonitoringConfig struct {

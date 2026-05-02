@@ -43,6 +43,8 @@ func (m *mockOppRepo) ExpireStaleOpportunities() error {
 func (m *mockOppRepo) List(filter *repository.OpportunityListFilter) ([]*models.TradingOpportunity, int, error) {
 	return nil, 0, nil
 }
+func (m *mockOppRepo) GetScoresByIDs(ids []int) (map[int]int, error)          { return make(map[int]int), nil }
+func (m *mockOppRepo) GetConfluenceByIDs(ids []int) (map[int][]string, error)  { return make(map[int][]string), nil }
 
 // mockStatsRepo implements SignalTypeStatsRepo for testing
 type mockStatsRepo struct {

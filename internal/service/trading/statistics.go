@@ -64,8 +64,8 @@ type TradeStatistics struct {
 }
 
 // GetStatistics 获取统计数据
-func (s *StatisticsService) GetStatistics(startDate, endDate *time.Time) (*TradeStatistics, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetStatistics(startDate, endDate *time.Time, tradeSource string) (*TradeStatistics, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
@@ -277,16 +277,19 @@ type PnLBucket struct {
 }
 
 // GetSignalAnalysis 按信号类型分析
-func (s *StatisticsService) GetSignalAnalysis() (map[string]*SignalAnalysis, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(nil, nil)
+func (s *StatisticsService) GetSignalAnalysis(tradeSource string) (map[string]*SignalAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(nil, nil, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
 
+	// 预加载信号信息
+	siCtx := s.buildSignalInfoContext(tracks)
+
 	analysis := make(map[string]*SignalAnalysis)
 
 	for _, track := range tracks {
-		signalType, sourceType := s.getFullSignalInfo(track)
+		signalType, sourceType := s.getFullSignalInfoFromContext(track, siCtx)
 		if _, ok := analysis[signalType]; !ok {
 			analysis[signalType] = &SignalAnalysis{
 				SignalType: signalType,
@@ -326,8 +329,8 @@ func (s *StatisticsService) getSignalType(track *models.TradeTrack) string {
 }
 
 // GetEquityCurve 获取权益曲线数据
-func (s *StatisticsService) GetEquityCurve(startDate, endDate *time.Time) ([]EquityCurvePoint, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetEquityCurve(startDate, endDate *time.Time, tradeSource string) ([]EquityCurvePoint, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
@@ -371,8 +374,8 @@ func (s *StatisticsService) GetEquityCurve(startDate, endDate *time.Time) ([]Equ
 }
 
 // GetSymbolAnalysis 按标的统计
-func (s *StatisticsService) GetSymbolAnalysis(startDate, endDate *time.Time) ([]SymbolAnalysis, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetSymbolAnalysis(startDate, endDate *time.Time, tradeSource string) ([]SymbolAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
@@ -421,8 +424,8 @@ func (s *StatisticsService) GetSymbolAnalysis(startDate, endDate *time.Time) ([]
 }
 
 // GetDirectionAnalysis 按方向统计
-func (s *StatisticsService) GetDirectionAnalysis(startDate, endDate *time.Time) (map[string]*DirectionAnalysis, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetDirectionAnalysis(startDate, endDate *time.Time, tradeSource string) (map[string]*DirectionAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
@@ -464,8 +467,8 @@ func (s *StatisticsService) GetDirectionAnalysis(startDate, endDate *time.Time) 
 }
 
 // GetExitReasonAnalysis 按出场原因统计
-func (s *StatisticsService) GetExitReasonAnalysis(startDate, endDate *time.Time) ([]ExitReasonAnalysis, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetExitReasonAnalysis(startDate, endDate *time.Time, tradeSource string) ([]ExitReasonAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
@@ -508,8 +511,8 @@ func (s *StatisticsService) GetExitReasonAnalysis(startDate, endDate *time.Time)
 }
 
 // GetPeriodPnL 按时间周期统计盈亏
-func (s *StatisticsService) GetPeriodPnL(startDate, endDate *time.Time, period string) ([]PeriodPnL, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetPeriodPnL(startDate, endDate *time.Time, period string, tradeSource string) ([]PeriodPnL, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
@@ -558,8 +561,8 @@ func (s *StatisticsService) GetPeriodPnL(startDate, endDate *time.Time, period s
 }
 
 // GetPnLDistribution 获取盈亏分布
-func (s *StatisticsService) GetPnLDistribution(startDate, endDate *time.Time) (*PnLDistribution, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetPnLDistribution(startDate, endDate *time.Time, tradeSource string) (*PnLDistribution, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
@@ -619,16 +622,19 @@ func (s *StatisticsService) GetPnLDistribution(startDate, endDate *time.Time) (*
 }
 
 // GetDetailedSignalAnalysis 按具体信号类型分析
-func (s *StatisticsService) GetDetailedSignalAnalysis(startDate, endDate *time.Time) ([]SignalAnalysis, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetDetailedSignalAnalysis(startDate, endDate *time.Time, tradeSource string) ([]SignalAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
 
+	// 预加载信号信息
+	siCtx := s.buildSignalInfoContext(tracks)
+
 	analysis := make(map[string]*SignalAnalysis)
 
 	for _, track := range tracks {
-		signalType, sourceType := s.getFullSignalInfo(track)
+		signalType, sourceType := s.getFullSignalInfoFromContext(track, siCtx)
 		key := signalType
 		if _, ok := analysis[key]; !ok {
 			analysis[key] = &SignalAnalysis{
@@ -692,7 +698,19 @@ var signalTypeToSourceType = map[string]string{
 
 // ScoreAnalysis 按评分区间分析
 type ScoreAnalysis struct {
-	ScoreRange     string  `json:"score_range"`      // 评分区间，如 "80-100"
+	ScoreRange      string  `json:"score_range"`       // 评分区间，如 "80-100"
+	TotalTrades     int     `json:"total_trades"`      // 交易次数
+	WinTrades       int     `json:"win_trades"`        // 盈利次数
+	WinRate         float64 `json:"win_rate"`          // 胜率
+	TotalPnL        float64 `json:"total_pnl"`         // 总盈亏
+	AvgPnL          float64 `json:"avg_pnl"`           // 平均盈亏
+	AvgHoldingHours float64 `json:"avg_holding_hours"` // 平均持仓时长
+}
+
+// StrategyAnalysis 按策略类型分析
+type StrategyAnalysis struct {
+	Strategy       string  `json:"strategy"`        // 策略名称，如 "箱体", "趋势"
+	StrategyKey    string  `json:"strategy_key"`     // 策略标识，如 "box", "trend"
 	TotalTrades    int     `json:"total_trades"`     // 交易次数
 	WinTrades      int     `json:"win_trades"`       // 盈利次数
 	WinRate        float64 `json:"win_rate"`         // 胜率
@@ -702,17 +720,29 @@ type ScoreAnalysis struct {
 }
 
 // GetScoreAnalysis 按评分区间统计胜率
-func (s *StatisticsService) GetScoreAnalysis(startDate, endDate *time.Time) ([]ScoreAnalysis, error) {
-	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate)
+func (s *StatisticsService) GetScoreAnalysis(startDate, endDate *time.Time, tradeSource string) ([]ScoreAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
 	if err != nil {
 		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
 	}
 
+	// 批量获取所有 opportunity 的 score
+	scoreMap := make(map[int]int)
+	if s.oppRepo != nil {
+		oppIDs := collectOpportunityIDs(tracks)
+		if len(oppIDs) > 0 {
+			scoreMap, err = s.oppRepo.GetScoresByIDs(oppIDs)
+			if err != nil {
+				return nil, fmt.Errorf("批量获取评分失败: %w", err)
+			}
+		}
+	}
+
 	// 定义评分区间
 	ranges := []struct {
-		name  string
-		min   int
-		max   int
+		name string
+		min  int
+		max  int
 	}{
 		{"80-100", 80, 100},
 		{"70-80", 70, 79},
@@ -735,13 +765,10 @@ func (s *StatisticsService) GetScoreAnalysis(startDate, endDate *time.Time) ([]S
 			continue
 		}
 
-		// 获取评分
+		// 从预加载的 map 获取评分
 		score := 0
-		if track.OpportunityID != nil && s.oppRepo != nil {
-			opp, err := s.oppRepo.GetByID(*track.OpportunityID)
-			if err == nil && opp != nil {
-				score = opp.Score
-			}
+		if track.OpportunityID != nil {
+			score = scoreMap[*track.OpportunityID]
 		}
 
 		// 确定区间
@@ -781,6 +808,312 @@ func (s *StatisticsService) GetScoreAnalysis(startDate, endDate *time.Time) ([]S
 	}
 
 	return result, nil
+}
+
+// strategyLabels 策略标签映射
+var strategyLabels = map[string]string{
+	"box":         "箱体",
+	"trend":       "趋势",
+	"key_level":   "关键位",
+	"volume":      "量价",
+	"wick":        "引线",
+	"candlestick": "K线",
+	"unknown":     "未知",
+}
+
+// GetStrategyAnalysis 按策略类型统计盈亏
+func (s *StatisticsService) GetStrategyAnalysis(startDate, endDate *time.Time, tradeSource string) ([]StrategyAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	// 预加载信号信息
+	siCtx := s.buildSignalInfoContext(tracks)
+
+	// 按 source_type 分组统计
+	groups := make(map[string]*StrategyAnalysis)
+
+	for _, track := range tracks {
+		if track.PnL == nil {
+			continue
+		}
+
+		_, sourceType := s.getFullSignalInfoFromContext(track, siCtx)
+		if sourceType == "" {
+			sourceType = "unknown"
+		}
+
+		if _, ok := groups[sourceType]; !ok {
+			groups[sourceType] = &StrategyAnalysis{
+				Strategy:    strategyLabels[sourceType],
+				StrategyKey: sourceType,
+			}
+		}
+
+		a := groups[sourceType]
+		a.TotalTrades++
+		pnl := *track.PnL
+		a.TotalPnL += pnl
+		if pnl > 0 {
+			a.WinTrades++
+		}
+		if track.EntryTime != nil && track.ExitTime != nil {
+			a.AvgHoldingHours += track.ExitTime.Sub(*track.EntryTime).Hours()
+		}
+	}
+
+	// 计算统计指标
+	result := make([]StrategyAnalysis, 0, len(groups))
+	for _, a := range groups {
+		if a.TotalTrades > 0 {
+			a.WinRate = float64(a.WinTrades) / float64(a.TotalTrades)
+			a.AvgPnL = a.TotalPnL / float64(a.TotalTrades)
+			a.AvgHoldingHours /= float64(a.TotalTrades)
+		}
+		result = append(result, *a)
+	}
+
+	// 按总盈亏降序排列
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].TotalPnL > result[j].TotalPnL
+	})
+
+	return result, nil
+}
+
+// ScoreEquityCurvePoint 按评分的权益曲线数据点
+type ScoreEquityCurvePoint struct {
+	Time int64   `json:"time"` // Unix seconds
+	PnL  float64 `json:"pnl"`  // 累计盈亏
+}
+
+// ScoreEquityCurves 按评分的权益曲线集合
+type ScoreEquityCurves struct {
+	Ranges []ScoreRangeCurve `json:"ranges"`
+}
+
+// ScoreRangeCurve 单个评分区间的曲线
+type ScoreRangeCurve struct {
+	ScoreRange string                  `json:"score_range"`
+	Color      string                  `json:"color"`
+	Data       []ScoreEquityCurvePoint `json:"data"`
+}
+
+// scoreRangeDefs 评分区间定义及颜色
+var scoreRangeDefs = []struct {
+	name  string
+	min   int
+	max   int
+	color string
+}{
+	{"80-100", 80, 100, "#00C853"},  // 绿色
+	{"70-80", 70, 79, "#4CAF50"},    // 浅绿
+	{"60-70", 60, 69, "#FFC107"},    // 黄色
+	{"50-60", 50, 59, "#FF9800"},    // 橙色
+	{"<50", 0, 49, "#F44336"},       // 红色
+}
+
+// getScoreRange 获取评分所在区间名称
+func getScoreRange(score int) string {
+	for _, r := range scoreRangeDefs {
+		if score >= r.min && score <= r.max {
+			return r.name
+		}
+	}
+	return "<50"
+}
+
+// GetScoreEquityCurves 按评分等级获取每日累计盈亏曲线
+func (s *StatisticsService) GetScoreEquityCurves(startDate, endDate *time.Time, tradeSource string) (*ScoreEquityCurves, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
+	if err != nil {
+		return nil, fmt.Errorf("获取已平仓记录失败: %w", err)
+	}
+
+	// 批量获取所有 opportunity 的 score
+	scoreMap := make(map[int]int)
+	if s.oppRepo != nil {
+		oppIDs := collectOpportunityIDs(tracks)
+		if len(oppIDs) > 0 {
+			scoreMap, err = s.oppRepo.GetScoresByIDs(oppIDs)
+			if err != nil {
+				return nil, fmt.Errorf("批量获取评分失败: %w", err)
+			}
+		}
+	}
+
+	// 按 exit_time 排序
+	sort.Slice(tracks, func(i, j int) bool {
+		if tracks[i].ExitTime == nil || tracks[j].ExitTime == nil {
+			return false
+		}
+		return tracks[i].ExitTime.Before(*tracks[j].ExitTime)
+	})
+
+	// 按评分区间收集每日盈亏
+	type dailyPnL struct {
+		dayKey string
+		dayTs  int64
+		pnl    float64
+	}
+	rangeDailyPnL := make(map[string][]dailyPnL)
+
+	for _, track := range tracks {
+		if track.PnL == nil || track.ExitTime == nil {
+			continue
+		}
+
+		// 从预加载的 map 获取评分
+		score := 0
+		if track.OpportunityID != nil {
+			score = scoreMap[*track.OpportunityID]
+		}
+		rangeName := getScoreRange(score)
+
+		// 按天聚合（UTC 日期）
+		exitTime := *track.ExitTime
+		dayStart := time.Date(exitTime.Year(), exitTime.Month(), exitTime.Day(), 0, 0, 0, 0, exitTime.Location())
+		dayKey := dayStart.Format("2006-01-02")
+
+		rangeDailyPnL[rangeName] = append(rangeDailyPnL[rangeName], dailyPnL{
+			dayKey: dayKey,
+			dayTs:  dayStart.Unix(),
+			pnl:    *track.PnL,
+		})
+	}
+
+	// 对每个区间，按天汇总并计算累计值
+	result := &ScoreEquityCurves{}
+	for _, def := range scoreRangeDefs {
+		curve := ScoreRangeCurve{
+			ScoreRange: def.name,
+			Color:      def.color,
+		}
+
+		dailyItems := rangeDailyPnL[def.name]
+
+		// 按天汇总
+		dayMap := make(map[string]float64) // dayKey -> 日盈亏合计
+		dayTsMap := make(map[string]int64) // dayKey -> 时间戳
+		var sortedDays []string
+		for _, item := range dailyItems {
+			if _, exists := dayMap[item.dayKey]; !exists {
+				sortedDays = append(sortedDays, item.dayKey)
+				dayTsMap[item.dayKey] = item.dayTs
+			}
+			dayMap[item.dayKey] += item.pnl
+		}
+
+		// 按日期排序
+		sort.Strings(sortedDays)
+
+		// 计算累计盈亏
+		cumulative := 0.0
+		for _, day := range sortedDays {
+			cumulative += dayMap[day]
+			curve.Data = append(curve.Data, ScoreEquityCurvePoint{
+				Time: dayTsMap[day],
+				PnL:  math.Round(cumulative*100) / 100,
+			})
+		}
+
+		result.Ranges = append(result.Ranges, curve)
+	}
+
+	return result, nil
+}
+
+// collectOpportunityIDs 从 tracks 中收集所有不重复的 opportunity_id
+func collectOpportunityIDs(tracks []*models.TradeTrack) []int {
+	seen := make(map[int]bool)
+	var ids []int
+	for _, t := range tracks {
+		if t.OpportunityID != nil && !seen[*t.OpportunityID] {
+			seen[*t.OpportunityID] = true
+			ids = append(ids, *t.OpportunityID)
+		}
+	}
+	return ids
+}
+
+// collectSignalIDs 从 tracks 中收集所有不重复的 signal_id
+func collectSignalIDs(tracks []*models.TradeTrack) []int {
+	seen := make(map[int]bool)
+	var ids []int
+	for _, t := range tracks {
+		if t.SignalID != nil && !seen[*t.SignalID] {
+			seen[*t.SignalID] = true
+			ids = append(ids, *t.SignalID)
+		}
+	}
+	return ids
+}
+
+// signalInfoContext 预加载的信号和机会信息，避免 N+1 查询
+type signalInfoContext struct {
+	signalMap     map[int]*repository.SignalBasicInfo // signalID -> info
+	confluenceMap map[int][]string                    // opportunityID -> confluence_directions
+}
+
+// buildSignalInfoContext 预加载所有需要的信号和机会数据
+func (s *StatisticsService) buildSignalInfoContext(tracks []*models.TradeTrack) *signalInfoContext {
+	ctx := &signalInfoContext{
+		signalMap:     make(map[int]*repository.SignalBasicInfo),
+		confluenceMap: make(map[int][]string),
+	}
+
+	// 批量获取 signal 信息
+	if s.signalRepo != nil {
+		signalIDs := collectSignalIDs(tracks)
+		if len(signalIDs) > 0 {
+			if m, err := s.signalRepo.GetSignalInfoByIDs(signalIDs); err == nil {
+				ctx.signalMap = m
+			}
+		}
+	}
+
+	// 批量获取 opportunity confluence_directions
+	if s.oppRepo != nil {
+		oppIDs := collectOpportunityIDs(tracks)
+		if len(oppIDs) > 0 {
+			if m, err := s.oppRepo.GetConfluenceByIDs(oppIDs); err == nil {
+				ctx.confluenceMap = m
+			}
+		}
+	}
+
+	return ctx
+}
+
+// getFullSignalInfoFromContext 使用预加载数据获取信号信息
+func (s *StatisticsService) getFullSignalInfoFromContext(track *models.TradeTrack, siCtx *signalInfoContext) (signalType, sourceType string) {
+	// 优先通过 SignalID 获取
+	if track.SignalID != nil {
+		if info, ok := siCtx.signalMap[*track.SignalID]; ok {
+			return info.SignalType, info.SourceType
+		}
+	}
+
+	// SignalID 为空时，从 confluence_directions 推断
+	if track.OpportunityID != nil {
+		if directions, ok := siCtx.confluenceMap[*track.OpportunityID]; ok && len(directions) > 0 {
+			first := directions[0]
+			for i := 0; i < len(first); i++ {
+				if first[i] == ':' {
+					st := first[:i]
+					src := signalTypeToSourceType[st]
+					if src == "" {
+						src = "unknown"
+					}
+					return st, src
+				}
+			}
+			return first, "unknown"
+		}
+	}
+
+	return "unknown", "unknown"
 }
 
 func (s *StatisticsService) getFullSignalInfo(track *models.TradeTrack) (signalType, sourceType string) {

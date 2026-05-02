@@ -722,7 +722,6 @@ const getSignalTypeLabel = (type) => {
   const map = {
     'box_breakout': '箱体突破',
     'box_breakdown': '箱体跌破',
-    'trend_reversal': '趋势反转',
     'trend_retracement': '趋势回撤',
     'resistance_break': '阻力突破',
     'support_break': '支撑跌破',

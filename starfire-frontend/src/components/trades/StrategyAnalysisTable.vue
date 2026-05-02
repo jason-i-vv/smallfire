@@ -1,50 +1,26 @@
 <template>
-  <div class="score-analysis">
+  <div class="strategy-analysis">
     <!-- 可视化区域 -->
     <div v-if="data && data.length > 0" class="charts-section">
-      <!-- 胜率柱状图 -->
-      <div class="chart-area">
-        <div class="chart-title">{{ t('statistics.winRate') }}</div>
-        <div class="winrate-bars">
-          <div
-            v-for="item in data"
-            :key="item.score_range"
-            class="winrate-bar-item"
-          >
-            <div class="bar-label">{{ item.score_range }}</div>
-            <div class="bar-wrapper">
-              <div
-                class="winrate-bar"
-                :class="item.win_rate >= 0.5 ? 'bar-profit' : 'bar-loss'"
-                :style="{ width: (item.win_rate * 100) + '%' }"
-              >
-                <span class="bar-percent">{{ formatPercent(item.win_rate) }}</span>
-              </div>
-            </div>
-            <div class="bar-count">{{ item.total_trades }}笔</div>
-          </div>
-        </div>
-      </div>
-
       <!-- 盈亏柱状图 -->
       <div class="chart-area">
-        <div class="chart-title">{{ t('statistics.avgPnL') }}</div>
+        <div class="chart-title">{{ t('statistics.pnlDistribution') }}</div>
         <div class="pnl-bars">
           <div
             v-for="item in data"
-            :key="item.score_range"
+            :key="item.strategy_key"
             class="pnl-bar-item"
           >
-            <div class="bar-label">{{ item.score_range }}</div>
+            <div class="bar-label">{{ item.strategy }}</div>
             <div class="bar-wrapper">
               <div
                 class="pnl-bar"
-                :class="item.avg_pnl >= 0 ? 'bar-profit' : 'bar-loss'"
-                :style="{ width: getPnLWidth(item.avg_pnl) + '%' }"
+                :class="item.total_pnl >= 0 ? 'bar-profit' : 'bar-loss'"
+                :style="{ width: getPnLWidth(item.total_pnl) + '%' }"
               />
             </div>
-            <div class="bar-value" :class="item.avg_pnl >= 0 ? 'profit' : 'loss'">
-              {{ formatPnL(item.avg_pnl) }}
+            <div class="bar-value" :class="item.total_pnl >= 0 ? 'profit' : 'loss'">
+              {{ formatPnL(item.total_pnl) }}
             </div>
           </div>
         </div>
@@ -56,7 +32,7 @@
         <div class="pie-container">
           <svg viewBox="0 0 100 100" class="pie-chart">
             <circle
-              v-for="item in pieData"
+              v-for="(item, index) in pieData"
               :key="item.key"
               cx="50"
               cy="50"
@@ -77,7 +53,7 @@
             >
               <span class="legend-color" :style="{ background: item.color }"></span>
               <span class="legend-label">{{ item.label }}</span>
-              <span class="legend-value">{{ item.value }}笔</span>
+              <span class="legend-value">{{ item.value }}</span>
             </div>
           </div>
         </div>
@@ -85,9 +61,15 @@
     </div>
 
     <!-- 数据表格 -->
-    <el-table :data="data" stripe size="small" class="score-table" max-height="400">
+    <el-table :data="data" stripe size="small" class="strategy-table" max-height="400">
       <el-table-column type="index" label="#" width="60" />
-      <el-table-column prop="score_range" :label="t('statistics.scoreRange') || '评分区间'" width="120" />
+      <el-table-column prop="strategy" :label="t('statistics.strategy')" width="120">
+        <template #default="{ row }">
+          <el-tag size="small" :type="strategyTagType(row.strategy_key)">
+            {{ row.strategy }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="total_trades" :label="t('statistics.totalTrades')" width="100" />
       <el-table-column prop="win_trades" :label="t('statistics.winningTrades')" width="100" />
       <el-table-column prop="win_rate" :label="t('statistics.winRate')" width="100">
@@ -97,7 +79,7 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column prop="total_pnl" :label="t('statistics.totalPnl')" width="120">
+      <el-table-column prop="total_pnl" :label="t('statistics.totalPnl')" width="140">
         <template #default="{ row }">
           <span :class="row.total_pnl >= 0 ? 'profit' : 'loss'">
             {{ formatPnL(row.total_pnl) }}
@@ -134,19 +116,34 @@ const props = defineProps({
   }
 })
 
-// 评分区间颜色
-const scoreColors = {
-  '80-100': '#00C853',
-  '70-80': '#4CAF50',
-  '60-70': '#FFC107',
-  '50-60': '#FF9800',
-  '<50': '#F44336'
+// 策略颜色映射
+const strategyColors = {
+  box: '#4CAF50',
+  trend: '#2196F3',
+  key_level: '#FF9800',
+  volume: '#9C27B0',
+  wick: '#F44336',
+  candlestick: '#607D8B',
+  unknown: '#9E9E9E'
+}
+
+// 策略标签类型
+const strategyTagType = (key) => {
+  const types = {
+    box: 'success',
+    trend: 'primary',
+    key_level: 'warning',
+    volume: 'info',
+    wick: 'danger',
+    candlestick: ''
+  }
+  return types[key] || 'info'
 }
 
 // 计算盈亏柱状图宽度
 const maxAbsPnL = computed(() => {
   if (!props.data || props.data.length === 0) return 1
-  return Math.max(...props.data.map(d => Math.abs(d.avg_pnl)), 1)
+  return Math.max(...props.data.map(d => Math.abs(d.total_pnl)), 1)
 })
 
 const getPnLWidth = (pnl) => {
@@ -168,10 +165,10 @@ const pieData = computed(() => {
     const dashLength = circumference * percentage
     const dashArray = `${dashLength} ${circumference - dashLength}`
     const item = {
-      key: d.score_range,
-      label: d.score_range,
+      key: d.strategy_key,
+      label: d.strategy,
       value: d.total_trades,
-      color: scoreColors[d.score_range] || '#9E9E9E',
+      color: strategyColors[d.strategy_key] || '#9E9E9E',
       dashArray,
       offset: -offset
     }
@@ -187,7 +184,7 @@ const pieData = computed(() => {
 .profit { color: $success; }
 .loss { color: $danger; }
 
-.score-analysis {
+.strategy-analysis {
   .charts-section {
     display: flex;
     gap: 24px;
@@ -197,10 +194,10 @@ const pieData = computed(() => {
 
   .chart-area {
     flex: 1;
-    min-width: 200px;
+    min-width: 280px;
 
     &.pie-area {
-      max-width: 280px;
+      max-width: 320px;
     }
   }
 
@@ -211,14 +208,13 @@ const pieData = computed(() => {
     margin-bottom: 12px;
   }
 
-  // 胜率柱状图
-  .winrate-bars {
+  .pnl-bars {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
   }
 
-  .winrate-bar-item {
+  .pnl-bar-item {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -237,54 +233,22 @@ const pieData = computed(() => {
     background: rgba($border, 0.3);
     border-radius: 4px;
     overflow: hidden;
-    max-width: 160px;
+    max-width: 200px;
   }
 
-  .winrate-bar {
+  .pnl-bar {
     height: 100%;
     border-radius: 4px;
     transition: width 0.3s ease;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding-right: 6px;
-    min-width: 40px;
-  }
-
-  .bar-percent {
-    font-size: 11px;
-    font-weight: 600;
-    color: #fff;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    min-width: 2px;
   }
 
   .bar-profit {
-    background: linear-gradient(90deg, rgba($success, 0.7), $success);
+    background: linear-gradient(90deg, rgba($success, 0.6), $success);
   }
 
   .bar-loss {
-    background: linear-gradient(90deg, rgba($danger, 0.7), $danger);
-  }
-
-  .bar-count {
-    min-width: 50px;
-    color: $text-secondary;
-    text-align: right;
-    font-size: 11px;
-  }
-
-  // 盈亏柱状图
-  .pnl-bars {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .pnl-bar-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
+    background: linear-gradient(90deg, rgba($danger, 0.6), $danger);
   }
 
   .bar-value {
@@ -294,14 +258,6 @@ const pieData = computed(() => {
     font-weight: 500;
   }
 
-  .pnl-bar {
-    height: 20px;
-    border-radius: 4px;
-    transition: width 0.3s ease;
-    min-width: 2px;
-  }
-
-  // 饼图
   .pie-container {
     display: flex;
     align-items: center;
@@ -309,8 +265,8 @@ const pieData = computed(() => {
   }
 
   .pie-chart {
-    width: 100px;
-    height: 100px;
+    width: 120px;
+    height: 120px;
     transform: rotate(-90deg);
   }
 
@@ -346,12 +302,12 @@ const pieData = computed(() => {
   .legend-value {
     color: $text-secondary;
     font-family: monospace;
-    min-width: 40px;
+    min-width: 30px;
     text-align: right;
   }
 }
 
-.score-table {
+.strategy-table {
   width: 100%;
 }
 

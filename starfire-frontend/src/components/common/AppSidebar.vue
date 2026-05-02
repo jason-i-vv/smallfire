@@ -14,6 +14,7 @@
     <nav class="sidebar-nav">
       <el-menu
         :default-active="activeMenu"
+        :default-openeds="['signals', 'paperTrading']"
         :collapse="isCollapsed"
         :collapse-transition="false"
         class="sidebar-menu"
@@ -33,24 +34,25 @@
           <el-menu-item index="/signals">{{ t('menu.signalList') }}</el-menu-item>
         </el-sub-menu>
 
+        <el-sub-menu index="paperTrading">
+          <template #title>
+            <el-icon><Coin /></el-icon>
+            <span>{{ t('menu.paperTrading') }}</span>
+          </template>
+          <el-menu-item index="/statistics">{{ t('menu.statistics') }}</el-menu-item>
+          <el-menu-item index="/positions">{{ t('menu.positions') }}</el-menu-item>
+          <el-menu-item index="/trades">{{ t('menu.trades') }}</el-menu-item>
+        </el-sub-menu>
+
         <el-sub-menu index="market">
           <template #title>
             <el-icon><Box /></el-icon>
-            <span>{{ t('menu.marketAnalysis') }}</span>
+            <span>{{ t('menu.marketData') }}</span>
           </template>
           <el-menu-item index="/market">{{ t('menu.marketOverview') }}</el-menu-item>
+          <el-menu-item index="/astock">{{ t('menu.aStockMarket') }}</el-menu-item>
           <el-menu-item index="/boxes">{{ t('menu.boxList') }}</el-menu-item>
-          <el-menu-item index="/tracking">{{ t('menu.trackingList') }}</el-menu-item>
-        </el-sub-menu>
-
-        <el-sub-menu index="trades">
-          <template #title>
-            <el-icon><Coin /></el-icon>
-            <span>{{ t('menu.trading') }}</span>
-          </template>
-          <el-menu-item index="/positions">{{ t('menu.positions') }}</el-menu-item>
-          <el-menu-item index="/trades">{{ t('menu.trades') }}</el-menu-item>
-          <el-menu-item index="/statistics">{{ t('menu.statistics') }}</el-menu-item>
+          <el-menu-item index="/tracking">{{ t('menu.trends') }}</el-menu-item>
         </el-sub-menu>
 
         <el-sub-menu index="settings">
@@ -58,19 +60,10 @@
             <el-icon><Setting /></el-icon>
             <span>{{ t('menu.system') }}</span>
           </template>
-          <el-menu-item index="/settings">{{ t('menu.settings') }}</el-menu-item>
+          <el-menu-item index="/backtest">{{ t('menu.backtest') }}</el-menu-item>
+          <el-menu-item index="/ai-management">{{ t('menu.aiManagement') }}</el-menu-item>
           <el-menu-item v-if="isAdmin" index="/users">{{ t('menu.users') }}</el-menu-item>
         </el-sub-menu>
-
-        <el-menu-item index="/backtest">
-          <el-icon><DataAnalysis /></el-icon>
-          <template #title>{{ t('menu.backtest') }}</template>
-        </el-menu-item>
-
-        <el-menu-item index="/ai-management">
-          <el-icon><Cpu /></el-icon>
-          <template #title>{{ t('menu.aiManagement') }}</template>
-        </el-menu-item>
       </el-menu>
     </nav>
 
@@ -111,7 +104,7 @@ const isAdmin = computed(() => authStore.isAdmin)
 const activeMenu = computed(() => {
   const path = route.path
   if (path === '/') return '/'
-  const matchPath = ['/opportunities', '/signals', '/market', '/boxes', '/tracking', '/positions', '/trades', '/statistics', '/settings', '/backtest', '/ai-management', '/users']
+  const matchPath = ['/opportunities', '/signals', '/market', '/astock', '/boxes', '/tracking', '/positions', '/trades', '/statistics', '/settings', '/backtest', '/ai-management', '/users', '/kline', '/test-position']
   for (const p of matchPath) {
     if (path.startsWith(p)) return path
   }

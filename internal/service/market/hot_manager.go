@@ -38,10 +38,65 @@ func (m *HotManager) UpdateHotSymbols() error {
 	enabledFetchers := m.factory.ListEnabledFetchers()
 
 	for _, fetcher := range enabledFetchers {
-		if err := m.updateMarketHotWithFallback(fetcher.MarketCode()); err != nil {
+		marketCode := fetcher.MarketCode()
+
+		// A 股市场：先注册大盘指数
+		if marketCode == "a_stock" {
+			if err := m.ensureIndexSymbols(); err != nil {
+				m.logger.Warn("注册大盘指数失败", zap.Error(err))
+			}
+		}
+
+		if err := m.updateMarketHotWithFallback(marketCode); err != nil {
 			m.logger.Warn("市场热度更新失败",
-				zap.String("market", fetcher.MarketCode()),
+				zap.String("market", marketCode),
 				zap.Error(err))
+		}
+	}
+
+	return nil
+}
+
+// ensureIndexSymbols 确保 A 股大盘指数在 symbols 表中
+func (m *HotManager) ensureIndexSymbols() error {
+	market, err := m.marketRepo.FindByCode("a_stock")
+	if err != nil {
+		return fmt.Errorf("获取A股市场信息失败: %w", err)
+	}
+
+	indices := []struct {
+		code string
+		name string
+	}{
+		{"sh000001", "上证指数"},
+		{"sz399001", "深证成指"},
+		{"sz399006", "创业板指"},
+	}
+
+	now := time.Now()
+	for _, idx := range indices {
+		symbol, err := m.symbolRepo.FindByCode("a_stock", idx.code)
+		if err != nil {
+			symbol = &models.Symbol{
+				MarketID:       market.ID,
+				MarketCode:     "a_stock",
+				SymbolCode:     idx.code,
+				SymbolName:     idx.name,
+				SymbolType:     "index",
+				IsTracking:     true,
+				MaxKlinesCount: 1000,
+				HotScore:       0,
+				LastHotAt:      &now,
+			}
+			if err := m.symbolRepo.Create(symbol); err != nil {
+				m.logger.Error("创建指数标的失败", zap.String("code", idx.code), zap.Error(err))
+				continue
+			}
+			m.logger.Info("注册指数标的", zap.String("code", idx.code), zap.String("name", idx.name))
+		} else if !symbol.IsTracking {
+			symbol.IsTracking = true
+			symbol.SymbolType = "index"
+			_ = m.symbolRepo.Update(symbol)
 		}
 	}
 

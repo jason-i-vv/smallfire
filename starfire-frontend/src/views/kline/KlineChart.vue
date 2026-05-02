@@ -367,7 +367,7 @@ const priceClass = computed(() => {
 
 // 是否为趋势类型信号
 const isTrendSource = computed(() => {
-  return ['trend', 'trend_retracement', 'trend_reversal'].includes(sourceType.value)
+  return ['trend', 'trend_retracement'].includes(sourceType.value)
 })
 
 // 返回上一页或信号列表
@@ -453,7 +453,6 @@ const getSignalTypeName = (type) => {
     box_breakdown: '箱体跌破',
     // 趋势类信号
     trend_retracement: '趋势回撤',
-    trend_reversal: '趋势反转',
     // 关键价位信号
     resistance_break: '阻力突破',
     support_break: '支撑跌破',
@@ -917,7 +916,7 @@ const updateKlineData = (klines) => {
 // 信号类型名称映射（与 OpportunityList 一致）
 const signalNameMap = {
   box_breakout: '箱体突破', box_breakdown: '箱体跌破',
-  trend_retracement: '趋势回撤', trend_reversal: '趋势反转',
+  trend_retracement: '趋势回撤',
   resistance_break: '阻力位突破', support_break: '支撑位跌破',
   volume_surge: '量能放大', price_surge_up: '价格急涨', price_surge_down: '价格急跌',
   volume_price_rise: '量价齐升', volume_price_fall: '量价齐跌',
@@ -1484,7 +1483,6 @@ const getSignalDescription = (signal) => {
     case 'price_surge_up':
     case 'price_surge_down':
       return d.price_amplification ? `波动放大 ${d.price_amplification.toFixed(1)}x` : null
-    case 'trend_reversal':
     case 'trend_retracement':
       return null
     default:

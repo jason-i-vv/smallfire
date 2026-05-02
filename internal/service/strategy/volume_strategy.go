@@ -8,25 +8,29 @@ import (
 	"github.com/smallfire/starfire/internal/models"
 )
 
+// symbolCooldown 标的级别冷却状态
+type symbolCooldown struct {
+	lastPriceKlineTime  time.Time
+	lastVolumeKlineTime time.Time
+	lastVolumeAvgBase   float64
+}
+
 // VolumePriceStrategy 量价异常策略
 type VolumePriceStrategy struct {
 	config config.VolumePriceStrategyConfig
 	deps   Dependency
 
-	// 冷却机制：同一类型信号在冷却期内不重复触发（基于K线时间，兼容回测场景）
-	mu                 sync.Mutex
-	lastPriceKlineTime time.Time
-	lastVolumeKlineTime time.Time
-
-	// 量能基准：最后一次触发放量信号时的平均成交量，后续必须倍量超越才触发
-	lastVolumeAvgBase float64
+	// 冷却机制：每个标的独立冷却（key=symbolID）
+	mu       sync.Mutex
+	cooldowns map[int]*symbolCooldown
 }
 
 // NewVolumePriceStrategy 创建量价异常策略实例
 func NewVolumePriceStrategy(cfg config.VolumePriceStrategyConfig, deps Dependency) Strategy {
 	return &VolumePriceStrategy{
-		config: cfg,
-		deps:   deps,
+		config:    cfg,
+		deps:      deps,
+		cooldowns: make(map[int]*symbolCooldown),
 	}
 }
 
@@ -86,10 +90,22 @@ func (s *VolumePriceStrategy) cooldownDuration() time.Duration {
 	return time.Duration(minutes) * time.Minute
 }
 
+// getCooldown 获取标的的冷却状态（线程安全）
+func (s *VolumePriceStrategy) getCooldown(symbolID int) *symbolCooldown {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cooldowns[symbolID] == nil {
+		s.cooldowns[symbolID] = &symbolCooldown{}
+	}
+	return s.cooldowns[symbolID]
+}
+
 // checkPriceAnomaly 检查价格波动异常（带冷却）
 func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Kline, historical []models.Kline, atr float64) *models.Signal {
+	cd := s.getCooldown(symbolID)
+
 	s.mu.Lock()
-	if !s.lastPriceKlineTime.IsZero() && latest.OpenTime.Sub(s.lastPriceKlineTime) < s.cooldownDuration() {
+	if !cd.lastPriceKlineTime.IsZero() && latest.OpenTime.Sub(cd.lastPriceKlineTime) < s.cooldownDuration() {
 		s.mu.Unlock()
 		return nil
 	}
@@ -109,7 +125,7 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 
 	if currentVol > threshold {
 		s.mu.Lock()
-		s.lastPriceKlineTime = latest.OpenTime
+		cd.lastPriceKlineTime = latest.OpenTime
 		s.mu.Unlock()
 
 		direction := "long"
@@ -160,9 +176,11 @@ func (s *VolumePriceStrategy) checkPriceAnomaly(symbolID int, latest models.Klin
 
 // checkVolumeAnomaly 检查成交量异常（带冷却 + 量能基准去重）
 func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kline, historical []models.Kline, atr float64) *models.Signal {
+	cd := s.getCooldown(symbolID)
+
 	s.mu.Lock()
 	// 冷却期检查：基于K线时间
-	if !s.lastVolumeKlineTime.IsZero() && latest.OpenTime.Sub(s.lastVolumeKlineTime) < s.cooldownDuration() {
+	if !cd.lastVolumeKlineTime.IsZero() && latest.OpenTime.Sub(cd.lastVolumeKlineTime) < s.cooldownDuration() {
 		s.mu.Unlock()
 		return nil
 	}
@@ -181,16 +199,16 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 
 		// 量能基准去重：如果已有基准值，当前K线必须超越基准的倍量才算有效信号
 		// 冷却期过后，如果量能没有进一步增强（倍量），仍然不触发
-		if s.lastVolumeAvgBase > 0 && s.lastVolumeKlineTime.Before(latest.OpenTime) {
-			baselineThreshold := s.lastVolumeAvgBase * s.config.VolumeMultiplier
+		if cd.lastVolumeAvgBase > 0 && cd.lastVolumeKlineTime.Before(latest.OpenTime) {
+			baselineThreshold := cd.lastVolumeAvgBase * s.config.VolumeMultiplier
 			if latest.Volume <= baselineThreshold {
 				s.mu.Unlock()
 				return nil
 			}
 		}
 
-		s.lastVolumeKlineTime = latest.OpenTime
-		s.lastVolumeAvgBase = avgVol // 记录本次触发时的平均成交量作为基准
+		cd.lastVolumeKlineTime = latest.OpenTime
+		cd.lastVolumeAvgBase = avgVol // 记录本次触发时的平均成交量作为基准
 		s.mu.Unlock()
 
 		direction := "long"
@@ -225,11 +243,11 @@ func (s *VolumePriceStrategy) checkVolumeAnomaly(symbolID int, latest models.Kli
 			Price:      latest.ClosePrice,
 			Period:     latest.Period,
 			SignalData: &models.JSONB{
-				"volume_amplification":  volumeAmplification,
-				"volume_threshold":     threshold,
-				"current_volume":       latest.Volume,
-				"avg_volume":           avgVol,
-				"price_change_percent":  priceChange * 100,
+				"volume_ratio":          volumeAmplification,
+				"volume_threshold":       threshold,
+				"current_volume":         latest.Volume,
+				"avg_volume":             avgVol,
+				"price_change_percent":   priceChange * 100,
 			},
 			Status:           models.SignalStatusPending,
 			ExpiredAt:        &expireTime,

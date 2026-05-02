@@ -1,21 +1,45 @@
 <template>
-  <div ref="container" class="chart-container"></div>
+  <div class="chart-wrapper">
+    <div ref="container" class="chart-container"></div>
+    <div v-if="legendItems.length" class="chart-legend">
+      <div
+        v-for="item in legendItems"
+        :key="item.label"
+        class="legend-item"
+        :class="{ dimmed: hiddenRanges.has(item.label) }"
+        @click="toggleRange(item.label)"
+      >
+        <span class="legend-dot" :style="{ background: item.color }"></span>
+        <span class="legend-label">{{ item.label }}</span>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { createChart } from 'lightweight-charts'
 
 const props = defineProps({
   data: {
-    type: Array,
-    default: () => []
+    type: Object,
+    default: () => ({ ranges: [] })
   }
 })
 
 const container = ref(null)
 let chart = null
-let areaSeries = null
+let lineSeries = {} // scoreRange -> lineSeries
+
+const hiddenRanges = ref(new Set())
+
+const legendItems = computed(() => {
+  if (!props.data?.ranges) return []
+  return props.data.ranges.map(r => ({
+    label: r.score_range,
+    color: r.color
+  }))
+})
 
 const initChart = () => {
   chart = createChart(container.value, {
@@ -34,29 +58,58 @@ const initChart = () => {
     },
     timeScale: {
       borderColor: '#30363D',
-      timeVisible: true,
+      timeVisible: false,
       secondsVisible: false
+    },
+    crosshair: {
+      mode: 0 // Normal
     }
-  })
-
-  areaSeries = chart.addAreaSeries({
-    topColor: 'rgba(0, 200, 83, 0.4)',
-    bottomColor: 'rgba(0, 200, 83, 0.02)',
-    lineColor: '#00C853',
-    lineWidth: 2
   })
 }
 
 const updateData = () => {
-  if (!areaSeries || !props.data || props.data.length === 0) return
+  if (!chart || !props.data?.ranges) return
 
-  const chartData = props.data.map(d => ({
-    time: d.time,
-    value: d.equity
-  }))
+  // 清除旧 series
+  for (const key of Object.keys(lineSeries)) {
+    chart.removeSeries(lineSeries[key])
+    delete lineSeries[key]
+  }
 
-  areaSeries.setData(chartData)
+  // 为每个评分区间创建线 series
+  for (const range of props.data.ranges) {
+    if (!range.data || range.data.length === 0) continue
+    if (hiddenRanges.value.has(range.score_range)) continue
+
+    const series = chart.addLineSeries({
+      color: range.color,
+      lineWidth: 2,
+      title: range.score_range,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 3
+    })
+
+    const chartData = range.data.map(d => ({
+      time: d.time,
+      value: d.pnl
+    }))
+
+    series.setData(chartData)
+    lineSeries[range.score_range] = series
+  }
+
   chart.timeScale().fitContent()
+}
+
+const toggleRange = (rangeName) => {
+  if (hiddenRanges.value.has(rangeName)) {
+    hiddenRanges.value.delete(rangeName)
+  } else {
+    hiddenRanges.value.add(rangeName)
+  }
+  // 触发响应式更新
+  hiddenRanges.value = new Set(hiddenRanges.value)
+  updateData()
 }
 
 const handleResize = () => {
@@ -82,8 +135,47 @@ watch(() => props.data, () => {
 </script>
 
 <style lang="scss" scoped>
+@import '@/assets/styles/variables.scss';
+
+.chart-wrapper {
+  position: relative;
+}
+
 .chart-container {
   width: 100%;
   height: 300px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 0 0;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+  opacity: 1;
+  transition: opacity 0.2s;
+
+  &.dimmed {
+    opacity: 0.35;
+  }
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-label {
+  font-size: 12px;
+  color: $text-secondary;
 }
 </style>

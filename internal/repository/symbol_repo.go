@@ -157,6 +157,45 @@ func (r *SymbolRepoPG) GetByID(id int) (*models.Symbol, error) {
 	return &symbol, nil
 }
 
+func (r *SymbolRepoPG) GetByIDs(ids []int) ([]*models.Symbol, error) {
+	if len(ids) == 0 {
+		return []*models.Symbol{}, nil
+	}
+
+	var symbols []*models.Symbol
+	query := `
+		SELECT id, market_id, market_code, symbol_code, symbol_name, symbol_type,
+		       last_hot_at, hot_score, is_tracking, max_klines_count,
+		       created_at, updated_at
+		FROM symbols
+		WHERE id = ANY($1::integer[])
+	`
+
+	rows, err := r.db.Query(context.Background(), query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("批量查询标的失败: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var symbol models.Symbol
+		if err := rows.Scan(
+			&symbol.ID, &symbol.MarketID, &symbol.MarketCode, &symbol.SymbolCode, &symbol.SymbolName, &symbol.SymbolType,
+			&symbol.LastHotAt, &symbol.HotScore, &symbol.IsTracking, &symbol.MaxKlinesCount,
+			&symbol.CreatedAt, &symbol.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("扫描标的数据失败: %w", err)
+		}
+		symbols = append(symbols, &symbol)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历标的结果失败: %w", err)
+	}
+
+	return symbols, nil
+}
+
 func (r *SymbolRepoPG) GetAllByMarket(marketCode string) ([]*models.Symbol, error) {
 	var symbols []*models.Symbol
 	query := `

@@ -31,6 +31,21 @@
       </div>
     </div>
 
+    <!-- 交易来源筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('positions.tradeSource') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in sourceOptions"
+          :key="item.value"
+          :class="['filter-card', { active: filters.trade_source === item.value }]"
+          @click="toggleFilter('trade_source', item.value)"
+        >
+          <span class="card-label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 核心指标卡片 -->
     <el-row :gutter="20" class="stats-row">
       <el-col :span="6">
@@ -109,7 +124,8 @@ const positions = ref([])
 
 const filters = reactive({
   direction: '',
-  min_score: ''
+  min_score: '',
+  trade_source: ''
 })
 
 const pagination = ref({
@@ -122,6 +138,12 @@ const directionOptions = computed(() => [
   { label: t('common.all'), value: '', icon: '' },
   { label: t('common.long'), value: 'long', icon: '▲' },
   { label: t('common.short'), value: 'short', icon: '▼' }
+])
+
+const sourceOptions = computed(() => [
+  { label: t('positions.sourceAll'), value: '' },
+  { label: t('positions.sourcePaper'), value: 'paper' },
+  { label: t('positions.sourceTestnet'), value: 'testnet' }
 ])
 
 const scoreOptions = computed(() => [
@@ -161,6 +183,7 @@ const fetchPositions = async () => {
     }
     if (filters.direction) params.direction = filters.direction
     if (filters.min_score) params.min_score = filters.min_score
+    if (filters.trade_source) params.trade_source = filters.trade_source
 
     const res = await tradeApi.positions(params)
     positions.value = res.data?.items || []

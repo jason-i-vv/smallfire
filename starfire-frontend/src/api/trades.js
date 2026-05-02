@@ -44,5 +44,11 @@ export const tradeApi = {
   signalAnalysisDetail: (params) => api.get('/trades/signal-analysis-detail', { params }),
 
   // 评分区间分析
-  scoreAnalysis: (params) => api.get('/trades/score-analysis', { params })
+  scoreAnalysis: (params) => api.get('/trades/score-analysis', { params }),
+
+  // 策略分析
+  strategyAnalysis: (params) => api.get('/trades/strategy-analysis', { params }),
+
+  // 按评分的权益曲线
+  scoreEquityCurve: (params) => api.get('/trades/score-equity-curve', { params })
 }

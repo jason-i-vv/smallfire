@@ -118,13 +118,13 @@
     "signalList": "信号列表",
     "signalDetail": "信号详情",
     "opportunities": "交易机会",
-    "positions": "持仓监控",
+    "positions": "实时持仓",
     "trades": "历史交易",
-    "statistics": "交易统计",
+    "statistics": "交易概览",
     "market": "市场概览",
     "marketAnalysis": "市场分析",
-    "marketOverview": "行情总览",
-    "boxes": "箱体列表",
+    "marketOverview": "行情数据",
+    "boxes": "箱体",
     "boxList": "箱体列表",
     "tracking": "趋势标的",
     "trackingList": "趋势标的",
@@ -134,7 +134,11 @@
     "users": "用户管理",
     "system": "系统设置",
     "trading": "交易管理",
-    "klineChart": "K线图表"
+    "klineChart": "K线图表",
+    "paperTrading": "模拟交易",
+    "marketData": "市场行情",
+    "trends": "趋势",
+    "aStockMarket": "A股行情"
   },
   "header": {
     "systemNormal": "系统正常",
@@ -149,7 +153,7 @@
     "winRate": "胜率",
     "profitFactor": "盈亏比",
     "maxDrawdown": "最大回撤",
-    "equityCurve": "权益曲线",
+    "equityCurve": "评分等级权益曲线",
     "positionDistribution": "持仓分布",
     "recentSignals": "最近信号",
     "todaySignals": "今日信号",
@@ -184,7 +188,6 @@
     "boxBreakout": "箱体突破",
     "boxBreakdown": "箱体跌破",
     "trendRetracement": "趋势回撤",
-    "trendReversal": "趋势反转",
     "resistanceBreak": "阻力位突破",
     "supportBreak": "支撑位跌破",
     "volumeSurge": "量能放大",
@@ -248,6 +251,9 @@
     "aiAnalysisTitle": "AI 分析结果",
     "openTrade": "开仓",
     "symbolPlaceholder": "搜索币对...",
+    "statusActive": "活跃",
+    "statusExpired": "已过期",
+    "noOpportunities": "暂无交易机会",
     "noActiveOpportunities": "暂无活跃交易机会"
   },
   "positions": {
@@ -276,7 +282,11 @@
     "scoreAbove60": "60分+",
     "scoreAbove70": "70分+",
     "scoreAbove80": "80分+",
-    "scoreAbove90": "90分+"
+    "scoreAbove90": "90分+",
+    "tradeSource": "交易渠道",
+    "sourceAll": "全部",
+    "sourcePaper": "系统模拟",
+    "sourceTestnet": "Bybit 实盘模拟"
   },
   "trades": {
     "title": "历史交易",
@@ -317,7 +327,11 @@
     "score70": "70-80",
     "score80": "80-90",
     "score90": "90-100",
-    "exitType": "出场类型"
+    "exitType": "出场类型",
+    "tradeSource": "交易渠道",
+    "sourceAll": "全部",
+    "sourcePaper": "系统模拟",
+    "sourceTestnet": "Bybit 实盘模拟"
   },
   "statistics": {
     "title": "交易统计",
@@ -333,6 +347,7 @@
     "losingTrades": "亏损次数",
     "avgWin": "平均盈利",
     "avgLoss": "平均亏损",
+    "avgPnL": "平均盈亏",
     "bestTrade": "最佳交易",
     "worstTrade": "最差交易",
     "daily": "日",
@@ -345,12 +360,14 @@
     "calmarRatio": "卡玛比率",
     "expectancy": "期望值",
     "avgHoldingHours": "平均持仓(h)",
-    "byDirection": "多/空方向分析",
     "pnlDistribution": "盈亏分布",
     "signalAnalysis": "信号类型分析",
     "bySymbol": "按标的统计",
     "recentTrades": "近期交易",
-    "byScore": "评分区间胜率分析"
+    "byScore": "评分区间胜率分析",
+    "byStrategy": "策略盈亏分析",
+    "strategy": "策略",
+    "scoreRange": "评分区间"
   },
   "market": {
     "title": "行情总览",
@@ -525,7 +542,6 @@
     "box_breakout": "箱体突破",
     "box_breakdown": "箱体跌破",
     "trend_retracement": "趋势回撤",
-    "trend_reversal": "趋势反转",
     "resistance_break": "阻力位突破",
     "support_break": "支撑位跌破",
     "volume_surge": "量能放大",
@@ -547,5 +563,23 @@
     "buy": "买入",
     "sell": "卖出",
     "noData": "暂无K线数据"
+  },
+  "astock": {
+    "marketIndices": "大盘指数",
+    "upSectors": "涨幅板块",
+    "downSectors": "跌幅板块",
+    "limitStats": "涨跌停统计",
+    "marketSummary": "市场概况",
+    "upLimit": "涨停",
+    "downLimit": "跌停",
+    "rising": "上涨",
+    "falling": "下跌",
+    "sectors": "个板块",
+    "leadStock": "领涨股",
+    "noData": "暂无数据",
+    "noLimitData": "暂无涨跌停历史数据，数据将随访问自动积累",
+    "last10Days": "近10天",
+    "volumeTitle": "上证指数成交量",
+    "indexChart": "上证指数走势"
   }
 }

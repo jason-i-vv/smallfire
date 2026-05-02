@@ -246,6 +246,53 @@ func (r *OpportunityRepoPG) queryList(query string, args ...any) ([]*models.Trad
 	return items, rows.Err()
 }
 
+// GetScoresByIDs 批量获取 opportunity 的 score
+func (r *OpportunityRepoPG) GetScoresByIDs(ids []int) (map[int]int, error) {
+	if len(ids) == 0 {
+		return make(map[int]int), nil
+	}
+	query := `SELECT id, score FROM trading_opportunities WHERE id = ANY($1)`
+	rows, err := r.db.Query(context.Background(), query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("批量查询 score 失败: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int]int, len(ids))
+	for rows.Next() {
+		var id, score int
+		if err := rows.Scan(&id, &score); err != nil {
+			return nil, fmt.Errorf("扫描 score 失败: %w", err)
+		}
+		result[id] = score
+	}
+	return result, rows.Err()
+}
+
+// GetConfluenceByIDs 批量获取 opportunity 的 confluence_directions
+func (r *OpportunityRepoPG) GetConfluenceByIDs(ids []int) (map[int][]string, error) {
+	if len(ids) == 0 {
+		return make(map[int][]string), nil
+	}
+	query := `SELECT id, confluence_directions FROM trading_opportunities WHERE id = ANY($1)`
+	rows, err := r.db.Query(context.Background(), query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("批量查询 confluence_directions 失败: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int][]string, len(ids))
+	for rows.Next() {
+		var id int
+		var directions []string
+		if err := rows.Scan(&id, &directions); err != nil {
+			return nil, fmt.Errorf("扫描 confluence_directions 失败: %w", err)
+		}
+		result[id] = directions
+	}
+	return result, rows.Err()
+}
+
 // SignalTypeStatsRepoPG PostgreSQL 实现
 type SignalTypeStatsRepoPG struct {
 	db *database.DB

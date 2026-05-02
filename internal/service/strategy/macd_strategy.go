@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/smallfire/starfire/internal/config"
@@ -43,8 +44,8 @@ func (s *MACDStrategy) Analyze(symbolID int, symbolCode, period string, klines [
 
 	lastKline := klines[len(klines)-1]
 
-	// 冷却检查
-	cooldownKey := period
+	// 冷却检查（每个标的独立冷却）
+	cooldownKey := fmt.Sprintf("%d_%s", symbolID, period)
 	if lastSig, ok := s.lastSignalAt[cooldownKey]; ok {
 		cooldownMinutes := s.config.SignalCooldown
 		if cooldownMinutes <= 0 {
@@ -78,10 +79,16 @@ func (s *MACDStrategy) Analyze(symbolID int, symbolCode, period string, klines [
 	// 获取前一根 K 线的 MACD 值
 	prevMacd, prevSignal, prevHist := s.getPreviousMACD(klines, fastPeriod, slowPeriod, signalPeriod)
 
+	// 获取 hist threshold（如果为 0，使用一个很小的默认值避免零轴交叉条件过严）
+	histThreshold := s.config.HistThreshold
+	if histThreshold <= 0 {
+		histThreshold = 0.0000001 // 几乎为零，但避免浮点数精度问题
+	}
+
 	// 检测金叉（MACD 从下往上穿越 signal）
 	if prevMacd != nil && prevSignal != nil && *prevMacd <= *prevSignal && *macd > *macdSignal {
 		// 验证 MACD 柱是否为正（或接近零轴）
-		if *macdHist >= s.config.HistThreshold {
+		if *macdHist >= -histThreshold { // 允许小幅负值（接近零轴也算）
 			s.lastSignalAt[cooldownKey] = lastKline.OpenTime
 			return []models.Signal{*s.makeSignal(lastKline, "long", "golden_cross", klines)}, nil
 		}
@@ -90,7 +97,7 @@ func (s *MACDStrategy) Analyze(symbolID int, symbolCode, period string, klines [
 	// 检测死叉（MACD 从上往下穿越 signal）
 	if prevMacd != nil && prevSignal != nil && *prevMacd >= *prevSignal && *macd < *macdSignal {
 		// 验证 MACD 柱是否为负（或接近零轴）
-		if *macdHist <= -s.config.HistThreshold {
+		if *macdHist <= histThreshold { // 允许小幅正值（接近零轴也算）
 			s.lastSignalAt[cooldownKey] = lastKline.OpenTime
 			return []models.Signal{*s.makeSignal(lastKline, "short", "death_cross", klines)}, nil
 		}

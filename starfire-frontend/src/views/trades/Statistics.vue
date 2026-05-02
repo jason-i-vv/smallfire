@@ -1,5 +1,20 @@
 <template>
   <div class="statistics">
+    <!-- 来源筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('trades.tradeSource') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in sourceOptions"
+          :key="item.value"
+          :class="['filter-card', { active: tradeSource === item.value }]"
+          @click="toggleSource(item.value)"
+        >
+          <span class="card-label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 筛选栏 -->
     <div class="filter-bar">
       <el-date-picker
@@ -42,7 +57,7 @@
         <el-col :span="12">
           <el-card>
             <template #header>{{ t('dashboard.equityCurve') }}</template>
-            <EquityCurveChart :data="equityData" />
+            <EquityCurveChart :data="scoreEquityData" />
           </el-card>
         </el-col>
         <el-col :span="12">
@@ -56,20 +71,7 @@
         </el-col>
       </el-row>
 
-      <!-- 多/空方向分析 -->
-      <el-row :gutter="20" class="mt-20">
-        <el-col :span="24">
-          <el-card>
-            <template #header>{{ t('statistics.byDirection') || '多/空方向分析' }}</template>
-            <DirectionAnalysisPanel
-              :longData="directionData.long"
-              :shortData="directionData.short"
-            />
-          </el-card>
-        </el-col>
-      </el-row>
-
-      <!-- 盈亏分布 + 信号分析 -->
+      <!-- 盈亏分布 -->
       <el-row :gutter="20" class="mt-20">
         <el-col :span="12">
           <el-card>
@@ -78,16 +80,6 @@
           </el-card>
         </el-col>
         <el-col :span="12">
-          <el-card>
-            <template #header>{{ t('statistics.signalAnalysis') || '信号类型分析' }}</template>
-            <SignalAnalysisTable :data="signalDetailData" />
-          </el-card>
-        </el-col>
-      </el-row>
-
-      <!-- 按标的统计 -->
-      <el-row :gutter="20" class="mt-20">
-        <el-col :span="24">
           <el-card>
             <template #header>{{ t('statistics.bySymbol') || '按标的统计' }}</template>
             <SymbolAnalysisTable :data="symbolData" />
@@ -105,12 +97,12 @@
         </el-col>
       </el-row>
 
-      <!-- 近期交易记录 -->
+      <!-- 策略分析 -->
       <el-row :gutter="20" class="mt-20">
         <el-col :span="24">
           <el-card>
-            <template #header>{{ t('statistics.recentTrades') || '近期交易' }}</template>
-            <TradeTable :trades="recentTrades" />
+            <template #header>{{ t('statistics.byStrategy') || '策略盈亏分析' }}</template>
+            <StrategyAnalysisTable :data="strategyAnalysisData" />
           </el-card>
         </el-col>
       </el-row>
@@ -126,10 +118,8 @@ import EquityCurveChart from '@/components/charts/EquityCurveChart.vue'
 import PnLByPeriodChart from '@/components/charts/PnLByPeriodChart.vue'
 import PnLDistributionChart from '@/components/charts/PnLDistributionChart.vue'
 import SymbolAnalysisTable from '@/components/trades/SymbolAnalysisTable.vue'
-import DirectionAnalysisPanel from '@/components/trades/DirectionAnalysisPanel.vue'
-import SignalAnalysisTable from '@/components/trades/SignalAnalysisTable.vue'
-import TradeTable from '@/components/trades/TradeTable.vue'
 import ScoreAnalysisTable from '@/components/trades/ScoreAnalysisTable.vue'
+import StrategyAnalysisTable from '@/components/trades/StrategyAnalysisTable.vue'
 import { tradeApi } from '@/api/trades'
 import { formatPnL, formatPercent } from '@/utils/formatters'
 
@@ -137,16 +127,27 @@ const { t } = useI18n()
 const loading = ref(false)
 const dateRange = ref(null)
 const selectedPeriod = ref('daily')
+const tradeSource = ref('')
+
+const sourceOptions = computed(() => [
+  { label: t('trades.sourceAll'), value: '' },
+  { label: t('trades.sourcePaper'), value: 'paper' },
+  { label: t('trades.sourceTestnet'), value: 'testnet' }
+])
+
+const toggleSource = (value) => {
+  tradeSource.value = tradeSource.value === value ? '' : value
+  fetchData()
+}
 
 const stats = ref(null)
 const equityData = ref([])
+const scoreEquityData = ref({ ranges: [] })
 const symbolData = ref([])
-const directionData = ref({ long: null, short: null })
 const periodPnLData = ref([])
 const pnlDistData = ref({ buckets: [] })
-const signalDetailData = ref([])
-const recentTrades = ref([])
 const scoreAnalysisData = ref([])
+const strategyAnalysisData = ref([])
 
 const noData = computed(() => {
   return stats.value && stats.value.total_trades === 0
@@ -180,39 +181,28 @@ const fetchData = async () => {
   loading.value = true
   try {
     const params = getDateParams()
+    if (tradeSource.value) params.trade_source = tradeSource.value
     const [
-      statsRes, equityRes, symbolRes, directionRes,
-      periodRes, distRes, signalRes, historyRes, scoreRes
+      statsRes, equityRes, symbolRes,
+      periodRes, distRes, scoreRes, strategyRes
     ] = await Promise.all([
       tradeApi.stats(params),
-      tradeApi.equity(params),
+      tradeApi.scoreEquityCurve(params),
       tradeApi.symbolAnalysis(params),
-      tradeApi.directionAnalysis(params),
       tradeApi.periodPnL({ ...params, period: selectedPeriod.value }),
       tradeApi.pnlDistribution(params),
-      tradeApi.signalAnalysisDetail(params),
-      tradeApi.history({ page: 1, size: 10, ...params }),
-      tradeApi.scoreAnalysis(params)
+      tradeApi.scoreAnalysis(params),
+      tradeApi.strategyAnalysis(params)
     ])
 
     stats.value = statsRes.data || null
     equityData.value = equityRes.data || []
+    scoreEquityData.value = equityRes.data || { ranges: [] }
     symbolData.value = symbolRes.data || []
-    directionData.value = directionRes.data || { long: null, short: null }
     periodPnLData.value = periodRes.data || []
     pnlDistData.value = distRes.data || { buckets: [] }
-    signalDetailData.value = signalRes.data || []
-    recentTrades.value = (historyRes.data?.list || []).map(t => ({
-      exit_time: t.exit_time,
-      symbol_code: t.symbol_code || '',
-      direction: t.direction,
-      entry_price: t.entry_price,
-      exit_price: t.exit_price,
-      quantity: t.quantity,
-      pnl: t.pnl,
-      pnl_percent: t.pnl_percent
-    }))
     scoreAnalysisData.value = scoreRes.data || []
+    strategyAnalysisData.value = strategyRes.data || []
   } catch (error) {
     console.error('Failed to fetch statistics:', error)
   } finally {
@@ -222,11 +212,13 @@ const fetchData = async () => {
 
 const resetFilter = () => {
   dateRange.value = null
+  tradeSource.value = ''
   fetchData()
 }
 
 watch(selectedPeriod, () => {
   const params = getDateParams()
+  if (tradeSource.value) params.trade_source = tradeSource.value
   tradeApi.periodPnL({ ...params, period: selectedPeriod.value }).then(res => {
     periodPnLData.value = res.data || []
   }).catch(() => {})
@@ -242,6 +234,56 @@ onMounted(() => {
 
 .statistics {
   padding: 24px;
+
+  .filter-section {
+    margin-bottom: 16px;
+
+    .filter-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: $text-secondary;
+      margin-bottom: 10px;
+    }
+
+    .filter-cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .filter-card {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 18px;
+      background: $surface;
+      border: 1px solid $border;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+
+      &:hover {
+        border-color: $primary;
+        background: rgba($primary, 0.05);
+      }
+
+      &.active {
+        background: rgba($primary, 0.12);
+        border-color: $primary;
+      }
+
+      .card-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: $text-primary;
+      }
+
+      &.active .card-label {
+        color: $primary;
+      }
+    }
+  }
 
   .filter-bar {
     display: flex;

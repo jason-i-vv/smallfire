@@ -45,7 +45,6 @@ const signalTypeLabel = (type) => {
     box_breakout: '箱体突破',
     box_breakdown: '箱体下破',
     trend_retracement: '趋势回撤',
-    trend_reversal: '趋势反转',
     resistance_break: '阻力突破',
     support_break: '支撑突破',
     volume_surge: '放量',

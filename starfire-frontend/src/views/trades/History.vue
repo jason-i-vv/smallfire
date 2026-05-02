@@ -48,6 +48,21 @@
       </div>
     </div>
 
+    <!-- 交易来源筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('trades.tradeSource') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in sourceOptions"
+          :key="item.value"
+          :class="['filter-card', { active: filters.trade_source === item.value }]"
+          @click="toggleFilter('trade_source', item.value)"
+        >
+          <span class="card-label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 市场和交易对筛选 -->
     <div class="filter-bar">
       <el-select v-model="filters.market" clearable :placeholder="t('trades.market')" style="width: 150px" @change="onMarketChange">
@@ -117,7 +132,8 @@ const filters = reactive({
   symbol_id: '',
   direction: '',
   exit_reason: '',
-  min_score: ''
+  min_score: '',
+  trade_source: ''
 })
 
 const directionOptions = computed(() => [
@@ -133,6 +149,12 @@ const exitReasonOptions = computed(() => [
   { label: t('trades.reasonTrailingStop'), value: 'trailing_stop' },
   { label: t('trades.reasonManual'), value: 'manual' },
   { label: t('trades.reasonExpired'), value: 'expired' }
+])
+
+const sourceOptions = computed(() => [
+  { label: t('trades.sourceAll'), value: '' },
+  { label: t('trades.sourcePaper'), value: 'paper' },
+  { label: t('trades.sourceTestnet'), value: 'testnet' }
 ])
 
 const scoreOptions = computed(() => [
@@ -191,6 +213,7 @@ const fetchData = async () => {
     if (filters.direction) params.direction = filters.direction
     if (filters.exit_reason) params.exit_reason = filters.exit_reason
     if (filters.min_score) params.min_score = filters.min_score
+    if (filters.trade_source) params.trade_source = filters.trade_source
 
     const res = await tradeApi.history(params)
     const data = res.data || {}
@@ -211,7 +234,8 @@ const fetchData = async () => {
       take_profit_price: t.take_profit_price,
       opportunity_id: t.opportunity_id,
       signal_type: t.signal_type,
-      source_type: t.source_type
+      source_type: t.source_type,
+      trade_source: t.trade_source
     }))
     total.value = data.total || 0
   } catch (error) {

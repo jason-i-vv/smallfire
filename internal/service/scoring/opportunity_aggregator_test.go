@@ -69,6 +69,8 @@ func (m *mockOppRepo) ExpireStaleOpportunities() error {
 func (m *mockOppRepo) List(filter *repository.OpportunityListFilter) ([]*models.TradingOpportunity, int, error) {
 	return nil, 0, nil
 }
+func (m *mockOppRepo) GetScoresByIDs(ids []int) (map[int]int, error)          { return make(map[int]int), nil }
+func (m *mockOppRepo) GetConfluenceByIDs(ids []int) (map[int][]string, error)  { return make(map[int][]string), nil }
 
 // mockSignalRepo implements SignalRepo for testing
 type mockSignalRepo struct{}
@@ -98,6 +100,9 @@ func (m *mockSignalRepo) CountByMarket(market string) (int, error)              
 func (m *mockSignalRepo) CountBySignalType(signalType string) (int, error)            { return 0, nil }
 func (m *mockSignalRepo) CountBySourceType(sourceType string) (int, error)            { return 0, nil }
 func (m *mockSignalRepo) SetTriggeredAt(id int, t *time.Time) error                 { return nil }
+func (m *mockSignalRepo) GetSignalInfoByIDs(ids []int) (map[int]*repository.SignalBasicInfo, error) {
+	return make(map[int]*repository.SignalBasicInfo), nil
+}
 
 // mockStatsRepo implements SignalTypeStatsRepo for testing
 type mockStatsRepo struct{}
@@ -109,6 +114,39 @@ func (m *mockStatsRepo) UpdateStats(signalType, direction, period string, symbol
 	return nil
 }
 func (m *mockStatsRepo) GetAll() ([]*models.SignalTypeStat, error) { return nil, nil }
+
+// mockTrackRepoForAgg implements TradeTrackRepo for testing
+type mockTrackRepoForAgg struct {
+	byOpportunityID []*models.TradeTrack
+	byOppErr        error
+}
+
+func (m *mockTrackRepoForAgg) GetOpenPositions() ([]*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepoForAgg) GetOpenPositionsPaginated(page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
+	return nil, 0, nil
+}
+func (m *mockTrackRepoForAgg) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error)    { return nil, nil }
+func (m *mockTrackRepoForAgg) GetBySignalID(signalID int) (*models.TradeTrack, error)      { return nil, nil }
+func (m *mockTrackRepoForAgg) CountClosedSince(startTime time.Time) (int, error)           { return 0, nil }
+func (m *mockTrackRepoForAgg) GetClosedTracks(startDate, endDate *time.Time, tradeSource string) ([]*models.TradeTrack, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) Create(trade *models.TradeTrack) error                       { return nil }
+func (m *mockTrackRepoForAgg) Update(trade *models.TradeTrack) error                       { return nil }
+func (m *mockTrackRepoForAgg) GetHistory(startDate, endDate time.Time, page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
+	return nil, 0, nil
+}
+func (m *mockTrackRepoForAgg) GetByID(id int) (*models.TradeTrack, error)                  { return nil, nil }
+func (m *mockTrackRepoForAgg) GetByOpportunityID(opportunityID int) ([]*models.TradeTrack, error) {
+	return m.byOpportunityID, m.byOppErr
+}
+func (m *mockTrackRepoForAgg) GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetOpenBySource(source string) ([]*models.TradeTrack, error) { return nil, nil }
 
 func TestNotifyIfNeeded_ScoreEqualToThreshold(t *testing.T) {
 	opp := &models.TradingOpportunity{
@@ -127,6 +165,7 @@ func TestNotifyIfNeeded_ScoreEqualToThreshold(t *testing.T) {
 		oppRepo:          &mockOppRepo{},
 		signalRepo:       &mockSignalRepo{},
 		statsRepo:        &mockStatsRepo{},
+			trackRepo:        &mockTrackRepoForAgg{},
 		scorer:           scorer,
 		notifier:         notifier,
 		validity:         DefaultValidityConfig,
@@ -160,6 +199,7 @@ func TestNotifyIfNeeded_ScoreAboveThreshold(t *testing.T) {
 		oppRepo:          &mockOppRepo{},
 		signalRepo:       &mockSignalRepo{},
 		statsRepo:        &mockStatsRepo{},
+			trackRepo:        &mockTrackRepoForAgg{},
 		scorer:           scorer,
 		notifier:         notifier,
 		validity:         DefaultValidityConfig,
@@ -193,6 +233,7 @@ func TestNotifyIfNeeded_ScoreBelowThreshold(t *testing.T) {
 		oppRepo:          &mockOppRepo{},
 		signalRepo:       &mockSignalRepo{},
 		statsRepo:        &mockStatsRepo{},
+			trackRepo:        &mockTrackRepoForAgg{},
 		scorer:           scorer,
 		notifier:         notifier,
 		validity:         DefaultValidityConfig,
@@ -226,6 +267,7 @@ func TestNotifyIfNeeded_ScoreWayBelowThreshold(t *testing.T) {
 		oppRepo:          &mockOppRepo{},
 		signalRepo:       &mockSignalRepo{},
 		statsRepo:        &mockStatsRepo{},
+			trackRepo:        &mockTrackRepoForAgg{},
 		scorer:           scorer,
 		notifier:         notifier,
 		validity:         DefaultValidityConfig,
@@ -258,6 +300,7 @@ func TestNotifyIfNeeded_NilNotifier(t *testing.T) {
 		oppRepo:          &mockOppRepo{},
 		signalRepo:       &mockSignalRepo{},
 		statsRepo:        &mockStatsRepo{},
+			trackRepo:        &mockTrackRepoForAgg{},
 		scorer:           scorer,
 		notifier:         nil, // nil notifier
 		validity:         DefaultValidityConfig,
@@ -287,6 +330,7 @@ func TestNotifyIfNeeded_NotifierError(t *testing.T) {
 		oppRepo:          &mockOppRepo{},
 		signalRepo:       &mockSignalRepo{},
 		statsRepo:        &mockStatsRepo{},
+			trackRepo:        &mockTrackRepoForAgg{},
 		scorer:           scorer,
 		notifier:         notifier,
 		validity:         DefaultValidityConfig,

@@ -123,8 +123,8 @@
     "statistics": "Statistics",
     "market": "Market Overview",
     "marketAnalysis": "Market Analysis",
-    "marketOverview": "Market Overview",
-    "boxes": "Box List",
+    "marketOverview": "Market Data",
+    "boxes": "Boxes",
     "boxList": "Box List",
     "tracking": "Tracking",
     "trackingList": "Tracking List",
@@ -134,7 +134,11 @@
     "users": "User Management",
     "system": "System",
     "trading": "Trading",
-    "klineChart": "K-line Chart"
+    "klineChart": "K-line Chart",
+    "paperTrading": "Paper Trading",
+    "marketData": "Market Data",
+    "trends": "Trends",
+    "aStockMarket": "A-Share Market"
   },
   "header": {
     "systemNormal": "System Normal",
@@ -149,7 +153,7 @@
     "winRate": "Win Rate",
     "profitFactor": "Profit Factor",
     "maxDrawdown": "Max Drawdown",
-    "equityCurve": "Equity Curve",
+    "equityCurve": "Score Equity Curve",
     "positionDistribution": "Position Distribution",
     "recentSignals": "Recent Signals",
     "todaySignals": "Today's Signals",
@@ -183,7 +187,6 @@
     "boxBreakout": "Box Breakout",
     "boxBreakdown": "Box Breakdown",
     "trendRetracement": "Trend Retracement",
-    "trendReversal": "Trend Reversal",
     "resistanceBreak": "Resistance Break",
     "supportBreak": "Support Break",
     "volumeSurge": "Volume Surge",
@@ -247,6 +250,9 @@
     "aiAnalysisTitle": "AI Analysis Result",
     "openTrade": "Open Trade",
     "symbolPlaceholder": "Search symbol...",
+    "statusActive": "Active",
+    "statusExpired": "Expired",
+    "noOpportunities": "No opportunities",
     "noActiveOpportunities": "No active opportunities"
   },
   "positions": {
@@ -275,7 +281,11 @@
     "scoreAbove60": "60+",
     "scoreAbove70": "70+",
     "scoreAbove80": "80+",
-    "scoreAbove90": "90+"
+    "scoreAbove90": "90+",
+    "tradeSource": "Channel",
+    "sourceAll": "All",
+    "sourcePaper": "Paper",
+    "sourceTestnet": "Bybit Testnet"
   },
   "trades": {
     "title": "Trade History",
@@ -316,7 +326,11 @@
     "score70": "70-80",
     "score80": "80-90",
     "score90": "90-100",
-    "exitType": "Exit Type"
+    "exitType": "Exit Type",
+    "tradeSource": "Channel",
+    "sourceAll": "All",
+    "sourcePaper": "Paper",
+    "sourceTestnet": "Bybit Testnet"
   },
   "statistics": {
     "title": "Statistics",
@@ -332,6 +346,7 @@
     "losingTrades": "Losing Trades",
     "avgWin": "Avg Win",
     "avgLoss": "Avg Loss",
+    "avgPnL": "Avg PnL",
     "bestTrade": "Best Trade",
     "worstTrade": "Worst Trade",
     "daily": "Daily",
@@ -344,12 +359,14 @@
     "calmarRatio": "Calmar Ratio",
     "expectancy": "Expectancy",
     "avgHoldingHours": "Avg Holding (h)",
-    "byDirection": "Long/Short Analysis",
     "pnlDistribution": "PnL Distribution",
     "signalAnalysis": "Signal Analysis",
     "bySymbol": "By Symbol",
     "recentTrades": "Recent Trades",
-    "byScore": "Score Win Rate Analysis"
+    "byScore": "Score Win Rate Analysis",
+    "byStrategy": "Strategy PnL Analysis",
+    "strategy": "Strategy",
+    "scoreRange": "Score Range"
   },
   "market": {
     "title": "Market Overview",
@@ -528,7 +545,6 @@
     "box_breakout": "Box Breakout",
     "box_breakdown": "Box Breakdown",
     "trend_retracement": "Trend Retracement",
-    "trend_reversal": "Trend Reversal",
     "resistance_break": "Resistance Break",
     "support_break": "Support Break",
     "volume_surge": "Volume Surge",
@@ -550,5 +566,23 @@
     "buy": "Buy",
     "sell": "Sell",
     "noData": "No K-line data"
+  },
+  "astock": {
+    "marketIndices": "Market Indices",
+    "upSectors": "Rising Sectors",
+    "downSectors": "Falling Sectors",
+    "limitStats": "Limit Stats",
+    "marketSummary": "Market Summary",
+    "upLimit": "Up Limit",
+    "downLimit": "Down Limit",
+    "rising": "Rising",
+    "falling": "Falling",
+    "sectors": "sectors",
+    "leadStock": "Lead Stock",
+    "noData": "No data",
+    "noLimitData": "No historical data yet, data will accumulate as you visit",
+    "last10Days": "Last 10 Days",
+    "volumeTitle": "Shanghai Index Volume",
+    "indexChart": "Shanghai Index Trend"
   }
 }

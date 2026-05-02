@@ -78,6 +78,11 @@ const routes = [
         component: () => import('@/views/market/MarketOverview.vue')
       },
       {
+        path: 'astock',
+        name: 'AStockMarket',
+        component: () => import('@/views/market/AStockMarket.vue')
+      },
+      {
         path: 'boxes',
         name: 'BoxList',
         component: () => import('@/views/boxes/BoxList.vue')

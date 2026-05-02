@@ -20,7 +20,8 @@ const tradeTrackColumns = `
 	take_profit_percent, trailing_stop_enabled, trailing_stop_active,
 	trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
 	exit_reason, pnl, pnl_percent, fees, status, current_price,
-	unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at
+	unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at,
+	trade_source, exchange_order_id
 `
 
 // TradeTrackRepoPG 交易跟踪数据访问实现
@@ -47,7 +48,7 @@ func scanTradeTrack(row interface{ Scan(dest ...any) error }) (*models.TradeTrac
 		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-		&track.UpdatedAt,
+		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID,
 	); err != nil {
 		return nil, err
 	}
@@ -67,38 +68,64 @@ func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*mo
 		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-		&track.UpdatedAt, &symbolCode,
+		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID, &symbolCode,
 	); err != nil {
 		return nil, "", err
 	}
 	return &track, symbolCode, nil
 }
 
+// scanTradeTrackWithDetails 扫描包含 symbol_code, signal_type, source_type 的行数据
+func scanTradeTrackWithDetails(row interface{ Scan(dest ...any) error }) (*models.TradeTrack, error) {
+	var track models.TradeTrack
+	var symbolCode, signalType, sourceType string
+	if err := row.Scan(
+		&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
+		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
+		&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
+		&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
+		&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
+		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
+		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
+		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
+		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID,
+		&symbolCode, &signalType, &sourceType,
+	); err != nil {
+		return nil, err
+	}
+	track.SymbolCode = symbolCode
+	track.SignalType = signalType
+	track.SourceType = sourceType
+	return &track, nil
+}
+
 func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 	query := `
-		SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
-		       t.entry_time entry_time,
-		       t.quantity,
-		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
-		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
-		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
-		       t.exit_time exit_time,
-		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
-		       t.unrealized_pnl,
-		       CASE WHEN t.direction = 'long' THEN
-		         (t.current_price - t.entry_price) * t.quantity / NULLIF(t.position_value, 0)
-		       ELSE
-		         (t.entry_price - t.current_price) * t.quantity / NULLIF(t.position_value, 0)
-		       END as unrealized_pnl_pct,
-		       t.subscriber_count,
-		       t.created_at created_at,
-		       t.updated_at updated_at,
-		       COALESCE(s.symbol_code, '') as symbol_code
-		FROM trade_tracks t
-		LEFT JOIN symbols s ON t.symbol_id = s.id
-		WHERE t.status = $1
-		ORDER BY t.created_at DESC
-	`
+			SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
+			       t.entry_time entry_time,
+			       t.quantity,
+			       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+			       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+			       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
+			       t.exit_time exit_time,
+			       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+			       t.unrealized_pnl,
+			       CASE WHEN t.direction = 'long' THEN
+			         (t.current_price - t.entry_price) * t.quantity / NULLIF(t.position_value, 0)
+			       ELSE
+			         (t.entry_price - t.current_price) * t.quantity / NULLIF(t.position_value, 0)
+			       END as unrealized_pnl_pct,
+			       t.subscriber_count,
+			       t.created_at created_at,
+			       t.updated_at updated_at,
+			       COALESCE(t.trade_source, 'paper') as trade_source,
+			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
+			       COALESCE(s.symbol_code, '') as symbol_code
+			FROM trade_tracks t
+			LEFT JOIN symbols s ON t.symbol_id = s.id
+			WHERE t.status = $1
+			ORDER BY t.created_at DESC
+		`
 
 	rows, err := r.db.Query(context.Background(), query, models.TrackStatusOpen)
 	if err != nil {
@@ -146,6 +173,12 @@ func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int, filters map
 		}
 	}
 
+	if v, ok := filters["trade_source"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("COALESCE(t.trade_source, 'paper') = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+
 	whereStr := strings.Join(whereClauses, " AND ")
 
 	oppJoin := ""
@@ -173,31 +206,33 @@ func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int, filters map
 	offset := (page - 1) * size
 
 	query := fmt.Sprintf(`
-			SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
-			       t.entry_time entry_time,
-			       t.quantity,
-			       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
-			       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
-			       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
-			       t.exit_time exit_time,
-			       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
-			       t.unrealized_pnl,
-			       CASE WHEN t.direction = 'long' THEN
-			         (t.current_price - t.entry_price) * t.quantity / NULLIF(t.position_value, 0)
-			       ELSE
-			         (t.entry_price - t.current_price) * t.quantity / NULLIF(t.position_value, 0)
-			       END as unrealized_pnl_pct,
-			       t.subscriber_count,
-			       t.created_at created_at,
-			       t.updated_at updated_at,
-			       COALESCE(s.symbol_code, '') as symbol_code
-			FROM trade_tracks t
-			LEFT JOIN symbols s ON t.symbol_id = s.id
-			%s
-			WHERE %s
-			ORDER BY t.created_at DESC
-			LIMIT $%d OFFSET $%d
-		`, oppJoin, whereStr, argIdx, argIdx+1)
+				SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
+				       t.entry_time entry_time,
+				       t.quantity,
+				       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+				       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+				       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
+				       t.exit_time exit_time,
+				       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+				       t.unrealized_pnl,
+				       CASE WHEN t.direction = 'long' THEN
+				         (t.current_price - t.entry_price) * t.quantity / NULLIF(t.position_value, 0)
+				       ELSE
+				         (t.entry_price - t.current_price) * t.quantity / NULLIF(t.position_value, 0)
+				       END as unrealized_pnl_pct,
+				       t.subscriber_count,
+				       t.created_at created_at,
+				       t.updated_at updated_at,
+				       COALESCE(t.trade_source, 'paper') as trade_source,
+				       COALESCE(t.exchange_order_id, '') as exchange_order_id,
+				       COALESCE(s.symbol_code, '') as symbol_code
+				FROM trade_tracks t
+				LEFT JOIN symbols s ON t.symbol_id = s.id
+				%s
+				WHERE %s
+				ORDER BY t.created_at DESC
+				LIMIT $%d OFFSET $%d
+			`, oppJoin, whereStr, argIdx, argIdx+1)
 
 	queryArgs := append(args, size, offset)
 	rows, err := r.db.Query(context.Background(), query, queryArgs...)
@@ -222,7 +257,6 @@ func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int, filters map
 
 	return tracks, total, nil
 }
-
 
 func (r *TradeTrackRepoPG) GetOpenBySymbol(symbolID int) (*models.TradeTrack, error) {
 	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE status = $1 AND symbol_id = $2"
@@ -264,28 +298,36 @@ func (r *TradeTrackRepoPG) CountClosedSince(startTime time.Time) (int, error) {
 	return count, nil
 }
 
-func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time) ([]*models.TradeTrack, error) {
+func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time, tradeSource string) ([]*models.TradeTrack, error) {
 	var query string
 	var args []interface{}
 
 	baseSelect := `SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price,
-		       t.entry_time entry_time,
-		       t.quantity,
-		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
-		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
-		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
-		       t.exit_time exit_time,
-		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
-		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count,
-		       t.created_at created_at,
-		       t.updated_at updated_at,
-		       COALESCE(s.symbol_code, '') as symbol_code
-		FROM trade_tracks t
-		LEFT JOIN symbols s ON t.symbol_id = s.id
-		WHERE t.status = $1`
+			       t.entry_time entry_time,
+			       t.quantity,
+			       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+			       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+			       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price,
+			       t.exit_time exit_time,
+			       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+			       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count,
+			       t.created_at created_at,
+			       t.updated_at updated_at,
+			       COALESCE(t.trade_source, 'paper') as trade_source,
+			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
+			       COALESCE(s.symbol_code, '') as symbol_code
+			FROM trade_tracks t
+			LEFT JOIN symbols s ON t.symbol_id = s.id
+			WHERE t.status = $1`
 
 	args = append(args, models.TrackStatusClosed)
 	argIndex := 2
+
+	if tradeSource != "" {
+		baseSelect += fmt.Sprintf(" AND COALESCE(t.trade_source, 'paper') = $%d", argIndex)
+		args = append(args, tradeSource)
+		argIndex++
+	}
 
 	if startDate != nil && endDate != nil {
 		query = baseSelect + fmt.Sprintf(" AND t.exit_time BETWEEN $%d AND $%d", argIndex, argIndex+1)
@@ -330,16 +372,18 @@ func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time) ([]*mo
 
 func (r *TradeTrackRepoPG) Create(track *models.TradeTrack) error {
 	query := `
-		INSERT INTO trade_tracks (
-			signal_id, opportunity_id, symbol_id, direction, entry_price, entry_time,
-			quantity, position_value, stop_loss_price, stop_loss_percent,
-			take_profit_price, take_profit_percent, trailing_stop_enabled,
-			trailing_stop_active, trailing_stop_price, trailing_activation_pct,
-			fees, status, subscriber_count, created_at, updated_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), NOW()
-		) RETURNING id
-	`
+			INSERT INTO trade_tracks (
+				signal_id, opportunity_id, symbol_id, direction, entry_price, entry_time,
+				quantity, position_value, stop_loss_price, stop_loss_percent,
+				take_profit_price, take_profit_percent, trailing_stop_enabled,
+				trailing_stop_active, trailing_stop_price, trailing_activation_pct,
+				fees, status, subscriber_count, trade_source, exchange_order_id,
+				created_at, updated_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+				NOW(), NOW()
+			) RETURNING id
+		`
 
 	err := r.db.QueryRow(context.Background(), query,
 		track.SignalID, track.OpportunityID, track.SymbolID, track.Direction,
@@ -347,7 +391,7 @@ func (r *TradeTrackRepoPG) Create(track *models.TradeTrack) error {
 		track.StopLossPrice, track.StopLossPercent, track.TakeProfitPrice,
 		track.TakeProfitPercent, track.TrailingStopEnabled, track.TrailingStopActive,
 		track.TrailingStopPrice, track.TrailingActivationPct, track.Fees,
-		track.Status, track.SubscriberCount,
+		track.Status, track.SubscriberCount, track.TradeSource, track.ExchangeOrderID,
 	).Scan(&track.ID)
 	if err != nil {
 		return fmt.Errorf("创建交易跟踪失败: %w", err)
@@ -358,17 +402,18 @@ func (r *TradeTrackRepoPG) Create(track *models.TradeTrack) error {
 
 func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 	query := `
-		UPDATE trade_tracks SET
-			direction = $1, entry_price = $2, entry_time = $3, quantity = $4,
-			position_value = $5, stop_loss_price = $6, stop_loss_percent = $7,
-			take_profit_price = $8, take_profit_percent = $9, trailing_stop_enabled = $10,
-			trailing_stop_active = $11, trailing_stop_price = $12, trailing_activation_pct = $13,
-			exit_price = $14, exit_time = $15, exit_reason = $16, pnl = $17,
-			pnl_percent = $18, fees = $19, status = $20, current_price = $21,
-			unrealized_pnl = $22, unrealized_pnl_pct = $23, subscriber_count = $24,
-			updated_at = NOW()
-		WHERE id = $25
-	`
+			UPDATE trade_tracks SET
+				direction = $1, entry_price = $2, entry_time = $3, quantity = $4,
+				position_value = $5, stop_loss_price = $6, stop_loss_percent = $7,
+				take_profit_price = $8, take_profit_percent = $9, trailing_stop_enabled = $10,
+				trailing_stop_active = $11, trailing_stop_price = $12, trailing_activation_pct = $13,
+				exit_price = $14, exit_time = $15, exit_reason = $16, pnl = $17,
+				pnl_percent = $18, fees = $19, status = $20, current_price = $21,
+				unrealized_pnl = $22, unrealized_pnl_pct = $23, subscriber_count = $24,
+				trade_source = $25, exchange_order_id = $26,
+				updated_at = NOW()
+			WHERE id = $27
+		`
 
 	_, err := r.db.Exec(context.Background(), query,
 		track.Direction, track.EntryPrice, track.EntryTime, track.Quantity,
@@ -378,6 +423,7 @@ func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 		track.ExitPrice, track.ExitTime, track.ExitReason, track.PnL,
 		track.PnLPercent, track.Fees, track.Status, track.CurrentPrice,
 		track.UnrealizedPnL, track.UnrealizedPnLPct, track.SubscriberCount,
+		track.TradeSource, track.ExchangeOrderID,
 		track.ID,
 	)
 	if err != nil {
@@ -428,6 +474,11 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 			needOppJoin = true
 		}
 	}
+	if v, ok := filters["trade_source"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("COALESCE(t.trade_source, 'paper') = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
 
 	whereStr := strings.Join(whereClauses, " AND ")
 
@@ -444,22 +495,24 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 
 	offset := (page - 1) * size
 	dataQuery := fmt.Sprintf(`
-		SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
-		       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
-		       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
-		       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
-		       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
-		       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
-		       COALESCE(s.symbol_code, '') as symbol_code,
-		       COALESCE(sig.signal_type, '') as signal_type,
-		       COALESCE(sig.source_type, '') as source_type
-		FROM trade_tracks t
-		LEFT JOIN symbols s ON t.symbol_id = s.id
-		LEFT JOIN symbols s2 ON t.symbol_id = s2.id
-		LEFT JOIN signals sig ON t.signal_id = sig.id
-		%s
-		WHERE %s
-		ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d`, oppJoin, whereStr, argIdx, argIdx+1)
+			SELECT t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity,
+			       t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price,
+			       t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active,
+			       t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time,
+			       t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price,
+			       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
+			       COALESCE(t.trade_source, 'paper') as trade_source,
+			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
+			       COALESCE(s.symbol_code, '') as symbol_code,
+			       COALESCE(sig.signal_type, '') as signal_type,
+			       COALESCE(sig.source_type, '') as source_type
+			FROM trade_tracks t
+			LEFT JOIN symbols s ON t.symbol_id = s.id
+			LEFT JOIN symbols s2 ON t.symbol_id = s2.id
+			LEFT JOIN signals sig ON t.signal_id = sig.id
+			%s
+			WHERE %s
+			ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d`, oppJoin, whereStr, argIdx, argIdx+1)
 
 	dataArgs := append(args, size, offset)
 	rows, err := r.db.Query(context.Background(), dataQuery, dataArgs...)
@@ -470,25 +523,11 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 
 	var tracks []*models.TradeTrack
 	for rows.Next() {
-		var track models.TradeTrack
-		var symbolCode, signalType, sourceType string
-		if err := rows.Scan(
-			&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
-			&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
-			&track.StopLossPrice, &track.StopLossPercent, &track.TakeProfitPrice,
-			&track.TakeProfitPercent, &track.TrailingStopEnabled, &track.TrailingStopActive,
-			&track.TrailingStopPrice, &track.TrailingActivationPct, &track.ExitPrice,
-			&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
-			&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
-			&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-			&track.UpdatedAt, &symbolCode, &signalType, &sourceType,
-		); err != nil {
+		track, err := scanTradeTrackWithDetails(rows)
+		if err != nil {
 			return nil, 0, err
 		}
-		track.SymbolCode = symbolCode
-		track.SignalType = signalType
-		track.SourceType = sourceType
-		tracks = append(tracks, &track)
+		tracks = append(tracks, track)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -497,7 +536,6 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 
 	return tracks, count, nil
 }
-
 
 func (r *TradeTrackRepoPG) GetByID(id int) (*models.TradeTrack, error) {
 	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE id = $1"
@@ -549,3 +587,39 @@ func (r *TradeTrackRepoPG) GetOpenByOpportunityID(opportunityID int) (*models.Tr
 	return nil, row.Err()
 }
 
+// GetOpenByOpportunityIDAndSource 查询某个交易机会是否有指定来源的未平仓持仓
+func (r *TradeTrackRepoPG) GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error) {
+	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE opportunity_id = $1 AND status = $2 AND COALESCE(trade_source, 'paper') = $3 LIMIT 1"
+
+	row, err := r.db.Query(context.Background(), query, opportunityID, models.TrackStatusOpen, source)
+	if err != nil {
+		return nil, fmt.Errorf("查询交易记录失败: %w", err)
+	}
+	defer row.Close()
+
+	if row.Next() {
+		return scanTradeTrack(row)
+	}
+	return nil, row.Err()
+}
+
+// GetOpenBySource 查询指定来源的所有未平仓持仓
+func (r *TradeTrackRepoPG) GetOpenBySource(source string) ([]*models.TradeTrack, error) {
+	query := "SELECT" + tradeTrackColumns + "FROM trade_tracks WHERE status = $1 AND COALESCE(trade_source, 'paper') = $2 ORDER BY created_at DESC"
+
+	rows, err := r.db.Query(context.Background(), query, models.TrackStatusOpen, source)
+	if err != nil {
+		return nil, fmt.Errorf("查询交易记录失败: %w", err)
+	}
+	defer rows.Close()
+
+	var tracks []*models.TradeTrack
+	for rows.Next() {
+		track, err := scanTradeTrack(rows)
+		if err != nil {
+			return nil, err
+		}
+		tracks = append(tracks, track)
+	}
+	return tracks, rows.Err()
+}

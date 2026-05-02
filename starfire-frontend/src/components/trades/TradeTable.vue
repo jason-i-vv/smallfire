@@ -20,7 +20,14 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column prop="entry_price" :label="t('trades.entryPrice') || '入场价'" width="120">
+            <el-table-column prop="trade_source" :label="t('trades.tradeSource')" width="110">
+        <template #default="{ row }">
+          <el-tag :type="row.trade_source === 'testnet' ? 'warning' : 'info'" size="small">
+            {{ row.trade_source === 'testnet' ? t('trades.sourceTestnet') : t('trades.sourcePaper') }}
+          </el-tag>
+        </template>
+      </el-table-column>
+<el-table-column prop="entry_price" :label="t('trades.entryPrice') || '入场价'" width="120">
         <template #default="{ row }">
           {{ formatPrice(row.entry_price) }}
         </template>
@@ -221,7 +228,7 @@ const handleViewOpportunity = async (oppId) => {
 
 const signalNameMap = {
   box_breakout: '箱体突破', box_breakdown: '箱体跌破',
-  trend_retracement: '趋势回撤', trend_reversal: '趋势反转',
+  trend_retracement: '趋势回撤',
   resistance_break: '阻力位突破', support_break: '支撑位跌破',
   volume_surge: '量能放大', price_surge_up: '价格急涨', price_surge_down: '价格急跌',
   volume_price_rise: '量价齐升', volume_price_fall: '量价齐跌',

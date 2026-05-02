@@ -606,3 +606,27 @@ func (r *SignalRepoPG) CountBySourceType(sourceType string) (int, error) {
 	}
 	return count, nil
 }
+
+// GetSignalInfoByIDs 批量获取信号的 signal_type 和 source_type
+func (r *SignalRepoPG) GetSignalInfoByIDs(ids []int) (map[int]*SignalBasicInfo, error) {
+	if len(ids) == 0 {
+		return make(map[int]*SignalBasicInfo), nil
+	}
+	query := `SELECT id, signal_type, source_type FROM signals WHERE id = ANY($1)`
+	rows, err := r.db.Query(context.Background(), query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("批量查询信号信息失败: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int]*SignalBasicInfo, len(ids))
+	for rows.Next() {
+		var id int
+		var info SignalBasicInfo
+		if err := rows.Scan(&id, &info.SignalType, &info.SourceType); err != nil {
+			return nil, fmt.Errorf("扫描信号信息失败: %w", err)
+		}
+		result[id] = &info
+	}
+	return result, rows.Err()
+}

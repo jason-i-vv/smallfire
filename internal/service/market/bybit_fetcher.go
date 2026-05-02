@@ -382,3 +382,23 @@ func parsePeriodDuration(period string) time.Duration {
 		return time.Minute
 	}
 }
+
+// FetchAStockIndices 获取A股大盘指数（Bybit不支持，返回错误）
+func (f *BybitFetcher) FetchAStockIndices() ([]AStockMarketIndex, error) {
+	return nil, fmt.Errorf("bybit fetcher 不支持获取A股指数")
+}
+
+// FetchSectorList 获取板块涨跌榜（Bybit不支持）
+func (f *BybitFetcher) FetchSectorList(sortField string, ascending bool, limit int) ([]SectorData, error) {
+	return nil, fmt.Errorf("bybit fetcher 不支持获取板块数据")
+}
+
+// FetchLimitCount 获取涨跌停统计（Bybit不支持）
+func (f *BybitFetcher) FetchLimitCount() (*LimitCount, error) {
+	return nil, fmt.Errorf("bybit fetcher 不支持获取涨跌停统计")
+}
+
+// FetchIndexKlines 获取指数K线数据（Bybit不支持）
+func (f *BybitFetcher) FetchIndexKlines(indexCode string, period string, limit int) ([]KlineData, error) {
+	return nil, fmt.Errorf("bybit fetcher 不支持获取指数K线")
+}

@@ -25,6 +25,21 @@ type Fetcher interface {
 
 	// 获取实时价格
 	FetchTicker(symbol string) (*Ticker, error)
+
+	// 获取A股大盘指数（仅A股有效）
+	FetchAStockIndices() ([]AStockMarketIndex, error)
+
+	// 获取板块涨跌榜（仅A股有效）
+	// sortField: f3=涨跌幅, f6=成交额; ascending: false=降序
+	FetchSectorList(sortField string, ascending bool, limit int) ([]SectorData, error)
+
+	// 获取涨跌停统计（仅A股有效）
+	FetchLimitCount() (*LimitCount, error)
+
+	// 获取指数K线数据（仅A股有效，用于成交量图表）
+	// indexCode: 上证指数 "sh000001", 深证成指 "sz399001", 创业板 "sz399006"
+	// period: "daily", "weekly", "monthly"
+	FetchIndexKlines(indexCode string, period string, limit int) ([]KlineData, error)
 }
 
 // SymbolInfo 交易对信息

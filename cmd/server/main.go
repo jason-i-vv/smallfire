@@ -78,6 +78,7 @@ func main() {
 	monitorRepo := repository.NewMonitorRepoPG(db)
 	notifyRepo := repository.NewNotificationRepoPG(db)
 	userRepo := repository.NewUserRepoPG(db)
+	limitStatRepo := repository.NewLimitStatRepoPG(db)
 
 	// 初始化评分与交易机会相关 Repository
 	oppRepo := repository.NewOpportunityRepoPG(db)
@@ -202,7 +203,7 @@ func main() {
 	utils.Info("评分引擎初始化成功")
 
 	// 初始化交易机会聚合器
-	oppAggregator := scoring.NewOpportunityAggregator(oppRepo, signalRepo, statsRepo, signalScorer, scoring.DefaultValidityConfig, notifyManager, utils.Logger, cfg.Trading.MinNotifyScoreThreshold)
+	oppAggregator := scoring.NewOpportunityAggregator(oppRepo, signalRepo, statsRepo, trackRepo, signalScorer, scoring.DefaultValidityConfig, notifyManager, utils.Logger, cfg.Trading.MinNotifyScoreThreshold)
 	strategyRunner.SetAggregator(oppAggregator)
 	utils.Info("交易机会聚合器初始化成功")
 
@@ -212,6 +213,22 @@ func main() {
 	utils.Info("自动交易服务初始化成功",
 		zap.Bool("enabled", cfg.Trading.AutoTradeEnabled),
 		zap.Int("score_threshold", cfg.Trading.AutoTradeScoreThreshold))
+
+	// 初始化 Bybit Testnet 模拟交易服务
+	var testnetTrader *trading.TestnetTrader
+	if cfg.Trading.Testnet.Enabled && cfg.Trading.Testnet.APIKey != "" {
+		testnetTrader = trading.NewTestnetTrader(&cfg.Trading, trackRepo, klineRepo, utils.Logger)
+		oppAggregator.AddHandler(testnetTrader)
+		utils.Info("Bybit Testnet 交易服务初始化成功",
+			zap.String("base_url", cfg.Trading.Testnet.BaseURL),
+			zap.Int("score_threshold", cfg.Trading.Testnet.ScoreThreshold))
+
+		testnetMonitor := trading.NewTestnetPositionMonitor(
+			testnetTrader.GetClient(), trackRepo, symbolRepo, utils.Logger)
+		testnetMonitor.Start()
+		defer testnetMonitor.Stop()
+		utils.Info("Bybit Testnet 持仓监控启动")
+	}
 
 	// 初始化 AI 分析服务
 	var aiClient *aiservice.AIClient
@@ -329,12 +346,15 @@ func main() {
 	})
 
 	// 初始化 API 处理器
-	marketHandler := handler.NewMarketHandler(marketRepo, symbolRepo, klineRepo, trendRepo, utils.Logger)
+	marketHandler := handler.NewMarketHandler(marketRepo, symbolRepo, klineRepo, trendRepo, limitStatRepo, factory, utils.Logger)
 	symbolHandler := handler.NewSymbolHandler(symbolRepo, klineRepo, klineService, utils.Logger)
 	signalHandler := handler.NewSignalHandler(signalRepo, utils.Logger)
 	opportunityHandler := handler.NewOpportunityHandler(oppRepo, trackRepo, signalScorer, aiAnalyzer, cfg.AI, cooldownTracker, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
 	tradeHandler := handler.NewTradeHandler(trackRepo, tradeExecutor, statsService, utils.Logger)
+	if testnetTrader != nil {
+		tradeHandler.SetTestnetTrader(testnetTrader)
+	}
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
 	boxHandler := handler.NewBoxHandler(boxRepo, symbolRepo, utils.Logger)
 	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelV2Repo, utils.Logger)
@@ -380,6 +400,10 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 			marketsGroup := authenticated.Group("/markets")
 			{
 				marketsGroup.GET("", marketHandler.GetMarkets)
+				// 特定路由必须在通配符路由之前
+				marketsGroup.GET("/a_stock/overview", marketHandler.GetAStockOverview)
+				marketsGroup.GET("/a_stock/index/klines", marketHandler.GetIndexKlines)
+				marketsGroup.GET("/a_stock/limit_stats", marketHandler.GetLimitStats)
 				marketsGroup.GET("/:market_code", marketHandler.GetMarket)
 				marketsGroup.GET("/:market_code/overview", marketHandler.GetMarketOverview)
 			}
@@ -496,6 +520,8 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				tradesGroup.GET("/pnl-distribution", tradeHandler.GetPnLDistribution)
 				tradesGroup.GET("/signal-analysis-detail", tradeHandler.GetDetailedSignalAnalysis)
 				tradesGroup.GET("/score-analysis", tradeHandler.GetScoreAnalysis)
+				tradesGroup.GET("/strategy-analysis", tradeHandler.GetStrategyAnalysis)
+				tradesGroup.GET("/score-equity-curve", tradeHandler.GetScoreEquityCurves)
 				tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
 				tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
 			}

@@ -53,7 +53,7 @@ markets:
     fetch_interval: 60    # 抓取间隔（秒）
     max_concurrent_sync: 10 # 最大并发同步数
   a_stock:
-    enabled: false
+    enabled: true
     symbols_limit: 200
     hot_days: 30
     periods: ["1d"]
@@ -146,11 +146,11 @@ strategies:
     signal_cooldown: 60          # 同类型信号冷却时间（分钟）
     check_interval: 300
   macd:
-    enabled: false
+    enabled: true
     fast_period: 12              # 快线EMA周期
     slow_period: 26              # 慢线EMA周期
     signal_period: 9             # 信号线EMA周期
-    hist_threshold: 0            # MACD柱阈值（0表示零轴交叉）
+    hist_threshold: 0            # MACD柱阈值（接近零轴即触发）
     atr_period: 14               # ATR 计算周期
     atr_multiplier: 2.0          # 止损 = ATR × 倍数
     risk_reward_ratio: 2.0       # 盈亏比
@@ -191,6 +191,18 @@ trading:
   paper_trading: true                  # 模拟交易模式
   fixed_trade_amount: 1000             # 每笔固定交易金额（USDT）
   min_notify_score_threshold: 80        # 通知最低评分，低于此值不发送通知
+
+  # Bybit Testnet 实盘模拟
+  testnet:
+    enabled: false                     # 是否启用 Bybit Testnet 模拟交易
+    api_key: "DatS4UH1Leyg9qG2Kc"                        # Bybit Testnet API Key
+    api_secret: "UlUKA1qDeVRa3XYAuzDbGVyWqZZICWvvmY6y"                     # Bybit Testnet API Secret
+    base_url: "https://api-demo.bybit.com"
+    score_threshold: 60                # 最低评分阈值
+    fixed_trade_amount: 100            # 每笔固定交易金额（USDT）
+    leverage: 2                        # 默认杠杆倍数
+    max_open_positions: 5              # 最大同时持仓数
+    recv_window: "5000"                # API 请求窗口（毫秒）
 
 # 实时监测配置
 monitoring:

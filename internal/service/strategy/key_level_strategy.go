@@ -98,7 +98,7 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 		}
 		breakoutPrice := level.Price * (1 + threshold)
 		if latestPrice > breakoutPrice {
-			if !volumeConfirmed {
+			if volumeConfirmed == 0 {
 				continue
 			}
 			if closestBrokenResistance == nil || level.Price < closestBrokenResistance.Price {
@@ -107,7 +107,7 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 		}
 	}
 	if closestBrokenResistance != nil {
-		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenResistance, models.LevelTypeResistance, latestKline, "long", atr))
+		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenResistance, models.LevelTypeResistance, latestKline, "long", atr, volumeConfirmed))
 	}
 
 	// 支撑位跌破（向下）：要求开盘在支撑位上方，收盘在支撑位下方（穿越跌破）
@@ -124,7 +124,7 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 		}
 		breakoutPrice := level.Price * (1 - threshold)
 		if latestPrice < breakoutPrice {
-			if !volumeConfirmed {
+			if volumeConfirmed == 0 {
 				continue
 			}
 			if closestBrokenSupport == nil || level.Price > closestBrokenSupport.Price {
@@ -133,7 +133,7 @@ func (s *KeyLevelStrategy) Analyze(symbolID int, symbolCode, period string, klin
 		}
 	}
 	if closestBrokenSupport != nil {
-		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenSupport, models.LevelTypeSupport, latestKline, "short", atr))
+		signals = append(signals, s.createBreakSignal(symbolID, *closestBrokenSupport, models.LevelTypeSupport, latestKline, "short", atr, volumeConfirmed))
 	}
 
 	// 同一K线同时产生做多和做空信号时，选择突破距离更大的一方
@@ -664,7 +664,7 @@ func (s *KeyLevelStrategy) mergeAndClassify(candidates []candidateLevel, levelTy
 // ==================== 信号生成 ====================
 
 // createBreakSignal 创建突破信号
-func (s *KeyLevelStrategy) createBreakSignal(symbolID int, level models.KeyLevelEntry, levelType string, kline models.Kline, direction string, atr float64) models.Signal {
+func (s *KeyLevelStrategy) createBreakSignal(symbolID int, level models.KeyLevelEntry, levelType string, kline models.Kline, direction string, atr float64, volumeRatio float64) models.Signal {
 	price := kline.ClosePrice
 	distance := math.Abs(price-level.Price) / level.Price * 100
 
@@ -722,6 +722,7 @@ func (s *KeyLevelStrategy) createBreakSignal(symbolID int, level models.KeyLevel
 			"level_strength":    level.Strength,
 			"breakout_price":    price,
 			"level_description": desc,
+			"volume_ratio":      volumeRatio,
 		},
 		Status:           models.SignalStatusPending,
 		NotificationSent: false,
@@ -760,10 +761,11 @@ func (s *KeyLevelStrategy) calcATR(klines []models.Kline, period int) (atr float
 	return
 }
 
-// checkVolumeConfirm 量能确认：突破K线成交量需 > 20周期均量 * 1.5
-func (s *KeyLevelStrategy) checkVolumeConfirm(klines []models.Kline, latestIdx int) bool {
+// checkVolumeConfirm 量能确认：返回成交量放大倍数（volume_ratio）
+// 如果不满足 1.5 倍门槛，返回 0 表示量能不足
+func (s *KeyLevelStrategy) checkVolumeConfirm(klines []models.Kline, latestIdx int) float64 {
 	if latestIdx < 20 {
-		return true
+		return 1.0 // 数据不足时返回 1.0，不过滤
 	}
 	var sumVol float64
 	for i := latestIdx - 20; i < latestIdx; i++ {
@@ -771,9 +773,13 @@ func (s *KeyLevelStrategy) checkVolumeConfirm(klines []models.Kline, latestIdx i
 	}
 	avgVol := sumVol / 20.0
 	if avgVol == 0 {
-		return true
+		return 1.0
 	}
-	return klines[latestIdx].Volume > avgVol*1.5
+	volumeRatio := klines[latestIdx].Volume / avgVol
+	if volumeRatio < 1.5 {
+		return 0 // 量能不足，返回 0
+	}
+	return volumeRatio
 }
 
 // strengthToInt 将 strength 字符串转为信号强度（1-5）

@@ -74,7 +74,7 @@
       size="small"
       @row-click="handleViewDetail"
       v-loading="loading"
-      :empty-text="t('opportunities.noActiveOpportunities')"
+      :empty-text="t('opportunities.noOpportunities')"
     >
       <el-table-column prop="symbol_code" :label="t('opportunities.symbol')" width="130" fixed>
         <template #default="{ row }">
@@ -314,6 +314,7 @@ const loadFilters = () => {
     const saved = sessionStorage.getItem(STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved)
+      filters.status = parsed.status ?? 'active'
       filters.market = parsed.market || ''
       filters.period = parsed.period || ''
       filters.scoreRange = parsed.scoreRange || ''
@@ -327,6 +328,7 @@ const loadFilters = () => {
 const saveFilters = () => {
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      status: filters.status,
       market: filters.market,
       period: filters.period,
       scoreRange: filters.scoreRange,
@@ -337,6 +339,7 @@ const saveFilters = () => {
 }
 
 const filters = reactive({
+  status: '',
   market: '',
   period: '',
   scoreRange: '',
@@ -357,6 +360,7 @@ const buildApiParams = () => {
     page: pagination.currentPage,
     page_size: pagination.pageSize
   }
+  if (filters.status) params.status = filters.status
   if (filters.period) params.period = filters.period
   if (filters.direction) params.direction = filters.direction
   if (filters.symbol) params.symbol = filters.symbol
@@ -384,7 +388,7 @@ const getMarketBySymbol = (code) => {
 const fetchOpportunities = async () => {
   loading.value = true
   try {
-    const res = await opportunityApi.active(buildApiParams())
+    const res = await opportunityApi.list(buildApiParams())
     opportunities.value = Array.isArray(res.data?.items) ? res.data.items : []
     pagination.total = res.data?.total || 0
   } catch (error) {
@@ -422,7 +426,7 @@ const handleViewDetail = (opp) => {
 
 const signalNameMap = {
   box_breakout: '箱体突破', box_breakdown: '箱体跌破',
-  trend_retracement: '趋势回撤', trend_reversal: '趋势反转',
+  trend_retracement: '趋势回撤',
   resistance_break: '阻力位突破', support_break: '支撑位跌破',
   volume_surge: '量能放大', price_surge_up: '价格急涨', price_surge_down: '价格急跌',
   volume_price_rise: '量价齐升', volume_price_fall: '量价齐跌',

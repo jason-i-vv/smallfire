@@ -47,7 +47,7 @@ func NewOpportunityHandler(
 // GetOpportunities 获取交易机会列表（按评分排序）
 // GET /api/v1/opportunities?status=active&page=1&page_size=20&period=15m&direction=long&symbol=BTC&min_score=50
 func (h *OpportunityHandler) GetOpportunities(c *gin.Context) {
-	status := c.DefaultQuery("status", "active")
+	status := c.Query("status")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
 	period := c.DefaultQuery("period", "")

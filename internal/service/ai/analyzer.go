@@ -246,52 +246,59 @@ func (a *OpportunityAnalyzer) buildUserPrompt(opp *models.TradingOpportunity, kl
 	}
 
 	// 近期K线行情上下文
+	// 注意：GetLastNPeriods 返回 DESC 顺序（klines[0] = 最新）
 	if len(klines) > 0 {
-		sb.WriteString("\n近期行情:\n")
-		// 只输出最近 5 根K线，节省 token
-		start := 0
-		if len(klines) > 5 {
-			start = len(klines) - 5
+		sb.WriteString("\n近期行情 (OHLCV + EMA):\n")
+		// 取最近 20 根K线（slice 头部 = 最新），按时间正序输出便于阅读
+		displayCount := 20
+		if len(klines) < displayCount {
+			displayCount = len(klines)
 		}
-		recentKlines := klines[start:]
+		recentKlines := klines[:displayCount]
+		// 反转为时间正序（从旧到新）
+		for i := 0; i < len(recentKlines)/2; i++ {
+			recentKlines[i], recentKlines[len(recentKlines)-1-i] = recentKlines[len(recentKlines)-1-i], recentKlines[i]
+		}
 		for _, k := range recentKlines {
 			t := k.OpenTime.Format("01-02 15:04")
 			change := ""
 			if k.OpenPrice > 0 {
 				change = fmt.Sprintf(" (%+.2f%%)", (k.ClosePrice-k.OpenPrice)/k.OpenPrice*100)
 			}
-			sb.WriteString(fmt.Sprintf("  %s O:%.4g H:%.4g L:%.4g C:%.4g Vol:%.0f%s\n",
-				t, k.OpenPrice, k.HighPrice, k.LowPrice, k.ClosePrice, k.Volume, change))
+			emaStr := ""
+			if k.EMAShort != nil && k.EMAMedium != nil && k.EMALong != nil {
+				emaStr = fmt.Sprintf(" EMA:%.4g/%.4g/%.4g", *k.EMAShort, *k.EMAMedium, *k.EMALong)
+			}
+			sb.WriteString(fmt.Sprintf("  %s O:%.4g H:%.4g L:%.4g C:%.4g Vol:%.0f%s%s\n",
+				t, k.OpenPrice, k.HighPrice, k.LowPrice, k.ClosePrice, k.Volume, change, emaStr))
 		}
 
-		// EMA 趋势判断
-		last := klines[len(klines)-1]
-		if last.EMAShort != nil && last.EMAMedium != nil && last.EMALong != nil {
+		// EMA 趋势判断（取最新一根 K 线，即 klines[0]）
+		latest := klines[0]
+		if latest.EMAShort != nil && latest.EMAMedium != nil && latest.EMALong != nil {
 			sb.WriteString(fmt.Sprintf("\n当前均线: EMA短=%.4f EMA中=%.4f EMA长=%.4f\n",
-				*last.EMAShort, *last.EMAMedium, *last.EMALong))
-			if *last.EMAShort > *last.EMAMedium && *last.EMAMedium > *last.EMALong {
+				*latest.EMAShort, *latest.EMAMedium, *latest.EMALong))
+			if *latest.EMAShort > *latest.EMAMedium && *latest.EMAMedium > *latest.EMALong {
 				sb.WriteString("均线状态: 多头排列 (短期>中期>长期)\n")
-			} else if *last.EMAShort < *last.EMAMedium && *last.EMAMedium < *last.EMALong {
+			} else if *latest.EMAShort < *latest.EMAMedium && *latest.EMAMedium < *latest.EMALong {
 				sb.WriteString("均线状态: 空头排列 (短期<中期<长期)\n")
 			} else {
 				sb.WriteString("均线状态: 交叉/缠绕\n")
 			}
 		}
 
-		// 近期高低点（辅助判断支撑阻力）
-		if len(klines) >= 5 {
-			var high, low float64
-			for i, k := range klines {
-				if i == 0 || k.HighPrice > high {
-					high = k.HighPrice
-				}
-				if i == 0 || k.LowPrice < low {
-					low = k.LowPrice
-				}
+		// 近期高低点（基于显示的 K 线范围）
+		var high, low float64
+		for i, k := range recentKlines {
+			if i == 0 || k.HighPrice > high {
+				high = k.HighPrice
 			}
-			sb.WriteString(fmt.Sprintf("\n近期区间: 最高=%.4f 最低=%.4f 振幅=%.2f%%\n",
-				high, low, (high-low)/low*100))
+			if i == 0 || k.LowPrice < low {
+				low = k.LowPrice
+			}
 		}
+		sb.WriteString(fmt.Sprintf("\n近期区间: 最高=%.4f 最低=%.4f 振幅=%.2f%%\n",
+			high, low, (high-low)/low*100))
 	}
 
 	sb.WriteString("\n请综合技术分析，判断上述信号和策略是否合理，给出你的独立判断。")

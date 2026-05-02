@@ -8,6 +8,13 @@
           </el-button>
         </template>
       </el-table-column>
+      <el-table-column prop="trade_source" :label="t('positions.tradeSource')" width="120">
+        <template #default="{ row }">
+          <el-tag :type="row.trade_source === 'testnet' ? 'warning' : 'info'" size="small">
+            {{ row.trade_source === 'testnet' ? t('positions.sourceTestnet') : t('positions.sourcePaper') }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="direction" :label="t('positions.direction') || '方向'" width="80">
         <template #default="{ row }">
           <span :class="row.direction === 'long' ? 'dir-long' : 'dir-short'">
