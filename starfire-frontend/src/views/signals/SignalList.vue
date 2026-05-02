@@ -210,7 +210,7 @@ const sourceSignalTypeMap = {
 }
 
 // 所有信号类型选项（完整列表）
-const allSignalTypeOptions = computed(() => [
+const allSignalTypeOptions = ref([
   { label: t('common.all') || '全部', value: '', count: 0 },
   { label: t('signals.boxBreakout') || '箱体突破', value: 'box_breakout', count: 0 },
   { label: t('signals.boxBreakdown') || '箱体跌破', value: 'box_breakdown', count: 0 },
