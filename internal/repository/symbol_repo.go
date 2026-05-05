@@ -21,12 +21,24 @@ func NewSymbolRepoPG(db *database.DB) SymbolRepo {
 	}
 }
 
+const symbolColumns = `id, market_id, market_code, symbol_code, symbol_name, symbol_type,
+       last_hot_at, hot_score, is_tracking, max_klines_count,
+       trend_4h, trend_updated_at,
+       created_at, updated_at`
+
+func scanSymbol(scanner interface{ Scan(...interface{}) error }, s *models.Symbol) error {
+	return scanner.Scan(
+		&s.ID, &s.MarketID, &s.MarketCode, &s.SymbolCode, &s.SymbolName, &s.SymbolType,
+		&s.LastHotAt, &s.HotScore, &s.IsTracking, &s.MaxKlinesCount,
+		&s.Trend4h, &s.TrendUpdatedAt,
+		&s.CreatedAt, &s.UpdatedAt,
+	)
+}
+
 func (r *SymbolRepoPG) GetTrackingByMarket(marketCode string) ([]*models.Symbol, error) {
 	var symbols []*models.Symbol
 	query := `
-		SELECT id, market_id, symbol_code, symbol_name, symbol_type,
-		       last_hot_at, hot_score, is_tracking, max_klines_count,
-		       created_at, updated_at
+		SELECT ` + symbolColumns + `
 		FROM symbols
 		WHERE market_code = $1 AND is_tracking = true
 		ORDER BY hot_score DESC
@@ -40,14 +52,9 @@ func (r *SymbolRepoPG) GetTrackingByMarket(marketCode string) ([]*models.Symbol,
 
 	for rows.Next() {
 		var symbol models.Symbol
-		if err := rows.Scan(
-			&symbol.ID, &symbol.MarketID, &symbol.SymbolCode, &symbol.SymbolName, &symbol.SymbolType,
-			&symbol.LastHotAt, &symbol.HotScore, &symbol.IsTracking, &symbol.MaxKlinesCount,
-			&symbol.CreatedAt, &symbol.UpdatedAt,
-		); err != nil {
+		if err := scanSymbol(rows, &symbol); err != nil {
 			return nil, fmt.Errorf("扫描标的数据失败: %w", err)
 		}
-		// 过滤掉带到期日期后缀的合约
 		if !HasExpirationSuffix(symbol.SymbolCode) {
 			symbols = append(symbols, &symbol)
 		}
@@ -63,19 +70,12 @@ func (r *SymbolRepoPG) GetTrackingByMarket(marketCode string) ([]*models.Symbol,
 func (r *SymbolRepoPG) FindByCode(marketCode, symbolCode string) (*models.Symbol, error) {
 	var symbol models.Symbol
 	query := `
-		SELECT id, market_id, symbol_code, symbol_name, symbol_type,
-		       last_hot_at, hot_score, is_tracking, max_klines_count,
-		       created_at, updated_at
+		SELECT ` + symbolColumns + `
 		FROM symbols
 		WHERE market_code = $1 AND symbol_code = $2
 	`
 
-	err := r.db.QueryRow(context.Background(), query, marketCode, symbolCode).Scan(
-		&symbol.ID, &symbol.MarketID, &symbol.SymbolCode, &symbol.SymbolName, &symbol.SymbolType,
-		&symbol.LastHotAt, &symbol.HotScore, &symbol.IsTracking, &symbol.MaxKlinesCount,
-		&symbol.CreatedAt, &symbol.UpdatedAt,
-	)
-	if err != nil {
+	if err := scanSymbol(r.db.QueryRow(context.Background(), query, marketCode, symbolCode), &symbol); err != nil {
 		return nil, fmt.Errorf("查询标的失败: %w", err)
 	}
 
@@ -120,6 +120,22 @@ func (r *SymbolRepoPG) Update(symbol *models.Symbol) error {
 	return nil
 }
 
+// UpdateTrend 更新币对的趋势状态
+func (r *SymbolRepoPG) UpdateTrend(symbolID int, trend string) error {
+	query := `
+		UPDATE symbols SET
+			trend_4h = $1, trend_updated_at = NOW(), updated_at = NOW()
+		WHERE id = $2
+	`
+
+	_, err := r.db.Exec(context.Background(), query, trend, symbolID)
+	if err != nil {
+		return fmt.Errorf("更新标的趋势失败: %w", err)
+	}
+
+	return nil
+}
+
 func (r *SymbolRepoPG) DisableExpiredHot(cutoff time.Time) error {
 	query := `
 		UPDATE symbols SET
@@ -138,19 +154,12 @@ func (r *SymbolRepoPG) DisableExpiredHot(cutoff time.Time) error {
 func (r *SymbolRepoPG) GetByID(id int) (*models.Symbol, error) {
 	var symbol models.Symbol
 	query := `
-		SELECT id, market_id, market_code, symbol_code, symbol_name, symbol_type,
-		       last_hot_at, hot_score, is_tracking, max_klines_count,
-		       created_at, updated_at
+		SELECT ` + symbolColumns + `
 		FROM symbols
 		WHERE id = $1
 	`
 
-	err := r.db.QueryRow(context.Background(), query, id).Scan(
-		&symbol.ID, &symbol.MarketID, &symbol.MarketCode, &symbol.SymbolCode, &symbol.SymbolName, &symbol.SymbolType,
-		&symbol.LastHotAt, &symbol.HotScore, &symbol.IsTracking, &symbol.MaxKlinesCount,
-		&symbol.CreatedAt, &symbol.UpdatedAt,
-	)
-	if err != nil {
+	if err := scanSymbol(r.db.QueryRow(context.Background(), query, id), &symbol); err != nil {
 		return nil, fmt.Errorf("查询标的失败: %w", err)
 	}
 
@@ -199,9 +208,7 @@ func (r *SymbolRepoPG) GetByIDs(ids []int) ([]*models.Symbol, error) {
 func (r *SymbolRepoPG) GetAllByMarket(marketCode string) ([]*models.Symbol, error) {
 	var symbols []*models.Symbol
 	query := `
-		SELECT id, market_id, symbol_code, symbol_name, symbol_type,
-		       last_hot_at, hot_score, is_tracking, max_klines_count,
-		       created_at, updated_at
+		SELECT ` + symbolColumns + `
 		FROM symbols
 		WHERE market_code = $1
 		ORDER BY hot_score DESC
@@ -215,11 +222,7 @@ func (r *SymbolRepoPG) GetAllByMarket(marketCode string) ([]*models.Symbol, erro
 
 	for rows.Next() {
 		var symbol models.Symbol
-		if err := rows.Scan(
-			&symbol.ID, &symbol.MarketID, &symbol.SymbolCode, &symbol.SymbolName, &symbol.SymbolType,
-			&symbol.LastHotAt, &symbol.HotScore, &symbol.IsTracking, &symbol.MaxKlinesCount,
-			&symbol.CreatedAt, &symbol.UpdatedAt,
-		); err != nil {
+		if err := scanSymbol(rows, &symbol); err != nil {
 			return nil, fmt.Errorf("扫描市场标的数据失败: %w", err)
 		}
 		symbols = append(symbols, &symbol)

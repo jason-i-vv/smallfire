@@ -6,11 +6,12 @@
           {{ row.exit_time ? formatTime(row.exit_time) : '--' }}
         </template>
       </el-table-column>
-      <el-table-column prop="symbol_code" :label="t('trades.symbol') || '标的'" width="120">
+      <el-table-column prop="symbol_code" :label="t('trades.symbol') || '标的'" width="140">
         <template #default="{ row }">
           <el-button type="primary" link @click="handleViewChart(row)">
             {{ row.symbol_code }}
           </el-button>
+          <TrendBadge :trend="row.trend_4h" />
         </template>
       </el-table-column>
       <el-table-column prop="direction" :label="t('trades.direction') || '方向'" width="80">
@@ -155,6 +156,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { opportunityApi } from '@/api/opportunities'
 import { formatTime, formatPrice, formatPnL, formatDuration } from '@/utils/formatters'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 
 const { t } = useI18n()
 const router = useRouter()

@@ -43,6 +43,7 @@ type OpportunityAggregator struct {
 	signalRepo         repository.SignalRepo
 	statsRepo          repository.SignalTypeStatsRepo
 	trackRepo          repository.TradeTrackRepo
+	symbolRepo         repository.SymbolRepo
 	scorer             *SignalScorer
 	notifier           OpportunityNotifier
 	handlers           []OpportunityHandler
@@ -60,6 +61,7 @@ func NewOpportunityAggregator(
 	signalRepo repository.SignalRepo,
 	statsRepo repository.SignalTypeStatsRepo,
 	trackRepo repository.TradeTrackRepo,
+	symbolRepo repository.SymbolRepo,
 	scorer *SignalScorer,
 	validity SignalValidityConfig,
 	notifier OpportunityNotifier,
@@ -74,6 +76,7 @@ func NewOpportunityAggregator(
 		signalRepo:       signalRepo,
 		statsRepo:        statsRepo,
 		trackRepo:        trackRepo,
+		symbolRepo:       symbolRepo,
 		scorer:           scorer,
 		notifier:         notifier,
 		validity:         validity,
@@ -275,9 +278,10 @@ func (a *OpportunityAggregator) buildScoringContext(signals []*models.Signal, sy
 	// 4. 成交量确认 - 从信号数据提取
 	ctx.VolumeRatio = a.extractVolumeRatio(signals)
 
-	// 5. 市场状态 - 默认中间值
-	ctx.RegimeMatchScore = 0.5
-	ctx.MarketRegime = "unknown"
+	// 5. 市场状态 - 基于4h趋势计算
+	regime, matchScore := a.computeRegimeMatchScore(signals, symbolID)
+	ctx.RegimeMatchScore = matchScore
+	ctx.MarketRegime = regime
 
 	return ctx
 }
@@ -547,4 +551,81 @@ func scoreResultToJSONB(result *models.ScoreResult) *models.JSONB {
 	var jsonb models.JSONB
 	json.Unmarshal(b, &jsonb)
 	return &jsonb
+}
+
+// computeRegimeMatchScore 基于4h趋势计算市场状态匹配度
+func (a *OpportunityAggregator) computeRegimeMatchScore(signals []*models.Signal, symbolID int) (string, float64) {
+	if a.symbolRepo == nil || len(signals) == 0 {
+		return "unknown", 0.5
+	}
+
+	symbol, err := a.symbolRepo.GetByID(symbolID)
+	if err != nil || symbol == nil || symbol.Trend4h == "" {
+		return "unknown", 0.5
+	}
+
+	direction := signals[0].Direction
+	matchScore := calcTrendDirectionScore(symbol.Trend4h, direction, signals)
+	return symbol.Trend4h, matchScore
+}
+
+// calcTrendDirectionScore 根据4h趋势、方向和信号类型计算匹配度 (0.0-1.0)
+func calcTrendDirectionScore(trend, direction string, signals []*models.Signal) float64 {
+	if trend == models.TrendTypeSideways {
+		return 0.5
+	}
+
+	trendFollowing := 0
+	contrarian := 0
+
+	for _, sig := range signals {
+		switch sig.SignalType {
+		// 顺势信号
+		case models.SignalTypeMACD, models.SignalTypeBoxBreakout,
+			models.SignalTypePriceSurgeUp, models.SignalTypeResistanceBreak,
+			models.SignalTypeMomentumBullish, models.SignalTypeEngulfingBullish,
+			models.SignalTypeMorningStar,
+			models.SignalTypeBoxBreakdown, models.SignalTypePriceSurgeDown,
+			models.SignalTypeSupportBreak, models.SignalTypeMomentumBearish,
+			models.SignalTypeEngulfingBearish, models.SignalTypeEveningStar:
+			trendFollowing++
+
+		// 逆势信号
+		case models.SignalTypeVolumeSurge:
+			contrarian++
+
+		// 引线信号：按趋势方向判断
+		case models.SignalTypeLowerWickReversal:
+			if trend == models.TrendTypeBearish {
+				contrarian++
+			} else {
+				trendFollowing++
+			}
+		case models.SignalTypeUpperWickReversal:
+			if trend == models.TrendTypeBullish {
+				contrarian++
+			} else {
+				trendFollowing++
+			}
+		default:
+			trendFollowing++
+		}
+	}
+
+	bullish := trend == models.TrendTypeBullish
+	isLong := direction == models.DirectionLong
+
+	// 顺势：趋势方向与交易方向一致
+	if (bullish && isLong) || (!bullish && !isLong) {
+		return 0.85
+	}
+
+	// 逆势：检查是否有足够的逆势信号支撑
+	total := len(signals)
+	if total > 0 && float64(contrarian)/float64(total) >= 0.5 {
+		return 0.6
+	}
+
+	// 逆势且无逆势信号支撑
+	return 0.2
 }

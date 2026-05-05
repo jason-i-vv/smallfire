@@ -559,6 +559,12 @@
     "engulfing_bullish": "Engulfing Bullish",
     "engulfing_bearish": "Engulfing Bearish"
   },
+  "trend": {
+    "bullish": "Bullish",
+    "bearish": "Bearish",
+    "sideways": "Sideways",
+    "unknown": "Unknown"
+  },
   "kline": {
     "title": "K-line Chart",
     "symbol": "Symbol",

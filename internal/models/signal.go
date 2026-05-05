@@ -28,6 +28,7 @@ type Signal struct {
 	ID               int        `json:"id" db:"id"`
 	SymbolID         int        `json:"symbol_id" db:"symbol_id"`
 	SymbolCode       string     `json:"symbol_code" db:"symbol_code"`
+	Trend4h          string     `json:"trend_4h" db:"-"`
 	SignalType       string     `json:"signal_type" db:"signal_type"`
 	SourceType       string     `json:"source_type" db:"source_type"`
 	Direction        string     `json:"direction" db:"direction"`

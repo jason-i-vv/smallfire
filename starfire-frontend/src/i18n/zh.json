@@ -556,6 +556,12 @@
     "engulfing_bullish": "阳包阴吞没",
     "engulfing_bearish": "阴包阳吞没"
   },
+  "trend": {
+    "bullish": "看多",
+    "bearish": "看空",
+    "sideways": "震荡",
+    "unknown": "未知"
+  },
   "kline": {
     "title": "K线图表",
     "symbol": "交易对",

@@ -30,6 +30,7 @@ type SymbolRepo interface {
 	GetByIDs(ids []int) ([]*models.Symbol, error)
 	Create(symbol *models.Symbol) error
 	Update(symbol *models.Symbol) error
+	UpdateTrend(symbolID int, trend string) error
 	DisableExpiredHot(cutoff time.Time) error
 	GetAllByMarket(marketCode string) ([]*models.Symbol, error)
 }

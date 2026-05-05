@@ -30,7 +30,8 @@ func (r *SignalRepoPG) GetByID(id int) (*models.Signal, error) {
 		       s.target_price, s.stop_loss_price, s.period, s.description, s.status, s.confirmed_at, s.expired_at,
 		       s.triggered_at, s.notification_sent, s.kline_time, s.created_at,
 		       s.signal_data,
-		       COALESCE(sy.symbol_code, '') as symbol_code
+		       COALESCE(sy.symbol_code, '') as symbol_code,
+	       COALESCE(sy.trend_4h, '') as trend_4h
 		FROM signals s
 		LEFT JOIN symbols sy ON s.symbol_id = sy.id
 		WHERE s.id = $1
@@ -41,7 +42,7 @@ func (r *SignalRepoPG) GetByID(id int) (*models.Signal, error) {
 		&signal.Direction, &signal.Strength, &signal.Price, &signal.TargetPrice,
 		&signal.StopLossPrice, &signal.Period, &signal.Description, &signal.Status, &signal.ConfirmedAt,
 		&signal.ExpiredAt, &signal.TriggeredAt, &signal.NotificationSent, &signal.KlineTime,
-		&signal.CreatedAt, &signal.SignalData, &signal.SymbolCode,
+		&signal.CreatedAt, &signal.SignalData, &signal.SymbolCode, &signal.Trend4h,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("查询信号详情失败: %w", err)
@@ -342,7 +343,8 @@ func (r *SignalRepoPG) GetHistory(startDate, endDate time.Time, page, size int) 
 		SELECT s.id, s.symbol_id, s.signal_type, s.source_type, s.direction, s.strength, s.price,
 		       s.target_price, s.stop_loss_price, s.period, s.status, s.confirmed_at, s.expired_at,
 		       s.triggered_at, s.notification_sent, s.created_at,
-		       COALESCE(sy.symbol_code, '') as symbol_code
+		       COALESCE(sy.symbol_code, '') as symbol_code,
+	       COALESCE(sy.trend_4h, '') as trend_4h
 		FROM signals s
 		LEFT JOIN symbols sy ON s.symbol_id = sy.id
 		WHERE s.created_at BETWEEN $1 AND $2
@@ -363,7 +365,7 @@ func (r *SignalRepoPG) GetHistory(startDate, endDate time.Time, page, size int) 
 			&signal.Direction, &signal.Strength, &signal.Price, &signal.TargetPrice,
 			&signal.StopLossPrice, &signal.Period, &signal.Status, &signal.ConfirmedAt,
 			&signal.ExpiredAt, &signal.TriggeredAt, &signal.NotificationSent, &signal.CreatedAt,
-			&signal.SymbolCode,
+			&signal.SymbolCode, &signal.Trend4h,
 		); err != nil {
 			return nil, 0, fmt.Errorf("扫描信号历史数据失败: %w", err)
 		}
@@ -495,7 +497,8 @@ func (r *SignalRepoPG) Query(query *models.SignalQuery) ([]*models.Signal, int, 
 		SELECT s.id, s.symbol_id, s.signal_type, s.source_type, s.direction, s.strength, s.price,
 		       s.target_price, s.stop_loss_price, s.period, s.status, s.confirmed_at, s.expired_at,
 		       s.triggered_at, s.notification_sent, s.kline_time, s.created_at,
-		       COALESCE(sy.symbol_code, '') as symbol_code
+		       COALESCE(sy.symbol_code, '') as symbol_code,
+	       COALESCE(sy.trend_4h, '') as trend_4h
 		FROM signals s
 		LEFT JOIN symbols sy ON s.symbol_id = sy.id
 		%s
@@ -524,7 +527,7 @@ func (r *SignalRepoPG) Query(query *models.SignalQuery) ([]*models.Signal, int, 
 			&signal.Direction, &signal.Strength, &signal.Price, &signal.TargetPrice,
 			&signal.StopLossPrice, &signal.Period, &signal.Status, &signal.ConfirmedAt,
 			&signal.ExpiredAt, &signal.TriggeredAt, &signal.NotificationSent, &signal.KlineTime,
-			&signal.CreatedAt, &signal.SymbolCode,
+			&signal.CreatedAt, &signal.SymbolCode, &signal.Trend4h,
 		); err != nil {
 			return nil, 0, fmt.Errorf("扫描信号数据失败: %w", err)
 		}

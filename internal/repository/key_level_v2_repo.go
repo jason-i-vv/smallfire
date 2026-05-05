@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smallfire/starfire/internal/database"
 	"github.com/smallfire/starfire/internal/models"
 )
@@ -58,6 +59,9 @@ func (r *KeyLevelV2RepoPG) GetBySymbolPeriod(symbolID int, period string) (*mode
 	err := r.db.QueryRow(context.Background(), query, symbolID, period).Scan(
 		&level.SymbolID, &level.Period, &resistJSON, &supportJSON, &level.UpdatedAt,
 	)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("查询关键价位失败: %w", err)
 	}

@@ -34,6 +34,7 @@
       >
         <div class="box-header">
           <span class="symbol-code">{{ box.symbol_code }}</span>
+          <TrendBadge :trend="box.trend_4h" />
           <span :class="['box-status', `status-${box.status}`]">{{ getStatusName(box.status) }}</span>
         </div>
 
@@ -92,6 +93,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Loading } from '@element-plus/icons-vue'
 import { formatTime, formatPrice } from '@/utils/formatters'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 import { boxApi } from '@/api/boxes'
 
 const router = useRouter()

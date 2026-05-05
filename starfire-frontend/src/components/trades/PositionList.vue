@@ -1,11 +1,12 @@
 <template>
   <div class="position-list-component">
     <el-table :data="positions" stripe size="small" class="position-table">
-      <el-table-column prop="symbol_code" :label="t('positions.symbol') || '标的'" width="120">
+      <el-table-column prop="symbol_code" :label="t('positions.symbol') || '标的'" width="140">
         <template #default="{ row }">
           <el-button type="primary" link @click="handleViewChart(row)">
             {{ row.symbol_code }}
           </el-button>
+          <TrendBadge :trend="row.trend_4h" />
         </template>
       </el-table-column>
       <el-table-column prop="trade_source" :label="t('positions.tradeSource')" width="120">
@@ -76,6 +77,7 @@
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { formatPrice, formatPnL, formatPercent, formatTime } from '@/utils/formatters'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 
 const { t } = useI18n()
 const router = useRouter()

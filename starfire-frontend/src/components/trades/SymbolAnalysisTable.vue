@@ -1,9 +1,10 @@
 <template>
   <el-table :data="data" stripe size="small" class="symbol-table" max-height="400">
     <el-table-column type="index" label="#" width="60" />
-    <el-table-column prop="symbol_code" label="标的" min-width="120">
+    <el-table-column prop="symbol_code" label="标的" min-width="140">
       <template #default="{ row }">
         {{ row.symbol_code || `#${row.symbol_id}` }}
+        <TrendBadge :trend="row.trend_4h" />
       </template>
     </el-table-column>
     <el-table-column prop="total_trades" label="交易数" width="100" />
@@ -28,6 +29,7 @@
 
 <script setup>
 import { formatPnL, formatPercent } from '@/utils/formatters'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 
 defineProps({
   data: {

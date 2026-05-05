@@ -24,6 +24,7 @@
         />
       </el-select>
       <span class="symbol-name">{{ symbolCode }}</span>
+      <TrendBadge :trend="trend4h" />
       <span class="current-price" :class="priceClass">
         {{ formatPrice(currentPrice) }}
       </span>
@@ -38,6 +39,7 @@
       <el-radio-group v-model="period" size="small" class="period-switch">
         <el-radio-button label="15m" />
         <el-radio-button label="1h" />
+        <el-radio-button label="4h" />
         <el-radio-button label="1d" />
       </el-radio-group>
       <span class="info-item">
@@ -197,6 +199,7 @@ import { formatPrice, formatNumber } from '@/utils/formatters'
 import { ArrowLeft, Clock, DataLine, Lightning, TrendCharts } from '@element-plus/icons-vue'
 import AIAnalysisDialog from '@/components/common/AIAnalysisDialog.vue'
 import PositionLevelOverlay from '@/components/chart/PositionLevelOverlay.vue'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -215,6 +218,7 @@ const fetchSymbolIdByCode = async () => {
     const res = await symbolApi.resolve(symbolCode.value)
     if (res.data?.id) {
       symbolId.value = res.data.id
+      trend4h.value = res.data.trend_4h || ''
     }
   } catch (error) {
     console.error('Failed to fetch symbolId by code:', error)
@@ -329,11 +333,14 @@ const symbolSearching = ref(false)
 
 // 趋势状态
 const trendInfo = ref(null)
+const trend4h = ref('')
 const trendStatus = computed(() => {
   if (!trendInfo.value) return null
   const t = trendInfo.value.trend_type
+  const dirMap = { bullish: '多头', bearish: '空头', sideways: '震荡' }
+  const arrowMap = { bullish: ' ▲', bearish: ' ▼', sideways: ' ──' }
   return {
-    label: t === 'bullish' ? '看多 ▲' : t === 'bearish' ? '看空 ▼' : '震荡 ──',
+    label: (dirMap[t] || t) + '(4h)' + (arrowMap[t] || ''),
     type: t === 'bullish' ? 'success' : t === 'bearish' ? 'danger' : 'info',
     strength: trendInfo.value.strength
   }
@@ -408,6 +415,7 @@ const handleSymbolChange = async (code) => {
     if (res.data) {
       symbolCode.value = res.data.symbol_code
       symbolId.value = res.data.id
+      trend4h.value = res.data.trend_4h || ''
       // 重置数据
       currentPrice.value = 0
       priceChange.value = 0
@@ -427,7 +435,7 @@ const handleSymbolChange = async (code) => {
 const fetchTrend = async () => {
   if (!symbolId.value) return
   try {
-    const res = await trendApi.listBySymbol(symbolId.value, { period: period.value })
+    const res = await trendApi.listBySymbol(symbolId.value, { period: '4h' })
     if (res.data) {
       trendInfo.value = res.data
     }
@@ -440,9 +448,7 @@ const fetchTrend = async () => {
 watch(period, async () => {
   if (!symbolId.value) return
   keyLevels.value = []
-  trendInfo.value = null
   await fetchKlines()
-  fetchTrend()
 })
 
 // 获取信号类型名称

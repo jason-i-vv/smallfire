@@ -59,6 +59,7 @@ func scanTradeTrack(row interface{ Scan(dest ...any) error }) (*models.TradeTrac
 func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*models.TradeTrack, string, error) {
 	var track models.TradeTrack
 	var symbolCode string
+	var trend4h string
 	if err := row.Scan(
 		&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
 		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
@@ -68,17 +69,18 @@ func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*mo
 		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID, &symbolCode,
+		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID, &symbolCode, &trend4h,
 	); err != nil {
 		return nil, "", err
 	}
+	track.Trend4h = trend4h
 	return &track, symbolCode, nil
 }
 
 // scanTradeTrackWithDetails 扫描包含 symbol_code, signal_type, source_type 的行数据
 func scanTradeTrackWithDetails(row interface{ Scan(dest ...any) error }) (*models.TradeTrack, error) {
 	var track models.TradeTrack
-	var symbolCode, signalType, sourceType string
+	var symbolCode, trend4h, signalType, sourceType string
 	if err := row.Scan(
 		&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
 		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
@@ -89,11 +91,12 @@ func scanTradeTrackWithDetails(row interface{ Scan(dest ...any) error }) (*model
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
 		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID,
-		&symbolCode, &signalType, &sourceType,
+		&symbolCode, &trend4h, &signalType, &sourceType,
 	); err != nil {
 		return nil, err
 	}
 	track.SymbolCode = symbolCode
+	track.Trend4h = trend4h
 	track.SignalType = signalType
 	track.SourceType = sourceType
 	return &track, nil
@@ -225,7 +228,8 @@ func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int, filters map
 				       t.updated_at updated_at,
 				       COALESCE(t.trade_source, 'paper') as trade_source,
 				       COALESCE(t.exchange_order_id, '') as exchange_order_id,
-				       COALESCE(s.symbol_code, '') as symbol_code
+				       COALESCE(s.symbol_code, '') as symbol_code,
+			       COALESCE(s.trend_4h, '') as trend_4h
 				FROM trade_tracks t
 				LEFT JOIN symbols s ON t.symbol_id = s.id
 				%s
@@ -315,7 +319,8 @@ func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time, tradeS
 			       t.updated_at updated_at,
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
-			       COALESCE(s.symbol_code, '') as symbol_code
+			       COALESCE(s.symbol_code, '') as symbol_code,
+			       COALESCE(s.trend_4h, '') as trend_4h
 			FROM trade_tracks t
 			LEFT JOIN symbols s ON t.symbol_id = s.id
 			WHERE t.status = $1`
@@ -504,6 +509,7 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
 			       COALESCE(s.symbol_code, '') as symbol_code,
+			       COALESCE(s.trend_4h, '') as trend_4h,
 			       COALESCE(sig.signal_type, '') as signal_type,
 			       COALESCE(sig.source_type, '') as source_type
 			FROM trade_tracks t

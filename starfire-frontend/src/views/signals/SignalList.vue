@@ -86,7 +86,12 @@
         </template>
       </el-table-column>
 
-      <el-table-column prop="symbol_code" :label="t('signals.symbol') || '标的'" width="120" />
+      <el-table-column prop="symbol_code" :label="t('signals.symbol') || '标的'" width="140">
+        <template #default="{ row }">
+          {{ row.symbol_code }}
+          <TrendBadge :trend="row.trend_4h" />
+        </template>
+      </el-table-column>
 
       <el-table-column prop="source_type" :label="t('signals.source') || '来源'" width="100">
         <template #default="{ row }">
@@ -172,6 +177,7 @@ import { useRouter } from 'vue-router'
 import { signalApi } from '@/api/signals'
 import { symbolApi } from '@/api/symbols'
 import { formatTime, formatPrice } from '@/utils/formatters'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 
 const { t } = useI18n()
 const router = useRouter()

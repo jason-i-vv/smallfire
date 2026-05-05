@@ -26,6 +26,7 @@
         <div class="symbol-header">
           <div class="symbol-info">
             <span class="symbol-code">{{ symbol.symbol_code }}</span>
+            <TrendBadge :trend="symbol.trend_4h" />
             <span class="symbol-name">{{ symbol.symbol_name || symbol.symbol_code }}</span>
           </div>
           <div class="hot-score">
@@ -72,6 +73,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Loading } from '@element-plus/icons-vue'
 import { formatTime } from '@/utils/formatters'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 import { symbolApi } from '@/api/symbols'
 
 const router = useRouter()

@@ -33,6 +33,7 @@ type TradeTrackResponse struct {
 	OpportunityID *int    `json:"opportunity_id,omitempty"`
 	SymbolID      int     `json:"symbol_id"`
 	SymbolCode    string  `json:"symbol_code"`
+	Trend4h       string  `json:"trend_4h,omitempty"`
 	Direction     string  `json:"direction"`
 	EntryPrice    *float64 `json:"entry_price,omitempty"`
 	EntryTime     int64   `json:"entry_time,omitempty"`    // 毫秒时间戳
@@ -92,6 +93,7 @@ func (t *TradeTrack) ToResponse() *TradeTrackResponse {
 	resp.SourceType = t.SourceType
 	resp.TradeSource = t.TradeSource
 	resp.ExchangeOrderID = t.ExchangeOrderID
+	resp.Trend4h = t.Trend4h
 	return resp
 }
 
@@ -101,6 +103,7 @@ type TradeTrack struct {
 	OpportunityID *int    `json:"opportunity_id,omitempty" db:"opportunity_id"` // 关联交易机会（AI 分析来源）
 	SymbolID      int     `json:"symbol_id" db:"symbol_id"`
 	SymbolCode string `json:"symbol_code" db:"-"` // 关联字段，不从数据库读取
+	Trend4h    string `json:"-" db:"-"`           // 关联字段，4h趋势
 
 	// 入场信息
 	Direction     string     `json:"direction" db:"direction"` // long, short

@@ -30,6 +30,7 @@ func NewBoxHandler(boxRepo repository.BoxRepo, symbolRepo repository.SymbolRepo,
 type BoxListItem struct {
 	models.Box
 	SymbolCode string `json:"symbol_code"`
+	Trend4h    string `json:"trend_4h"`
 }
 
 // GetBoxes 获取箱体列表
@@ -75,11 +76,13 @@ func (h *BoxHandler) GetBoxes(c *gin.Context) {
 		symbolIDMap[box.SymbolID] = true
 	}
 
-	// 批量查询 symbol_code
+	// 批量查询 symbol_code 和 trend_4h
 	symbolCodeMap := make(map[int]string)
+	symbolTrendMap := make(map[int]string)
 	for symbolID := range symbolIDMap {
 		if symbol, err := h.symbolRepo.GetByID(symbolID); err == nil {
 			symbolCodeMap[symbolID] = symbol.SymbolCode
+			symbolTrendMap[symbolID] = symbol.Trend4h
 		} else {
 			h.logger.Warn("查询标的失败", zap.Int("symbol_id", symbolID), zap.Error(err))
 			symbolCodeMap[symbolID] = ""
@@ -92,6 +95,7 @@ func (h *BoxHandler) GetBoxes(c *gin.Context) {
 		boxItems = append(boxItems, &BoxListItem{
 			Box:        *box,
 			SymbolCode: symbolCodeMap[box.SymbolID],
+			Trend4h:    symbolTrendMap[box.SymbolID],
 		})
 	}
 

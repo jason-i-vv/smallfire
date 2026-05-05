@@ -203,7 +203,7 @@ func main() {
 	utils.Info("评分引擎初始化成功")
 
 	// 初始化交易机会聚合器
-	oppAggregator := scoring.NewOpportunityAggregator(oppRepo, signalRepo, statsRepo, trackRepo, signalScorer, scoring.DefaultValidityConfig, notifyManager, utils.Logger, cfg.Trading.MinNotifyScoreThreshold)
+	oppAggregator := scoring.NewOpportunityAggregator(oppRepo, signalRepo, statsRepo, trackRepo, symbolRepo, signalScorer, scoring.DefaultValidityConfig, notifyManager, utils.Logger, cfg.Trading.MinNotifyScoreThreshold)
 	strategyRunner.SetAggregator(oppAggregator)
 	utils.Info("交易机会聚合器初始化成功")
 
@@ -311,6 +311,9 @@ func main() {
 
 	// 启动同步服务（K线同步后立即触发策略分析）
 	syncService.AddHook(strategyRunner)
+	// 注册4h趋势计算钩子（4h K线同步后更新币对趋势）
+	trend4hHook := market.NewTrend4hHook(klineRepo, symbolRepo, utils.Logger)
+	syncService.AddHook(trend4hHook)
 	syncService.Start()
 	defer syncService.Stop()
 

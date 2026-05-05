@@ -49,7 +49,7 @@ markets:
     testnet: false
     symbols_limit: 500    # 最多跟踪的交易对数量
     hot_days: 30          # 热度有效期（天）
-    periods: ["15m", "1h"] # 抓取周期
+    periods: ["15m", "1h", "4h"] # 抓取周期
     fetch_interval: 60    # 抓取间隔（秒）
     max_concurrent_sync: 10 # 最大并发同步数
   a_stock:

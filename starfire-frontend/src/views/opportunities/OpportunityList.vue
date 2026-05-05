@@ -76,9 +76,10 @@
       v-loading="loading"
       :empty-text="t('opportunities.noOpportunities')"
     >
-      <el-table-column prop="symbol_code" :label="t('opportunities.symbol')" width="130" fixed>
+      <el-table-column prop="symbol_code" :label="t('opportunities.symbol')" width="160" fixed>
         <template #default="{ row }">
           <span class="symbol-code">{{ row.symbol_code }}</span>
+          <TrendBadge :trend="row.score_details?.regime" />
         </template>
       </el-table-column>
 
@@ -300,6 +301,7 @@ import { useI18n } from 'vue-i18n'
 import { opportunityApi } from '@/api/opportunities'
 import { formatTime, formatPrice, formatPnL } from '@/utils/formatters'
 import AIAnalysisDialog from '@/components/common/AIAnalysisDialog.vue'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 
 const { t } = useI18n()
 const router = useRouter()

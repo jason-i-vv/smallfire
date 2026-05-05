@@ -25,9 +25,10 @@
         class="symbol-table"
         :row-style="{ cursor: 'pointer' }"
       >
-        <el-table-column prop="symbol_code" :label="t('market.code')" width="140" fixed>
+        <el-table-column prop="symbol_code" :label="t('market.code')" width="160" fixed>
           <template #default="{ row }">
             <span class="symbol-code">{{ row.symbol_code }}</span>
+            <TrendBadge :trend="row.trend_4h" />
           </template>
         </el-table-column>
 
@@ -95,6 +96,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { marketApi } from '@/api/markets'
 import { formatPrice, formatPercent } from '@/utils/formatters'
+import TrendBadge from '@/components/common/TrendBadge.vue'
 
 const { t } = useI18n()
 

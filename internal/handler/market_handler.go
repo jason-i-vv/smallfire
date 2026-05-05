@@ -49,6 +49,7 @@ type SymbolOverview struct {
 	Change      *float64 `json:"change"`
 	TrendType   *string  `json:"trend_type"`
 	TrendStrength *int   `json:"trend_strength"`
+	Trend4h     string   `json:"trend_4h"`
 }
 
 // GetMarkets 获取所有市场列表
@@ -324,6 +325,7 @@ func (h *MarketHandler) GetMarketOverview(c *gin.Context) {
 			SymbolCode: sym.SymbolCode,
 			SymbolName: sym.SymbolName,
 			MarketCode: sym.MarketCode,
+		Trend4h:    sym.Trend4h,
 		}
 
 		// 获取最新K线
