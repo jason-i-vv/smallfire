@@ -109,16 +109,27 @@ func (f *SinaFetcher) FetchSymbols() ([]SymbolInfo, error) {
 	return symbols, nil
 }
 
+// sinaKlineItem 新浪K线API返回的单条数据结构
+type sinaKlineItem struct {
+	Day    string `json:"day"`
+	Open   string `json:"open"`
+	High   string `json:"high"`
+	Low    string `json:"low"`
+	Close  string `json:"close"`
+	Volume string `json:"volume"`
+}
+
 // FetchKlines 获取K线数据
 func (f *SinaFetcher) FetchKlines(symbol, period string, limit int) ([]KlineData, error) {
+	// scale 参数：240=日K, 1200=周K, 7200=月K（分钟数）
 	periodMap := map[string]string{
-		"daily":   "d",
-		"weekly":   "w",
-		"monthly":  "m",
+		"daily":   "240",
+		"weekly":  "1200",
+		"monthly": "7200",
 	}
 	pt := periodMap[period]
 	if pt == "" {
-		pt = "d"
+		pt = "240"
 	}
 
 	prefix := "sh"
@@ -154,19 +165,23 @@ func (f *SinaFetcher) FetchKlines(symbol, period string, limit int) ([]KlineData
 	}
 
 	content := strings.Trim(strings.Trim(string(body), "; \n\t\r"), ";")
+	if content == "" || content == "null" {
+		return nil, fmt.Errorf("sina kline返回数据为空")
+	}
 
-	var rawData [][]interface{}
-	if err := json.Unmarshal([]byte(content), &rawData); err != nil {
+	// 检查是否返回错误
+	if strings.Contains(content, "__ERROR") {
+		return nil, fmt.Errorf("sina kline API错误: %s", content)
+	}
+
+	var items []sinaKlineItem
+	if err := json.Unmarshal([]byte(content), &items); err != nil {
 		return nil, fmt.Errorf("sina kline解析失败: %w", err)
 	}
 
 	var klines []KlineData
-	for _, item := range rawData {
-		if len(item) < 6 {
-			continue
-		}
-		day := toStr(item, 0)
-		openTime, err := time.ParseInLocation("2006-01-02", day, time.FixedZone("CST", 8*3600))
+	for _, item := range items {
+		openTime, err := time.ParseInLocation("2006-01-02", item.Day, time.FixedZone("CST", 8*3600))
 		if err != nil {
 			continue
 		}
@@ -176,11 +191,11 @@ func (f *SinaFetcher) FetchKlines(symbol, period string, limit int) ([]KlineData
 		klines = append(klines, KlineData{
 			OpenTime:  openTime,
 			CloseTime: openTime.Add(24 * time.Hour),
-			Open:     toF64(item, 1),
-			High:     toF64(item, 3),
-			Low:      toF64(item, 4),
-			Close:    toF64(item, 2),
-			Volume:   toF64(item, 5),
+			Open:      parseFloatStr(item.Open),
+			High:      parseFloatStr(item.High),
+			Low:       parseFloatStr(item.Low),
+			Close:     parseFloatStr(item.Close),
+			Volume:    parseFloatStr(item.Volume),
 		})
 	}
 
