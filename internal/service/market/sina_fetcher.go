@@ -70,19 +70,15 @@ func (f *SinaFetcher) FetchSymbols() ([]SymbolInfo, error) {
 		return nil, fmt.Errorf("sina返回数据为空")
 	}
 
-	var rawResult [][]interface{}
+	var rawResult []map[string]interface{}
 	if err := json.Unmarshal([]byte(content), &rawResult); err != nil {
 		return nil, fmt.Errorf("sina解析失败: %w", err)
 	}
 
 	var symbols []SymbolInfo
 	for _, item := range rawResult {
-		if len(item) < 10 {
-			continue
-		}
-
-		symbolCode := toStr(item, 0)
-		name := toStr(item, 1)
+		symbolCode, _ := item["symbol"].(string)
+		name, _ := item["name"].(string)
 		if symbolCode == "" || name == "" {
 			continue
 		}
@@ -93,7 +89,7 @@ func (f *SinaFetcher) FetchSymbols() ([]SymbolInfo, error) {
 		}
 
 		// 解析成交额作为热度分数
-		amount := toF64(item, 6)
+		amount := toF64Map(item, "amount")
 		if amount <= 0 {
 			continue
 		}
