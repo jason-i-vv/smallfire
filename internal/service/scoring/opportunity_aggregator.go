@@ -13,10 +13,10 @@ import (
 
 // SignalValidityConfig 信号有效期配置（K线数量）
 type SignalValidityConfig struct {
-	WickKlines        int `mapstructure:"wick_klines"`         // 引线信号有效期（K线数）
+	WickKlines        int `mapstructure:"wick_klines"`        // 引线信号有效期（K线数）
 	CandlestickKlines int `mapstructure:"candlestick_klines"` // K线形态有效期
 	KeyLevelKlines    int `mapstructure:"key_level_klines"`   // 关键位有效期
-	VolumeKlines      int `mapstructure:"volume_klines"`       // 量价信号有效期
+	VolumeKlines      int `mapstructure:"volume_klines"`      // 量价信号有效期
 }
 
 // DefaultValidityConfig 默认有效期配置
@@ -39,20 +39,20 @@ type OpportunityHandler interface {
 
 // OpportunityAggregator 交易机会聚合器
 type OpportunityAggregator struct {
-	oppRepo            repository.OpportunityRepo
-	signalRepo         repository.SignalRepo
-	statsRepo          repository.SignalTypeStatsRepo
-	trackRepo          repository.TradeTrackRepo
-	symbolRepo         repository.SymbolRepo
-	scorer             *SignalScorer
-	notifier           OpportunityNotifier
-	handlers           []OpportunityHandler
-	validity           SignalValidityConfig
-	minScoreToCreate   int
-	minScoreToNotify   int
-	expireAfterNoNew   time.Duration
-	logger             *zap.Logger
-	mu                 sync.Mutex // 防止并发 find-or-create 竞态
+	oppRepo          repository.OpportunityRepo
+	signalRepo       repository.SignalRepo
+	statsRepo        repository.SignalTypeStatsRepo
+	trackRepo        repository.TradeTrackRepo
+	symbolRepo       repository.SymbolRepo
+	scorer           *SignalScorer
+	notifier         OpportunityNotifier
+	handlers         []OpportunityHandler
+	validity         SignalValidityConfig
+	minScoreToCreate int
+	minScoreToNotify int
+	expireAfterNoNew time.Duration
+	logger           *zap.Logger
+	mu               sync.Mutex // 防止并发 find-or-create 竞态
 }
 
 // NewOpportunityAggregator 创建聚合器
@@ -107,6 +107,7 @@ func (a *OpportunityAggregator) invokeHandlers(opp *models.TradingOpportunity) {
 		}()
 	}
 }
+
 // 在策略运行器每次产生新信号后调用
 func (a *OpportunityAggregator) AggregateSignals(newSignals []*models.Signal) error {
 	a.mu.Lock()
@@ -142,28 +143,28 @@ func (a *OpportunityAggregator) AggregateSignals(newSignals []*models.Signal) er
 		}
 
 		if existing != nil {
-				// 如果该机会已触发过交易，则过期它，让新信号走新机会
-				trades, trackErr := a.trackRepo.GetByOpportunityID(existing.ID)
-				if trackErr != nil {
-					a.logger.Error("查询机会关联交易失败", zap.Int("opportunity_id", existing.ID), zap.Error(trackErr))
-				} else if len(trades) > 0 {
-					a.logger.Info("交易机会已触发过交易，过期旧机会",
-						zap.Int("existing_id", existing.ID),
-						zap.String("symbol", first.SymbolCode),
-						zap.Int("trade_count", len(trades)),
-					)
-					existing.Status = models.OpportunityStatusExpired
-					expiredAt := time.Now()
-					existing.ExpiredAt = &expiredAt
-					if err := a.oppRepo.Update(existing); err != nil {
-						a.logger.Error("过期已触发交易的交易机会失败", zap.Error(err))
-					}
-					existing = nil
+			// 如果该机会已触发过交易，则过期它，让新信号走新机会
+			trades, trackErr := a.trackRepo.GetByOpportunityID(existing.ID)
+			if trackErr != nil {
+				a.logger.Error("查询机会关联交易失败", zap.Int("opportunity_id", existing.ID), zap.Error(trackErr))
+			} else if len(trades) > 0 {
+				a.logger.Info("交易机会已触发过交易，过期旧机会",
+					zap.Int("existing_id", existing.ID),
+					zap.String("symbol", first.SymbolCode),
+					zap.Int("trade_count", len(trades)),
+				)
+				existing.Status = models.OpportunityStatusExpired
+				expiredAt := time.Now()
+				existing.ExpiredAt = &expiredAt
+				if err := a.oppRepo.Update(existing); err != nil {
+					a.logger.Error("过期已触发交易的交易机会失败", zap.Error(err))
 				}
+				existing = nil
 			}
+		}
 
-			if existing != nil {
-				// 检查新信号与已有机会的时间跨度是否过大
+		if existing != nil {
+			// 检查新信号与已有机会的时间跨度是否过大
 			if a.isTimeGapTooLarge(existing, signals) {
 				a.logger.Info("信号时间跨度过大，过期旧机会",
 					zap.Int("existing_id", existing.ID),
@@ -412,20 +413,20 @@ func (a *OpportunityAggregator) createOpportunity(signals []*models.Signal, ctx 
 	}
 
 	opp := &models.TradingOpportunity{
-		SymbolID:           signals[0].SymbolID,
-		SymbolCode:         signals[0].SymbolCode,
-		Direction:          signals[0].Direction,
-		Score:              result.TotalScore,
-		ScoreDetails:       &scoreDetailsJSONB,
-		SignalCount:        len(signals),
+		SymbolID:             signals[0].SymbolID,
+		SymbolCode:           signals[0].SymbolCode,
+		Direction:            signals[0].Direction,
+		Score:                result.TotalScore,
+		ScoreDetails:         &scoreDetailsJSONB,
+		SignalCount:          len(signals),
 		ConfluenceDirections: directions,
-		SuggestedEntry:     &entry,
-		SuggestedStopLoss:  stopLoss,
-		SuggestedTakeProfit: takeProfit,
-		Status:             models.OpportunityStatusActive,
-		Period:             signals[0].Period,
-		FirstSignalAt:      firstSignalAt,
-		LastSignalAt:       lastSignalAt,
+		SuggestedEntry:       &entry,
+		SuggestedStopLoss:    stopLoss,
+		SuggestedTakeProfit:  takeProfit,
+		Status:               models.OpportunityStatusActive,
+		Period:               signals[0].Period,
+		FirstSignalAt:        firstSignalAt,
+		LastSignalAt:         lastSignalAt,
 	}
 
 	if err := a.oppRepo.Create(opp); err != nil {
@@ -560,13 +561,14 @@ func (a *OpportunityAggregator) computeRegimeMatchScore(signals []*models.Signal
 	}
 
 	symbol, err := a.symbolRepo.GetByID(symbolID)
-	if err != nil || symbol == nil || symbol.Trend4h == "" {
+	if err != nil || symbol == nil || symbol.Trend4h == nil || *symbol.Trend4h == "" {
 		return "unknown", 0.5
 	}
 
 	direction := signals[0].Direction
-	matchScore := calcTrendDirectionScore(symbol.Trend4h, direction, signals)
-	return symbol.Trend4h, matchScore
+	trend4h := *symbol.Trend4h
+	matchScore := calcTrendDirectionScore(trend4h, direction, signals)
+	return trend4h, matchScore
 }
 
 // calcTrendDirectionScore 根据4h趋势、方向和信号类型计算匹配度 (0.0-1.0)

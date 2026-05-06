@@ -325,7 +325,7 @@ func (h *MarketHandler) GetMarketOverview(c *gin.Context) {
 			SymbolCode: sym.SymbolCode,
 			SymbolName: sym.SymbolName,
 			MarketCode: sym.MarketCode,
-		Trend4h:    sym.Trend4h,
+		Trend4h:    sym.GetTrend4h(),
 		}
 
 		// 获取最新K线

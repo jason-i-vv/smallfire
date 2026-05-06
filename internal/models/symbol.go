@@ -13,8 +13,16 @@ type Symbol struct {
 	HotScore       float64    `json:"hot_score" db:"hot_score"`
 	IsTracking     bool       `json:"is_tracking" db:"is_tracking"`
 	MaxKlinesCount int        `json:"max_klines_count" db:"max_klines_count"`
-	Trend4h        string     `json:"trend_4h" db:"trend_4h"`
+	Trend4h        *string    `json:"trend_4h" db:"trend_4h"`
 	TrendUpdatedAt *time.Time `json:"trend_updated_at,omitempty" db:"trend_updated_at"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// GetTrend4h 安全获取趋势值，NULL 时返回空字符串
+func (s *Symbol) GetTrend4h() string {
+	if s.Trend4h == nil {
+		return ""
+	}
+	return *s.Trend4h
 }

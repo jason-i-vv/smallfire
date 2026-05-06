@@ -82,7 +82,7 @@ func (h *BoxHandler) GetBoxes(c *gin.Context) {
 	for symbolID := range symbolIDMap {
 		if symbol, err := h.symbolRepo.GetByID(symbolID); err == nil {
 			symbolCodeMap[symbolID] = symbol.SymbolCode
-			symbolTrendMap[symbolID] = symbol.Trend4h
+			symbolTrendMap[symbolID] = symbol.GetTrend4h()
 		} else {
 			h.logger.Warn("查询标的失败", zap.Int("symbol_id", symbolID), zap.Error(err))
 			symbolCodeMap[symbolID] = ""
