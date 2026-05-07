@@ -123,7 +123,8 @@ func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 			       t.updated_at updated_at,
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
-			       COALESCE(s.symbol_code, '') as symbol_code
+			       COALESCE(s.symbol_code, '') as symbol_code,
+			       COALESCE(s.trend_4h, '') as trend_4h
 			FROM trade_tracks t
 			LEFT JOIN symbols s ON t.symbol_id = s.id
 			WHERE t.status = $1
