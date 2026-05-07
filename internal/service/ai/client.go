@@ -20,10 +20,10 @@ type ChatMessage struct {
 
 // chatRequest OpenAI 兼容请求体
 type chatRequest struct {
-	Model         string        `json:"model"`
-	Messages      []ChatMessage `json:"messages"`
-	MaxTokens     int           `json:"max_tokens"`
-	Temperature   float64       `json:"temperature"`
+	Model          string        `json:"model"`
+	Messages       []ChatMessage `json:"messages"`
+	MaxTokens      int           `json:"max_tokens"`
+	Temperature    float64       `json:"temperature"`
 	ResponseFormat *struct {
 		Type string `json:"type"`
 	} `json:"response_format,omitempty"`
@@ -64,10 +64,18 @@ func NewAIClient(cfg config.AIConfig) *AIClient {
 
 // ChatCompletion 调用聊天补全 API（强制 JSON 输出）
 func (c *AIClient) ChatCompletion(ctx context.Context, messages []ChatMessage) (string, error) {
+	return c.ChatCompletionWithMaxTokens(ctx, messages, c.maxTokens)
+}
+
+// ChatCompletionWithMaxTokens 调用聊天补全 API（强制 JSON 输出），允许单次覆盖输出长度。
+func (c *AIClient) ChatCompletionWithMaxTokens(ctx context.Context, messages []ChatMessage, maxTokens int) (string, error) {
+	if maxTokens <= 0 {
+		maxTokens = c.maxTokens
+	}
 	reqBody := chatRequest{
 		Model:       c.model,
 		Messages:    messages,
-		MaxTokens:   c.maxTokens,
+		MaxTokens:   maxTokens,
 		Temperature: c.temperature,
 		ResponseFormat: &struct {
 			Type string `json:"type"`

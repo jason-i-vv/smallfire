@@ -222,3 +222,10 @@ type LimitStatRepo interface {
 	Upsert(stat *models.AStockLimitStat) error
 	GetRecent(days int) ([]*models.AStockLimitStat, error)
 }
+
+// AIWatchTargetRepo AI观察位数据访问接口
+type AIWatchTargetRepo interface {
+	List(userID *int, agentType string) ([]*models.AIWatchTarget, error)
+	Upsert(target *models.AIWatchTarget) error
+	Delete(userID *int, id int) error
+}

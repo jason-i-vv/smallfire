@@ -138,6 +138,9 @@
     "paperTrading": "模拟交易",
     "marketData": "市场行情",
     "trends": "趋势",
+    "aiAgents": "AI Agent",
+    "trendAgent": "趋势 Agent",
+    "waveAgent": "艾略特 Agent",
     "aStockMarket": "A股行情"
   },
   "header": {

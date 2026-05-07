@@ -18,17 +18,17 @@ import (
 	"github.com/smallfire/starfire/internal/handler"
 	"github.com/smallfire/starfire/internal/middleware"
 	"github.com/smallfire/starfire/internal/repository"
+	aiservice "github.com/smallfire/starfire/internal/service/ai"
 	authservice "github.com/smallfire/starfire/internal/service/auth"
+	"github.com/smallfire/starfire/internal/service/backtest"
 	"github.com/smallfire/starfire/internal/service/ema"
 	"github.com/smallfire/starfire/internal/service/market"
 	"github.com/smallfire/starfire/internal/service/monitoring"
 	"github.com/smallfire/starfire/internal/service/notification"
-	"github.com/smallfire/starfire/internal/service/backtest"
-	aiservice "github.com/smallfire/starfire/internal/service/ai"
 	"github.com/smallfire/starfire/internal/service/scoring"
 	"github.com/smallfire/starfire/internal/service/strategy"
-	trendService "github.com/smallfire/starfire/internal/service/trend"
 	"github.com/smallfire/starfire/internal/service/trading"
+	trendService "github.com/smallfire/starfire/internal/service/trend"
 	"github.com/smallfire/starfire/pkg/utils"
 )
 
@@ -79,6 +79,7 @@ func main() {
 	notifyRepo := repository.NewNotificationRepoPG(db)
 	userRepo := repository.NewUserRepoPG(db)
 	limitStatRepo := repository.NewLimitStatRepoPG(db)
+	aiWatchTargetRepo := repository.NewAIWatchTargetRepoPG(db)
 
 	// 初始化评分与交易机会相关 Repository
 	oppRepo := repository.NewOpportunityRepoPG(db)
@@ -88,7 +89,7 @@ func main() {
 	if cfg.JWT.Secret == "" {
 		utils.Fatal("JWT密钥未配置，请设置 JWT_SECRET 环境变量")
 	}
-		authsvc := authservice.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.ExpirationDuration(), utils.Logger)
+	authsvc := authservice.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.ExpirationDuration(), utils.Logger)
 	utils.Info("认证服务初始化成功")
 
 	// 初始化监测服务
@@ -234,8 +235,12 @@ func main() {
 	var aiClient *aiservice.AIClient
 	var aiAnalyzer *aiservice.OpportunityAnalyzer
 	var cooldownTracker *aiservice.CooldownTracker
+	var trendPullbackAnalyzer *aiservice.TrendPullbackAnalyzer
+	var elliottWaveAnalyzer *aiservice.ElliottWaveAnalyzer
 	if cfg.AI.Enabled && cfg.AI.APIKey != "" {
 		aiClient = aiservice.NewAIClient(cfg.AI)
+		trendPullbackAnalyzer = aiservice.NewTrendPullbackAnalyzer(aiClient, klineRepo, notifyManager, utils.Logger)
+		elliottWaveAnalyzer = aiservice.NewElliottWaveAnalyzer(aiClient, klineRepo, notifyManager, utils.Logger)
 		cooldownTracker = aiservice.NewCooldownTracker(
 			cfg.AI.Judge.MaxDailyCalls,
 			cfg.AI.Judge.CooldownMinutes,
@@ -295,7 +300,7 @@ func main() {
 	utils.Info("回测服务初始化成功")
 
 	// 初始化同步服务
-	syncService := market.NewSyncService(factory, klineRepo, symbolRepo, emaCalc, utils.Logger, &cfg.Markets)
+	syncService := market.NewSyncService(factory, klineRepo, marketRepo, symbolRepo, emaCalc, utils.Logger, &cfg.Markets)
 	utils.Info("同步服务初始化成功")
 
 	// 初始化并更新热度标的
@@ -361,10 +366,11 @@ func main() {
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
 	boxHandler := handler.NewBoxHandler(boxRepo, symbolRepo, utils.Logger)
 	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelV2Repo, utils.Logger)
-	trendHandler := handler.NewTrendHandler(trendRepo, utils.Logger)
+	trendHandler := handler.NewTrendHandler(trendRepo, symbolRepo, syncService, trendPullbackAnalyzer, elliottWaveAnalyzer, utils.Logger)
 	aiStatsSvc := aiservice.NewAIStatsService(db)
 	aiStatsHandler := handler.NewAIStatsHandler(aiStatsSvc, utils.Logger)
-authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
+	aiWatchTargetHandler := handler.NewAIWatchTargetHandler(aiWatchTargetRepo, utils.Logger)
+	authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 	userHandler := handler.NewUserHandler(authsvc, utils.Logger)
 
 	// API 版本
@@ -378,7 +384,7 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 					"status":       "ok",
 					"auth_enabled": cfg.JWT.Enabled,
 				},
-					"timestamp": time.Now().Unix(),
+				"timestamp": time.Now().Unix(),
 			})
 		})
 
@@ -390,10 +396,10 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 		}
 
 		// 需要认证的路由
-	authenticated := apiV1.Group("")
-			if cfg.JWT.Enabled {
-				authenticated.Use(middleware.AuthMiddleware(cfg.JWT.Secret, userRepo))
-			}
+		authenticated := apiV1.Group("")
+		if cfg.JWT.Enabled {
+			authenticated.Use(middleware.AuthMiddleware(cfg.JWT.Secret, userRepo))
+		}
 		{
 			// 认证相关
 			authenticated.GET("/auth/me", authHandler.Me)
@@ -483,11 +489,13 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				symbolKeyLevelsGroup.GET("", keyLevelHandler.GetKeyLevelsBySymbol)
 			}
 
-				// 趋势 API
-				symbolTrendsGroup := authenticated.Group("/symbols/:id/trends")
-				{
-					symbolTrendsGroup.GET("", trendHandler.GetTrendsBySymbol)
-				}
+			// 趋势 API
+			symbolTrendsGroup := authenticated.Group("/symbols/:id/trends")
+			{
+				symbolTrendsGroup.GET("", trendHandler.GetTrendsBySymbol)
+			}
+			authenticated.POST("/trend/analyze-pullback", trendHandler.AnalyzePullback)
+			authenticated.POST("/elliott-wave/analyze", trendHandler.AnalyzeElliottWave)
 
 			// 回测 API
 			backtestGroup := authenticated.Group("/backtest")
@@ -505,6 +513,14 @@ authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 				aiStatsGroup.GET("/accuracy", aiStatsHandler.GetAccuracyAnalysis)
 				aiStatsGroup.GET("/direction", aiStatsHandler.GetDirectionStats)
 				aiStatsGroup.GET("/confidence", aiStatsHandler.GetConfidenceAnalysis)
+			}
+
+			// AI 观察位 API
+			aiWatchTargetsGroup := authenticated.Group("/ai-watch-targets")
+			{
+				aiWatchTargetsGroup.GET("", aiWatchTargetHandler.List)
+				aiWatchTargetsGroup.POST("", aiWatchTargetHandler.Upsert)
+				aiWatchTargetsGroup.DELETE("/:id", aiWatchTargetHandler.Delete)
 			}
 
 			// 交易跟踪 API

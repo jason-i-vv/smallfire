@@ -138,6 +138,9 @@
     "paperTrading": "Paper Trading",
     "marketData": "Market Data",
     "trends": "Trends",
+    "aiAgents": "AI Agents",
+    "trendAgent": "Trend Agent",
+    "waveAgent": "Elliott Wave Agent",
     "aStockMarket": "A-Share Market"
   },
   "header": {

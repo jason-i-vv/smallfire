@@ -93,6 +93,8 @@ const pageTitleMap = {
   '/statistics': 'menu.statistics',
   '/boxes': 'menu.boxes',
   '/tracking': 'menu.tracking',
+  '/trend-agent': 'menu.trendAgent',
+  '/wave-agent': 'menu.waveAgent',
   '/settings': 'menu.settings',
   '/backtest': 'menu.backtest',
   '/users': 'menu.users'

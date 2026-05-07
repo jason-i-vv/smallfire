@@ -325,15 +325,15 @@ func (a *OpportunityAnalyzer) saveAILog(opp *models.TradingOpportunity, messages
 
 	// 构建日志内容
 	logData := map[string]interface{}{
-		"symbol":       opp.SymbolCode,
-		"symbol_id":    opp.SymbolID,
-		"opp_id":       opp.ID,
-		"direction":    opp.Direction,
-		"period":       opp.Period,
-		"score":        opp.Score,
-		"request":      messages,
-		"response":     response,
-		"logged_at":    time.Now().Format(time.RFC3339),
+		"symbol":    opp.SymbolCode,
+		"symbol_id": opp.SymbolID,
+		"opp_id":    opp.ID,
+		"direction": opp.Direction,
+		"period":    opp.Period,
+		"score":     opp.Score,
+		"request":   messages,
+		"response":  response,
+		"logged_at": time.Now().Format(time.RFC3339),
 	}
 
 	jsonData, err := json.MarshalIndent(logData, "", "  ")
@@ -522,4 +522,76 @@ func fixIncompleteJSON(s string) string {
 	}
 
 	return result
+}
+
+// extractJSONCandidates 从 AI 响应中提取所有可能的 JSON 对象，优先用于处理带思考过程或代码块的输出。
+func extractJSONCandidates(s string) []string {
+	var candidates []string
+
+	re := regexp.MustCompile("(?s)```(?:json)?\\s*\\n?(.*?)\\n?```")
+	for _, match := range re.FindAllStringSubmatch(s, -1) {
+		if len(match) > 1 {
+			block := strings.TrimSpace(match[1])
+			if strings.HasPrefix(block, "{") {
+				candidates = append(candidates, block)
+			}
+		}
+	}
+
+	for _, obj := range scanJSONObjects(s) {
+		exists := false
+		for _, candidate := range candidates {
+			if candidate == obj {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			candidates = append(candidates, obj)
+		}
+	}
+
+	return candidates
+}
+
+func scanJSONObjects(s string) []string {
+	var objects []string
+	start := -1
+	depth := 0
+	inString := false
+	escape := false
+
+	for i, c := range s {
+		if escape {
+			escape = false
+			continue
+		}
+		if c == '\\' {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		if c == '{' {
+			if depth == 0 {
+				start = i
+			}
+			depth++
+			continue
+		}
+		if c == '}' && depth > 0 {
+			depth--
+			if depth == 0 && start >= 0 {
+				objects = append(objects, s[start:i+1])
+				start = -1
+			}
+		}
+	}
+
+	return objects
 }

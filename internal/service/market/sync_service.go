@@ -19,6 +19,7 @@ import (
 type SyncService struct {
 	factory    *Factory
 	klineRepo  repository.KlineRepo
+	marketRepo repository.MarketRepo
 	symbolRepo repository.SymbolRepo
 	emaCalc    *ema.EMACalculator
 	hooks      []SyncHook
@@ -30,11 +31,12 @@ type SyncService struct {
 
 // NewSyncService 创建同步服务
 func NewSyncService(factory *Factory, klineRepo repository.KlineRepo,
-	symbolRepo repository.SymbolRepo, emaCalc *ema.EMACalculator,
+	marketRepo repository.MarketRepo, symbolRepo repository.SymbolRepo, emaCalc *ema.EMACalculator,
 	logger *zap.Logger, cfg *config.MarketsConfig) *SyncService {
 	return &SyncService{
 		factory:    factory,
 		klineRepo:  klineRepo,
+		marketRepo: marketRepo,
 		symbolRepo: symbolRepo,
 		emaCalc:    emaCalc,
 		logger:     logger,
@@ -499,6 +501,103 @@ func (s *SyncService) validateKlineData(klines []KlineData, marketCode, period s
 	}
 
 	return true, ""
+}
+
+// EnsureSymbolKlines 确保单个观察标的存在，并立即拉取一批 K 线供 AI 分析使用。
+func (s *SyncService) EnsureSymbolKlines(marketCode, symbolCode, period string) (*models.Symbol, error) {
+	marketCode = strings.TrimSpace(strings.ToLower(marketCode))
+	symbolCode = strings.TrimSpace(symbolCode)
+	if marketCode == "" || symbolCode == "" {
+		return nil, fmt.Errorf("市场和标的不能为空")
+	}
+
+	fetchers := s.factory.GetFetchersWithFallback(marketCode)
+	if len(fetchers) == 0 {
+		return nil, fmt.Errorf("市场 %s 未启用行情抓取器", marketCode)
+	}
+
+	if period == "" {
+		periods := s.getConfiguredPeriods(marketCode)
+		if len(periods) > 0 {
+			period = periods[0]
+		} else {
+			supportedPeriods := fetchers[0].SupportedPeriods()
+			if len(supportedPeriods) == 0 {
+				return nil, fmt.Errorf("市场 %s 未配置可用周期", marketCode)
+			}
+			period = supportedPeriods[0]
+		}
+	}
+
+	symbol, err := s.symbolRepo.FindByCode(marketCode, symbolCode)
+	if err != nil {
+		if !isNoRowsError(err) {
+			return nil, err
+		}
+
+		market, err := s.marketRepo.FindByCode(marketCode)
+		if err != nil {
+			return nil, err
+		}
+
+		now := time.Now().UTC()
+		symbol = &models.Symbol{
+			MarketID:       market.ID,
+			MarketCode:     marketCode,
+			SymbolCode:     symbolCode,
+			SymbolName:     symbolCode,
+			SymbolType:     defaultSymbolType(marketCode),
+			LastHotAt:      &now,
+			HotScore:       0,
+			IsTracking:     true,
+			MaxKlinesCount: 1000,
+		}
+		if err := s.symbolRepo.Create(symbol); err != nil {
+			existing, findErr := s.symbolRepo.FindByCode(marketCode, symbolCode)
+			if findErr != nil {
+				return nil, err
+			}
+			symbol = existing
+		}
+	} else if !symbol.IsTracking {
+		symbol.IsTracking = true
+		now := time.Now().UTC()
+		symbol.LastHotAt = &now
+		if err := s.symbolRepo.Update(symbol); err != nil {
+			return nil, err
+		}
+	}
+
+	var lastErr error
+	for _, fetcher := range fetchers {
+		if err := s.syncSymbolKlines(symbol, fetcher, period); err != nil {
+			lastErr = err
+			s.logger.Warn("观察标的即时同步失败，尝试下一数据源",
+				zap.String("market", marketCode),
+				zap.String("symbol", symbolCode),
+				zap.String("fetcher", fmt.Sprintf("%T", fetcher)),
+				zap.Error(err))
+			continue
+		}
+		return symbol, nil
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return symbol, nil
+}
+
+func isNoRowsError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no rows in result set")
+}
+
+func defaultSymbolType(marketCode string) string {
+	switch marketCode {
+	case "a_stock", "us_stock":
+		return "stock"
+	default:
+		return "spot"
+	}
 }
 
 func (s *SyncService) getConfiguredPeriods(marketCode string) []string {

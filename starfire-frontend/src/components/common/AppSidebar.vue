@@ -55,6 +55,15 @@
           <el-menu-item index="/tracking">{{ t('menu.trends') }}</el-menu-item>
         </el-sub-menu>
 
+        <el-sub-menu index="aiAgents">
+          <template #title>
+            <el-icon><Cpu /></el-icon>
+            <span>{{ t('menu.aiAgents') }}</span>
+          </template>
+          <el-menu-item index="/trend-agent">{{ t('menu.trendAgent') }}</el-menu-item>
+          <el-menu-item index="/wave-agent">{{ t('menu.waveAgent') }}</el-menu-item>
+        </el-sub-menu>
+
         <el-sub-menu index="settings">
           <template #title>
             <el-icon><Setting /></el-icon>
@@ -104,7 +113,7 @@ const isAdmin = computed(() => authStore.isAdmin)
 const activeMenu = computed(() => {
   const path = route.path
   if (path === '/') return '/'
-  const matchPath = ['/opportunities', '/signals', '/market', '/astock', '/boxes', '/tracking', '/positions', '/trades', '/statistics', '/settings', '/backtest', '/ai-management', '/users', '/kline', '/test-position']
+  const matchPath = ['/opportunities', '/signals', '/market', '/astock', '/boxes', '/tracking', '/trend-agent', '/wave-agent', '/positions', '/trades', '/statistics', '/settings', '/backtest', '/ai-management', '/users', '/kline', '/test-position']
   for (const p of matchPath) {
     if (path.startsWith(p)) return path
   }

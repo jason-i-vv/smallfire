@@ -11,10 +11,13 @@
 # Claude / AI
 .claude
 .gstack
+.agents
+.codex
 
 # Frontend dev files
 starfire-frontend/node_modules
 starfire-frontend/.vite
+starfire-frontend/node_modules/.vite
 starfire-frontend/dist
 
 # Backend dev files

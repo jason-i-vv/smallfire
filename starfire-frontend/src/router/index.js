@@ -93,6 +93,16 @@ const routes = [
         component: () => import('@/views/symbols/TrackingList.vue')
       },
       {
+        path: 'trend-agent',
+        name: 'TrendAgent',
+        component: () => import('@/views/trend/TrendAgent.vue')
+      },
+      {
+        path: 'wave-agent',
+        name: 'WaveAgent',
+        component: () => import('@/views/trend/WaveAgent.vue')
+      },
+      {
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/settings/Settings.vue')
