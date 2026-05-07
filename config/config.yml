@@ -54,6 +54,7 @@ markets:
     max_concurrent_sync: 10 # 最大并发同步数
   a_stock:
     enabled: true
+    api_key: "5b84b87c1b9e438db1d13e15cfc3ced8-infoway"  # Infoway API Key
     symbols_limit: 200
     hot_days: 30
     periods: ["1d"]
