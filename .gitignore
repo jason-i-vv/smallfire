@@ -7,3 +7,7 @@ postgres_data
 starfire-frontend/dist/
 server
 .env
+.agents/
+.codex/
+AGENTS.md
+starfire-frontend/node_modules/.vite/deps/_metadata.json
