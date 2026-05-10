@@ -31,6 +31,22 @@
       </div>
     </div>
 
+    <!-- 状态筛选卡片 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('positions.statusFilter') }}</h3>
+      <div class="filter-cards">
+        <div
+          v-for="item in statusOptions"
+          :key="item.value"
+          :class="['filter-card', { active: filters.status === item.value }, { 'anomalous-active': item.value === 'anomalous' && filters.status === 'anomalous' }]"
+          @click="toggleFilter('status', item.value)"
+        >
+          <span class="card-label">{{ item.label }}</span>
+          <el-badge v-if="item.value === 'anomalous' && anomalousCount > 0" :value="anomalousCount" class="status-badge" />
+        </div>
+      </div>
+    </div>
+
     <!-- 交易来源筛选卡片 -->
     <div class="filter-section">
       <h3 class="filter-title">{{ t('positions.tradeSource') }}</h3>
@@ -88,7 +104,7 @@
         <template #header>
           <span>{{ t('positions.title') }}</span>
         </template>
-        <PositionList :positions="positions" @close="handleClosePosition" />
+        <PositionList :positions="positions" @close="handleClosePosition" @recheck="handleRecheck" @force-close="handleForceClose" />
         <!-- 分页 -->
         <div class="pagination-wrapper">
           <el-pagination
@@ -121,11 +137,13 @@ import { formatPnL, formatPrice } from '@/utils/formatters'
 const { t } = useI18n()
 const loading = ref(false)
 const positions = ref([])
+const anomalousCount = ref(0)
 
 const filters = reactive({
   direction: '',
   min_score: '',
-  trade_source: ''
+  trade_source: '',
+  status: 'open'
 })
 
 const pagination = ref({
@@ -138,6 +156,12 @@ const directionOptions = computed(() => [
   { label: t('common.all'), value: '', icon: '' },
   { label: t('common.long'), value: 'long', icon: '▲' },
   { label: t('common.short'), value: 'short', icon: '▼' }
+])
+
+const statusOptions = computed(() => [
+  { label: t('positions.statusAll'), value: '' },
+  { label: t('positions.statusOpen'), value: 'open' },
+  { label: t('positions.statusAnomalous'), value: 'anomalous' }
 ])
 
 const sourceOptions = computed(() => [
@@ -184,6 +208,7 @@ const fetchPositions = async () => {
     if (filters.direction) params.direction = filters.direction
     if (filters.min_score) params.min_score = filters.min_score
     if (filters.trade_source) params.trade_source = filters.trade_source
+    if (filters.status) params.status = filters.status
 
     const res = await tradeApi.positions(params)
     positions.value = res.data?.items || []
@@ -192,6 +217,15 @@ const fetchPositions = async () => {
     console.error('Failed to fetch positions:', error)
   } finally {
     loading.value = false
+  }
+}
+
+const fetchAnomalousCount = async () => {
+  try {
+    const res = await tradeApi.anomalousCount()
+    anomalousCount.value = res.data?.count || 0
+  } catch (e) {
+    // ignore
   }
 }
 
@@ -216,6 +250,39 @@ const handleClosePosition = async (position) => {
   }
 }
 
+const handleRecheck = async (position) => {
+  try {
+    const res = await tradeApi.recheckAnomalous(position.id)
+    ElMessage.success(res.data?.message || t('positions.recheckDone'))
+    fetchPositions()
+    fetchAnomalousCount()
+  } catch (error) {
+    ElMessage.error(t('positions.recheckFailed'))
+  }
+}
+
+const handleForceClose = async (position) => {
+  try {
+    await ElMessageBox.confirm(
+      t('positions.forceCloseConfirm'),
+      t('positions.forceClose'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
+    await tradeApi.forceCloseAnomalous(position.id)
+    ElMessage.success(t('positions.forceCloseDone'))
+    fetchPositions()
+    fetchAnomalousCount()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('positions.forceCloseFailed'))
+    }
+  }
+}
+
 const handlePageChange = (page) => {
   pagination.value.page = page
   fetchPositions()
@@ -229,6 +296,7 @@ const handleSizeChange = (size) => {
 
 onMounted(() => {
   fetchPositions()
+  fetchAnomalousCount()
 })
 </script>
 
@@ -274,6 +342,22 @@ onMounted(() => {
       &.active {
         background: rgba($primary, 0.12);
         border-color: $primary;
+      }
+
+      &.anomalous-active {
+        background: rgba($warning, 0.12);
+        border-color: $warning;
+
+        .card-label {
+          color: $warning;
+        }
+      }
+
+      .status-badge {
+        margin-left: 6px;
+        :deep(.el-badge__content) {
+          font-size: 10px;
+        }
       }
 
       .card-icon {

@@ -113,14 +113,14 @@
     "noActiveOpportunities": "暂无活跃交易机会"
   },
   "menu": {
-    "dashboard": "仪表盘",
+    "dashboard": "Bybit 模拟概览",
     "signals": "信号中心",
     "signalList": "信号列表",
     "signalDetail": "信号详情",
     "opportunities": "交易机会",
     "positions": "实时持仓",
     "trades": "历史交易",
-    "statistics": "交易概览",
+    "statistics": "系统模拟概览",
     "market": "市场概览",
     "marketAnalysis": "市场分析",
     "marketOverview": "行情数据",
@@ -289,7 +289,19 @@
     "tradeSource": "交易渠道",
     "sourceAll": "全部",
     "sourcePaper": "系统模拟",
-    "sourceTestnet": "Bybit 实盘模拟"
+    "sourceTestnet": "Bybit 实盘模拟",
+    "statusFilter": "持仓状态",
+    "statusAll": "全部",
+    "statusOpen": "正常",
+    "statusAnomalous": "异常",
+    "anomalousReason": "异常原因",
+    "recheck": "重新检测",
+    "forceClose": "人工平仓",
+    "recheckDone": "重新检测完成",
+    "recheckFailed": "重新检测失败",
+    "forceCloseDone": "人工平仓完成",
+    "forceCloseFailed": "人工平仓失败",
+    "forceCloseConfirm": "确定要人工平仓该持仓吗？此操作不可撤销。"
   },
   "trades": {
     "title": "历史交易",
@@ -370,7 +382,15 @@
     "byScore": "评分区间胜率分析",
     "byStrategy": "策略盈亏分析",
     "strategy": "策略",
-    "scoreRange": "评分区间"
+    "scoreRange": "评分区间",
+    "regimeAnalysis": "市场状态统计",
+    "viewMore": "查看更多详情 >>",
+    "strategyRegimeAnalysis": "策略 × 市场状态 交叉分析",
+    "scoreRegimeAnalysis": "评分维度 × 市场状态 分析",
+    "dimension": "维度",
+    "trending": "顺势",
+    "counterTrend": "逆势",
+    "sideways": "震荡"
   },
   "market": {
     "title": "行情总览",

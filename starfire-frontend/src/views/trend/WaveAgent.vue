@@ -164,19 +164,33 @@
             <div class="chart-layout">
               <div ref="chartRef" class="chart-box" v-loading="chartLoading" />
               <aside class="focus-panel">
-                <div class="panel-title">重点标记</div>
-                <el-empty v-if="importantSteps.length === 0" description="暂无重点事件" :image-size="64" />
-                <button
-                  v-for="step in importantSteps"
-                  :key="step.kline_time"
-                  class="focus-item"
-                  :class="`focus-${importanceKey(step)}`"
-                  @click="showStepInList"
-                >
-                  <span>{{ formatTime(step.kline_time) }}</span>
-                  <strong>{{ importanceLabel(step) }} · {{ stageLabel(step.wave_stage) }} · {{ step.confidence }}</strong>
-                  <em>{{ step.wave_count || step.reasoning }}</em>
-                </button>
+                <div class="panel-title">分析记录</div>
+                <el-empty v-if="allSteps.length === 0" description="暂无分析记录" :image-size="64" />
+                <template v-for="row in displayRows" :key="row.key">
+                  <button
+                    v-if="row.type === 'important'"
+                    class="focus-item"
+                    :class="`focus-${importanceKey(row.step)}`"
+                    @click="showStepInList"
+                  >
+                    <span>{{ formatTime(row.step.kline_time) }}</span>
+                    <strong>{{ importanceLabel(row.step) }} · {{ stageLabel(row.step.wave_stage) }} · {{ row.step.confidence }}</strong>
+                    <em>{{ row.step.wave_count || row.step.reasoning }}</em>
+                  </button>
+                  <div v-else class="quiet-row">
+                    <button class="quiet-dot" @click="toggleQuietItem(row.key)">
+                      <span>{{ row.steps[0] && row.steps[row.steps.length - 1] ? formatTime(row.steps[0].kline_time) + ' ~ ' + formatTime(row.steps[row.steps.length - 1].kline_time) : '' }}</span>
+                      <span class="dot-label">{{ expandedQuietKeys.has(row.key) ? '收起' : '...' }}</span>
+                    </button>
+                    <template v-if="expandedQuietKeys.has(row.key)">
+                      <button v-for="step in row.steps" :key="step.kline_time" class="focus-item focus-quiet" @click="showStepInList">
+                        <span>{{ formatTime(step.kline_time) }}</span>
+                        <strong>{{ importanceLabel(step) }} · {{ stageLabel(step.wave_stage) }} · {{ step.confidence }}</strong>
+                        <em>{{ step.wave_count || step.reasoning }}</em>
+                      </button>
+                    </template>
+                  </div>
+                </template>
               </aside>
             </div>
           </el-tab-pane>
@@ -288,8 +302,31 @@ const draftPeriodOptions = computed(() => draft.market_code === 'a_stock' ? stoc
 const activeTarget = computed(() => targets.value.find(item => item.id === activeTargetId.value) || null)
 const activeResult = computed(() => activeTarget.value?.result || null)
 const enabledCount = computed(() => targets.value.filter(item => item.enabled).length)
-const allSteps = computed(() => activeResult.value?.steps || [])
+const allSteps = computed(() => {
+  const steps = activeResult.value?.steps || []
+  return [...steps].reverse()
+})
 const importantSteps = computed(() => allSteps.value.filter(isImportantStep))
+const expandedQuietKeys = ref(new Set())
+function toggleQuietItem(key) {
+  const s = new Set(expandedQuietKeys.value)
+  s.has(key) ? s.delete(key) : s.add(key)
+  expandedQuietKeys.value = s
+}
+const displayRows = computed(() => {
+  const rows = []
+  let quietBuf = []
+  for (const step of allSteps.value) {
+    if (isImportantStep(step)) {
+      if (quietBuf.length) { rows.push({ type: 'quiet', steps: quietBuf, key: 'q' + quietBuf[0].kline_time }); quietBuf = [] }
+      rows.push({ type: 'important', step, key: step.kline_time })
+    } else {
+      quietBuf.push(step)
+    }
+  }
+  if (quietBuf.length) rows.push({ type: 'quiet', steps: quietBuf, key: 'q' + quietBuf[0].kline_time })
+  return rows
+})
 const visibleSteps = computed(() => importantOnly.value ? importantSteps.value : allSteps.value)
 
 watch(targets, persistTargets, { deep: true })
@@ -457,7 +494,9 @@ async function analyzeTarget(target, options = {}) {
     target.result = mergeTrackingResult(target.result, res.data)
     target.data_status = 'ready'
     target.last_run_at = Date.now()
-    activeTargetId.value = target.id
+    if (!detailVisible.value || activeTargetId.value === target.id) {
+      activeTargetId.value = target.id
+    }
     persistTargets()
     saveTargetRemote(target)
     if (!options.quiet) {
@@ -1109,6 +1148,14 @@ onBeforeUnmount(() => {
   &.focus-watch {
     border-left-color: #ffd740;
   }
+
+  &.focus-quiet {
+    border-left-color: $border;
+
+    strong {
+      color: $text-secondary;
+    }
+  }
 }
 
 .list-toolbar {
@@ -1116,6 +1163,32 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
   color: $text-secondary;
   font-size: 13px;
+}
+
+.quiet-row {
+  margin: 0;
+}
+
+.quiet-dot {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px 10px;
+  color: $text-secondary;
+  font-size: 12px;
+
+  .dot-label {
+    color: $primary;
+    letter-spacing: 2px;
+  }
+
+  &:hover {
+    color: $text-primary;
+  }
 }
 
 .step-expand {

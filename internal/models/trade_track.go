@@ -50,6 +50,7 @@ type TradeTrackResponse struct {
 	UnrealizedPnL *float64 `json:"unrealized_pnl,omitempty"`
 	UnrealizedPnLPct *float64 `json:"unrealized_pnl_pct,omitempty"`
 	Status        string  `json:"status"`
+	AnomalousReason *string `json:"anomalous_reason,omitempty"`
 	SignalType    string  `json:"signal_type,omitempty"`   // 关联信号类型
 	SourceType    string  `json:"source_type,omitempty"`   // 关联信号来源
 	TradeSource      string  `json:"trade_source,omitempty"`  // 交易来源: paper, testnet
@@ -79,7 +80,8 @@ func (t *TradeTrack) ToResponse() *TradeTrackResponse {
 		CurrentPrice:  t.CurrentPrice,
 		UnrealizedPnL: t.UnrealizedPnL,
 		UnrealizedPnLPct: t.UnrealizedPnLPct,
-		Status:        t.Status,
+		Status:           t.Status,
+		AnomalousReason:  t.AnomalousReason,
 	}
 	if t.EntryTime != nil {
 		resp.EntryTime = t.EntryTime.UnixMilli()
@@ -135,11 +137,14 @@ type TradeTrack struct {
 	Fees       float64  `json:"fees" db:"fees"`
 
 	// 状态
-	Status           string   `json:"status" db:"status"` // open, closed
+	Status           string   `json:"status" db:"status"` // open, closed, anomalous
 	CurrentPrice     *float64 `json:"current_price,omitempty" db:"current_price"`
 	UnrealizedPnL    *float64 `json:"unrealized_pnl,omitempty" db:"unrealized_pnl"`
 	UnrealizedPnLPct *float64 `json:"unrealized_pnl_pct,omitempty" db:"unrealized_pnl_pct"`
 	SubscriberCount  int      `json:"subscriber_count" db:"subscriber_count"`
+
+	// 异常信息
+	AnomalousReason *string `json:"anomalous_reason,omitempty" db:"anomalous_reason"` // 异常原因描述
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
@@ -154,15 +159,17 @@ type TradeTrack struct {
 }
 
 const (
-	TrackStatusOpen      = "open"
-	TrackStatusClosed    = "closed"
-	TrackStatusCancelled = "cancelled"
+	TrackStatusOpen        = "open"
+	TrackStatusClosed      = "closed"
+	TrackStatusCancelled   = "cancelled"
+	TrackStatusAnomalous   = "anomalous" // 异常状态：持仓在 Bybit 上找不到，需人工介入
 
 	ExitReasonStopLoss     = "stop_loss"
 	ExitReasonTakeProfit   = "take_profit"
 	ExitReasonTrailingStop = "trailing_stop"
 	ExitReasonManual       = "manual"
 	ExitReasonExpired      = "expired"
+	ExitReasonAnomalous    = "anomalous" // 异常平仓：系统检测不到持仓
 
 	TradeSourcePaper   = "paper"
 	TradeSourceTestnet = "testnet"

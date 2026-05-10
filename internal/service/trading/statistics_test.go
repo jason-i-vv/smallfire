@@ -232,6 +232,51 @@ func (m *mockTrackRepoForStats) GetByOpportunityID(opportunityID int) ([]*models
 func (m *mockTrackRepoForStats) GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForStats) GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForStats) GetOpenBySource(source string) ([]*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepoForStats) GetRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.RegimeStatsResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetStrategyRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.StrategyRegimeStatsResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetBasicStatsSQL(startDate, endDate *time.Time, tradeSource string) (*repository.BasicStatsSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetLightTrackDataSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.LightTrackData, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetDirectionStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.DirectionSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetSymbolStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.SymbolSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetExitReasonStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ExitReasonSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetPeriodPnLSQL(startDate, endDate *time.Time, period, tradeSource string) ([]repository.PeriodPnLSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetPnLValuesSQL(startDate, endDate *time.Time, tradeSource string) ([]float64, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetStrategyStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.StrategySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetSignalStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.SignalSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetScoreStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetEquityCurveSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.EquitySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetScoreEquitySQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreEquitySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreRegimeSQLResult, error) {
+	return nil, nil
+}
 
 func makeClosedTrackFull(pnl float64, symbolID int, direction string, entryTime, exitTime time.Time, exitReason string) *models.TradeTrack {
 	return &models.TradeTrack{

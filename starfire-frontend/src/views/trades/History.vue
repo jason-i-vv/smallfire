@@ -71,7 +71,7 @@
         <el-option :label="t('trades.usStock')" value="us_stock" />
       </el-select>
 
-      <el-select v-model="filters.symbol_id" clearable filterable :placeholder="t('trades.symbol')" style="width: 180px" @focus="loadSymbols">
+      <el-select v-model="filters.symbol_id" clearable filterable :placeholder="t('trades.symbol')" style="width: 180px" @focus="loadSymbols" @change="onSymbolChange">
         <el-option v-for="s in symbols" :key="s.id" :label="s.symbol_code" :value="s.id" />
       </el-select>
 
@@ -182,6 +182,11 @@ const loadSymbols = async () => {
   } catch (e) {
     console.error('Failed to load symbols:', e)
   }
+}
+
+const onSymbolChange = () => {
+  currentPage.value = 1
+  fetchData()
 }
 
 const onMarketChange = () => {

@@ -147,6 +147,51 @@ func (m *mockTrackRepoForAgg) GetOpenByOpportunityIDAndSource(opportunityID int,
 	return nil, nil
 }
 func (m *mockTrackRepoForAgg) GetOpenBySource(source string) ([]*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepoForAgg) GetRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.RegimeStatsResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetStrategyRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.StrategyRegimeStatsResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetBasicStatsSQL(startDate, endDate *time.Time, tradeSource string) (*repository.BasicStatsSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetLightTrackDataSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.LightTrackData, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetDirectionStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.DirectionSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetSymbolStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.SymbolSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetExitReasonStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ExitReasonSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetPeriodPnLSQL(startDate, endDate *time.Time, period, tradeSource string) ([]repository.PeriodPnLSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetPnLValuesSQL(startDate, endDate *time.Time, tradeSource string) ([]float64, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetStrategyStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.StrategySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetSignalStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.SignalSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetScoreStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetEquityCurveSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.EquitySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetScoreEquitySQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreEquitySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepoForAgg) GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreRegimeSQLResult, error) {
+	return nil, nil
+}
 
 func TestNotifyIfNeeded_ScoreEqualToThreshold(t *testing.T) {
 	opp := &models.TradingOpportunity{

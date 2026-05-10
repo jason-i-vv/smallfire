@@ -85,15 +85,20 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		}
 	}
 
-	// 4. 检查最大持仓数
-	openTracks, err := t.trackRepo.GetOpenBySource(models.TradeSourceTestnet)
-	if err != nil {
-		t.logger.Error("[Testnet] 查询 testnet 持仓失败", zap.Error(err))
-		return
+	// 4. 检查最大持仓数（查 Bybit 实际持仓）
+	bybitPositions, berr := t.client.QueryAllPositions()
+	if berr != nil {
+		t.logger.Warn("[Testnet] 查询 Bybit 持仓失败，使用数据库记录", zap.Error(berr))
+		openTracks, err := t.trackRepo.GetOpenBySource(models.TradeSourceTestnet)
+		if err != nil {
+			t.logger.Error("[Testnet] 查询 testnet 持仓失败", zap.Error(err))
+			return
+		}
+		bybitPositions = make([]PositionInfo, len(openTracks))
 	}
-	if len(openTracks) >= testnetCfg.MaxOpenPositions {
+	if len(bybitPositions) >= testnetCfg.MaxOpenPositions {
 		t.logger.Debug("[Testnet] 已达最大持仓数，跳过",
-			zap.Int("current", len(openTracks)),
+			zap.Int("current", len(bybitPositions)),
 			zap.Int("max", testnetCfg.MaxOpenPositions))
 		return
 	}
@@ -123,6 +128,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 	}
 
 	// 6. 检查本地数据库是否已有同交易对同方向的 open 记录
+	openTracks, _ := t.trackRepo.GetOpenBySource(models.TradeSourceTestnet)
 	for _, existingTrack := range openTracks {
 		if existingTrack.SymbolID == opp.SymbolID && existingTrack.Direction == opp.Direction {
 			t.logger.Info("[Testnet] 本地已有同方向持仓，跳过",
@@ -245,9 +251,19 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 	}
 
 	if err := t.trackRepo.Create(track); err != nil {
-		t.logger.Error("[Testnet] 创建交易记录失败",
+		t.logger.Error("[Testnet] 创建交易记录失败，回滚 Bybit 仓位",
 			zap.String("symbol", opp.SymbolCode),
 			zap.Error(err))
+		// 回滚：关闭刚开的 Bybit 仓位，避免产生孤儿仓位
+		if closeErr := t.client.ClosePosition(opp.SymbolCode, side, qtyStr); closeErr != nil {
+			t.logger.Error("[Testnet] 回滚 Bybit 仓位失败，需人工处理",
+				zap.String("symbol", opp.SymbolCode),
+				zap.Error(closeErr))
+		} else {
+			t.logger.Info("[Testnet] 已回滚 Bybit 仓位",
+				zap.String("symbol", opp.SymbolCode),
+				zap.String("order_id", orderResp.OrderID))
+		}
 		return
 	}
 

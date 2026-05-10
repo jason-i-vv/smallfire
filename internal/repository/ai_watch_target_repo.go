@@ -107,3 +107,29 @@ func (r *AIWatchTargetRepoPG) Delete(userID *int, id int) error {
 	}
 	return nil
 }
+
+func (r *AIWatchTargetRepoPG) ListEnabled(marketCode, symbolCode, period string) ([]*models.AIWatchTarget, error) {
+	query := `
+		SELECT id, user_id, agent_type, market_code, symbol_code, symbol_id,
+		       period, limit_count, send_feishu, enabled, data_status, error_message,
+		       last_run_at, result_json, created_at, updated_at
+		FROM ai_watch_targets
+		WHERE enabled = true AND market_code = $1 AND symbol_code = $2 AND period = $3
+		ORDER BY id
+	`
+	rows, err := r.db.Query(context.Background(), query, marketCode, symbolCode, period)
+	if err != nil {
+		return nil, fmt.Errorf("查询启用的观察位失败: %w", err)
+	}
+	defer rows.Close()
+
+	var targets []*models.AIWatchTarget
+	for rows.Next() {
+		var target models.AIWatchTarget
+		if err := scanAIWatchTarget(rows, &target); err != nil {
+			return nil, fmt.Errorf("扫描观察位失败: %w", err)
+		}
+		targets = append(targets, &target)
+	}
+	return targets, rows.Err()
+}

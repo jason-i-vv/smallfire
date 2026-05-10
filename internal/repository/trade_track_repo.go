@@ -21,7 +21,7 @@ const tradeTrackColumns = `
 	trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
 	exit_reason, pnl, pnl_percent, fees, status, current_price,
 	unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at,
-	trade_source, exchange_order_id
+	trade_source, exchange_order_id, anomalous_reason
 `
 
 // TradeTrackRepoPG 交易跟踪数据访问实现
@@ -49,6 +49,7 @@ func scanTradeTrack(row interface{ Scan(dest ...any) error }) (*models.TradeTrac
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
 		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID,
+		&track.AnomalousReason,
 	); err != nil {
 		return nil, err
 	}
@@ -69,7 +70,8 @@ func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*mo
 		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID, &symbolCode, &trend4h,
+		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID, &track.AnomalousReason,
+		&symbolCode, &trend4h,
 	); err != nil {
 		return nil, "", err
 	}
@@ -90,7 +92,7 @@ func scanTradeTrackWithDetails(row interface{ Scan(dest ...any) error }) (*model
 		&track.ExitTime, &track.ExitReason, &track.PnL, &track.PnLPercent,
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
-		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID,
+		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID, &track.AnomalousReason,
 		&symbolCode, &trend4h, &signalType, &sourceType,
 	); err != nil {
 		return nil, err
@@ -123,6 +125,7 @@ func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 			       t.updated_at updated_at,
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
+			       t.anomalous_reason,
 			       COALESCE(s.symbol_code, '') as symbol_code,
 			       COALESCE(s.trend_4h, '') as trend_4h
 			FROM trade_tracks t
@@ -155,10 +158,23 @@ func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 }
 
 func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
-	// 构建 WHERE 条件
-	whereClauses := []string{"t.status = $1"}
-	args := []interface{}{models.TrackStatusOpen}
-	argIdx := 2
+	// 构建 WHERE 条件 - 支持按 status 过滤
+	statusFilter := "open" // 默认只显示 open
+	if v, ok := filters["status"]; ok && (v == "open" || v == "anomalous" || v == "all") {
+		statusFilter = v
+	}
+
+	var whereClauses []string
+	var args []interface{}
+	argIdx := 1
+
+	if statusFilter == "all" {
+		whereClauses = append(whereClauses, "t.status IN ('open', 'anomalous')")
+	} else {
+		whereClauses = append(whereClauses, fmt.Sprintf("t.status = $%d", argIdx))
+		args = append(args, statusFilter)
+		argIdx++
+	}
 
 	if v, ok := filters["direction"]; ok && v != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("t.direction = $%d", argIdx))
@@ -229,6 +245,7 @@ func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int, filters map
 				       t.updated_at updated_at,
 				       COALESCE(t.trade_source, 'paper') as trade_source,
 				       COALESCE(t.exchange_order_id, '') as exchange_order_id,
+				       t.anomalous_reason,
 				       COALESCE(s.symbol_code, '') as symbol_code,
 			       COALESCE(s.trend_4h, '') as trend_4h
 				FROM trade_tracks t
@@ -320,6 +337,7 @@ func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time, tradeS
 			       t.updated_at updated_at,
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
+			       t.anomalous_reason,
 			       COALESCE(s.symbol_code, '') as symbol_code,
 			       COALESCE(s.trend_4h, '') as trend_4h
 			FROM trade_tracks t
@@ -509,6 +527,7 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 			       t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at,
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
+			       t.anomalous_reason,
 			       COALESCE(s.symbol_code, '') as symbol_code,
 			       COALESCE(s.trend_4h, '') as trend_4h,
 			       COALESCE(sig.signal_type, '') as signal_type,
@@ -629,4 +648,177 @@ func (r *TradeTrackRepoPG) GetOpenBySource(source string) ([]*models.TradeTrack,
 		tracks = append(tracks, track)
 	}
 	return tracks, rows.Err()
+}
+
+// RegimeStatsResult SQL聚合的市场状态统计数据
+type RegimeStatsResult struct {
+	Regime         string
+	TotalTrades    int
+	WinTrades      int
+	TotalPnL       float64
+	AvgHoldingHours float64
+}
+
+// GetRegimeStatsSQL 获取市场状态统计数据（SQL聚合）
+func (r *TradeTrackRepoPG) GetRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]RegimeStatsResult, error) {
+	baseQuery := `
+		FROM trade_tracks t
+		LEFT JOIN trading_opportunities o ON t.opportunity_id = o.id
+		WHERE t.status = 'closed' AND t.pnl IS NOT NULL`
+
+	var args []interface{}
+	argIdx := 1
+
+	if startDate != nil {
+		baseQuery += fmt.Sprintf(" AND t.exit_time >= $%d", argIdx)
+		args = append(args, *startDate)
+		argIdx++
+	}
+	if endDate != nil {
+		baseQuery += fmt.Sprintf(" AND t.exit_time <= $%d", argIdx)
+		args = append(args, *endDate)
+		argIdx++
+	}
+	if tradeSource != "" {
+		baseQuery += fmt.Sprintf(" AND COALESCE(t.trade_source, 'paper') = $%d", argIdx)
+		args = append(args, tradeSource)
+		argIdx++
+	}
+
+	query := `
+		SELECT
+			COALESCE(o.regime, '震荡') as regime,
+			COUNT(*) as total_trades,
+			COUNT(*) FILTER (WHERE t.pnl > 0) as win_trades,
+			COALESCE(SUM(t.pnl), 0) as total_pnl,
+			COALESCE(AVG(EXTRACT(EPOCH FROM (t.exit_time - t.entry_time)) / 3600) FILTER (WHERE t.exit_time IS NOT NULL AND t.entry_time IS NOT NULL), 0) as avg_hours
+		` + baseQuery + `
+		GROUP BY regime
+		ORDER BY regime`
+
+	rows, err := r.db.Query(context.Background(), query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("获取市场状态统计失败: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RegimeStatsResult
+	for rows.Next() {
+		var s RegimeStatsResult
+		if err := rows.Scan(&s.Regime, &s.TotalTrades, &s.WinTrades, &s.TotalPnL, &s.AvgHoldingHours); err != nil {
+			return nil, err
+		}
+		results = append(results, s)
+	}
+	return results, rows.Err()
+}
+
+// StrategyRegimeStatsResult 策略×市场状态统计数据
+type StrategyRegimeStatsResult struct {
+	StrategyKey string
+	Regime      string
+	TotalTrades int
+	WinTrades   int
+	TotalPnL    float64
+}
+
+// GetStrategyRegimeStatsSQL 获取策略×市场状态统计数据（SQL聚合）
+func (r *TradeTrackRepoPG) GetStrategyRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]StrategyRegimeStatsResult, error) {
+	baseQuery := `
+		FROM trade_tracks t
+		LEFT JOIN trading_opportunities o ON t.opportunity_id = o.id
+		WHERE t.status = 'closed' AND t.pnl IS NOT NULL`
+
+	var args []interface{}
+	argIdx := 1
+
+	if startDate != nil {
+		baseQuery += fmt.Sprintf(" AND t.exit_time >= $%d", argIdx)
+		args = append(args, *startDate)
+		argIdx++
+	}
+	if endDate != nil {
+		baseQuery += fmt.Sprintf(" AND t.exit_time <= $%d", argIdx)
+		args = append(args, *endDate)
+		argIdx++
+	}
+	if tradeSource != "" {
+		baseQuery += fmt.Sprintf(" AND COALESCE(t.trade_source, 'paper') = $%d", argIdx)
+		args = append(args, tradeSource)
+		argIdx++
+	}
+
+	query := `
+		SELECT
+			COALESCE(o.strategy_type, 'unknown') as strategy_key,
+			COALESCE(o.regime, '震荡') as regime,
+			COUNT(*) as total_trades,
+			COUNT(*) FILTER (WHERE t.pnl > 0) as win_trades,
+			COALESCE(SUM(t.pnl), 0) as total_pnl
+		` + baseQuery + `
+		GROUP BY o.strategy_type, regime
+		ORDER BY strategy_key, regime`
+
+	rows, err := r.db.Query(context.Background(), query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("获取策略市场状态统计失败: %w", err)
+	}
+	defer rows.Close()
+
+	var results []StrategyRegimeStatsResult
+	for rows.Next() {
+		var s StrategyRegimeStatsResult
+		if err := rows.Scan(&s.StrategyKey, &s.Regime, &s.TotalTrades, &s.WinTrades, &s.TotalPnL); err != nil {
+			return nil, err
+		}
+		results = append(results, s)
+	}
+	return results, rows.Err()
+}
+
+// GetAnomalous 获取所有异常状态的持仓
+func (r *TradeTrackRepoPG) GetAnomalous() ([]*models.TradeTrack, error) {
+	// 列名加 t. 前缀避免与 symbols 表的 created_at/updated_at 歧义
+	cols := "t.id, t.signal_id, t.opportunity_id, t.symbol_id, t.direction, t.entry_price, t.entry_time, t.quantity, " +
+		"t.position_value, t.stop_loss_price, t.stop_loss_percent, t.take_profit_price, " +
+		"t.take_profit_percent, t.trailing_stop_enabled, t.trailing_stop_active, " +
+		"t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time, " +
+		"t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price, " +
+		"t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at, " +
+		"t.trade_source, t.exchange_order_id, t.anomalous_reason"
+	query := fmt.Sprintf(`
+		SELECT %s, s.symbol_code, s.trend_4h
+		FROM trade_tracks t
+		LEFT JOIN symbols s ON t.symbol_id = s.id
+		WHERE t.status = 'anomalous'
+		ORDER BY t.updated_at DESC
+	`, cols)
+
+	rows, err := r.db.Query(context.Background(), query)
+	if err != nil {
+		return nil, fmt.Errorf("查询异常持仓失败: %w", err)
+	}
+	defer rows.Close()
+
+	var tracks []*models.TradeTrack
+	for rows.Next() {
+		track, symbolCode, err := scanTradeTrackWithSymbolCode(rows)
+		if err != nil {
+			return nil, fmt.Errorf("扫描异常持仓数据失败: %w", err)
+		}
+		track.SymbolCode = symbolCode
+		tracks = append(tracks, track)
+	}
+	return tracks, rows.Err()
+}
+
+// CountByStatus 按状态统计持仓数量
+func (r *TradeTrackRepoPG) CountByStatus(status string) (int, error) {
+	var count int
+	err := r.db.QueryRow(context.Background(),
+		"SELECT COUNT(*) FROM trade_tracks WHERE status = $1", status).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("统计持仓数量失败: %w", err)
+	}
+	return count, nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
+	"github.com/smallfire/starfire/internal/repository"
 )
 
 // mockTrackRepo 用于测试的 mock repo
@@ -33,6 +34,51 @@ func (m *mockTrackRepo) GetByOpportunityID(opportunityID int) ([]*models.TradeTr
 func (m *mockTrackRepo) GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepo) GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepo) GetOpenBySource(source string) ([]*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepo) GetRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.RegimeStatsResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetStrategyRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.StrategyRegimeStatsResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetBasicStatsSQL(startDate, endDate *time.Time, tradeSource string) (*repository.BasicStatsSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetLightTrackDataSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.LightTrackData, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetDirectionStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.DirectionSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetSymbolStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.SymbolSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetExitReasonStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ExitReasonSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetPeriodPnLSQL(startDate, endDate *time.Time, period, tradeSource string) ([]repository.PeriodPnLSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetPnLValuesSQL(startDate, endDate *time.Time, tradeSource string) ([]float64, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetStrategyStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.StrategySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetSignalStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.SignalSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetScoreStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreSQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetEquityCurveSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.EquitySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetScoreEquitySQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreEquitySQLResult, error) {
+	return nil, nil
+}
+func (m *mockTrackRepo) GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreRegimeSQLResult, error) {
+	return nil, nil
+}
 
 func TestRiskManager_CheckBeforeOpen(t *testing.T) {
 	cfg := &config.TradingConfig{

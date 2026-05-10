@@ -217,6 +217,7 @@ func main() {
 
 	// 初始化 Bybit Testnet 模拟交易服务
 	var testnetTrader *trading.TestnetTrader
+		var testnetMonitor *trading.TestnetPositionMonitor
 	if cfg.Trading.Testnet.Enabled && cfg.Trading.Testnet.APIKey != "" {
 		testnetTrader = trading.NewTestnetTrader(&cfg.Trading, trackRepo, klineRepo, utils.Logger)
 		oppAggregator.AddHandler(testnetTrader)
@@ -224,7 +225,7 @@ func main() {
 			zap.String("base_url", cfg.Trading.Testnet.BaseURL),
 			zap.Int("score_threshold", cfg.Trading.Testnet.ScoreThreshold))
 
-		testnetMonitor := trading.NewTestnetPositionMonitor(
+		testnetMonitor = trading.NewTestnetPositionMonitor(
 			testnetTrader.GetClient(), trackRepo, symbolRepo, utils.Logger)
 		testnetMonitor.Start()
 		defer testnetMonitor.Stop()
@@ -360,16 +361,34 @@ func main() {
 	opportunityHandler := handler.NewOpportunityHandler(oppRepo, trackRepo, signalScorer, aiAnalyzer, cfg.AI, cooldownTracker, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
 	tradeHandler := handler.NewTradeHandler(trackRepo, tradeExecutor, statsService, utils.Logger)
-	if testnetTrader != nil {
-		tradeHandler.SetTestnetTrader(testnetTrader)
-	}
+		if testnetTrader != nil {
+			tradeHandler.SetTestnetTrader(testnetTrader)
+		}
+		if testnetMonitor != nil {
+			tradeHandler.SetTestnetMonitor(testnetMonitor)
+		}
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
 	boxHandler := handler.NewBoxHandler(boxRepo, symbolRepo, utils.Logger)
 	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelV2Repo, utils.Logger)
+	// AI 观察仓调度器（K 线同步后自动分析）
+	var watchScheduler *aiservice.AIWatchScheduler
+	if trendPullbackAnalyzer != nil || elliottWaveAnalyzer != nil {
+		watchScheduler = aiservice.NewAIWatchScheduler(
+			aiWatchTargetRepo, symbolRepo,
+			trendPullbackAnalyzer, elliottWaveAnalyzer,
+			utils.Logger,
+		)
+	}
+		// 注册 AI 观察仓调度钩子
+		if watchScheduler != nil {
+			syncService.AddHook(watchScheduler)
+			utils.Info("AI观察仓调度器已注册")
+		}
+
 	trendHandler := handler.NewTrendHandler(trendRepo, symbolRepo, syncService, trendPullbackAnalyzer, elliottWaveAnalyzer, utils.Logger)
+	aiWatchTargetHandler := handler.NewAIWatchTargetHandler(aiWatchTargetRepo, watchScheduler, utils.Logger)
 	aiStatsSvc := aiservice.NewAIStatsService(db)
 	aiStatsHandler := handler.NewAIStatsHandler(aiStatsSvc, utils.Logger)
-	aiWatchTargetHandler := handler.NewAIWatchTargetHandler(aiWatchTargetRepo, utils.Logger)
 	authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
 	userHandler := handler.NewUserHandler(authsvc, utils.Logger)
 
@@ -521,6 +540,7 @@ func main() {
 				aiWatchTargetsGroup.GET("", aiWatchTargetHandler.List)
 				aiWatchTargetsGroup.POST("", aiWatchTargetHandler.Upsert)
 				aiWatchTargetsGroup.DELETE("/:id", aiWatchTargetHandler.Delete)
+					aiWatchTargetsGroup.POST("/:id/analyze", aiWatchTargetHandler.Analyze)
 			}
 
 			// 交易跟踪 API
@@ -541,8 +561,15 @@ func main() {
 				tradesGroup.GET("/score-analysis", tradeHandler.GetScoreAnalysis)
 				tradesGroup.GET("/strategy-analysis", tradeHandler.GetStrategyAnalysis)
 				tradesGroup.GET("/score-equity-curve", tradeHandler.GetScoreEquityCurves)
+				tradesGroup.GET("/regime-analysis", tradeHandler.GetRegimeAnalysis)
+				tradesGroup.GET("/strategy-regime-analysis", tradeHandler.GetStrategyRegimeAnalysis)
+				tradesGroup.GET("/score-regime-analysis", tradeHandler.GetScoreRegimeAnalysis)
 				tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
 				tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
+				// 异常持仓操作（recheck/force-close）
+				tradesGroup.POST("/anomalous/:id/recheck", tradeHandler.RecheckAnomalousPosition)
+				tradesGroup.POST("/anomalous/:id/force-close", tradeHandler.ForceCloseAnomalousPosition)
+				tradesGroup.GET("/anomalous/count", tradeHandler.GetAnomalousCount)
 			}
 
 			// 管理员 API

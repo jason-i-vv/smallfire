@@ -25,6 +25,11 @@
           <template #title>{{ t('menu.dashboard') }}</template>
         </el-menu-item>
 
+        <el-menu-item index="/statistics">
+          <el-icon><DataAnalysis /></el-icon>
+          <template #title>{{ t('menu.statistics') }}</template>
+        </el-menu-item>
+
         <el-sub-menu index="signals">
           <template #title>
             <el-icon><TrendCharts /></el-icon>
@@ -39,8 +44,10 @@
             <el-icon><Coin /></el-icon>
             <span>{{ t('menu.paperTrading') }}</span>
           </template>
-          <el-menu-item index="/statistics">{{ t('menu.statistics') }}</el-menu-item>
-          <el-menu-item index="/positions">{{ t('menu.positions') }}</el-menu-item>
+          <el-menu-item index="/positions">
+            <span>{{ t('menu.positions') }}</span>
+            <el-badge v-if="anomalousCount > 0" :value="anomalousCount" class="anomalous-badge" />
+          </el-menu-item>
           <el-menu-item index="/trades">{{ t('menu.trades') }}</el-menu-item>
         </el-sub-menu>
 
@@ -86,10 +93,11 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { tradeApi } from '@/api/trades'
 import {
   HomeFilled,
   TrendCharts,
@@ -107,6 +115,18 @@ const { t } = useI18n()
 const route = useRoute()
 const authStore = useAuthStore()
 const isCollapsed = ref(false)
+const anomalousCount = ref(0)
+
+let anomalousTimer = null
+
+const fetchAnomalousCount = async () => {
+  try {
+    const res = await tradeApi.anomalousCount()
+    anomalousCount.value = res.data?.count || 0
+  } catch (e) {
+    // ignore
+  }
+}
 
 const isAdmin = computed(() => authStore.isAdmin)
 
@@ -118,6 +138,14 @@ const activeMenu = computed(() => {
     if (path.startsWith(p)) return path
   }
   return '/'
+})
+
+onMounted(() => {
+  fetchAnomalousCount()
+  anomalousTimer = setInterval(fetchAnomalousCount, 60000)
+})
+onUnmounted(() => {
+  if (anomalousTimer) clearInterval(anomalousTimer)
 })
 
 const toggleCollapse = () => {
@@ -229,6 +257,13 @@ const toggleCollapse = () => {
     display: flex;
     justify-content: center;
     padding: 16px 0;
+  }
+}
+
+.anomalous-badge {
+  margin-left: 8px;
+  :deep(.el-badge__content) {
+    font-size: 10px;
   }
 }
 </style>

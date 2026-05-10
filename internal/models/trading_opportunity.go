@@ -23,6 +23,8 @@ type TradingOpportunity struct {
 	AIAdjustment        int        `json:"ai_adjustment" db:"ai_adjustment"`
 	AIJudgment          *JSONB     `json:"ai_judgment,omitempty" db:"ai_judgment"`
 	Status              string     `json:"status" db:"status"`
+	Regime              string     `json:"regime" db:"regime"`                           // 顺势/逆势/震荡
+	StrategyType        string     `json:"strategy_type" db:"strategy_type"`             // box/trend/candlestick...
 	Period              string     `json:"period" db:"period"`
 	FirstSignalAt       *time.Time `json:"first_signal_at,omitempty" db:"first_signal_at"`
 	LastSignalAt        *time.Time `json:"last_signal_at,omitempty" db:"last_signal_at"`

@@ -68,7 +68,23 @@
           {{ formatPrice(row.take_profit_price) }}
         </template>
       </el-table-column>
-      <el-table-column :label="t('common.actions') || '操作'" />
+      <el-table-column v-if="hasAnomalous" prop="anomalous_reason" :label="t('positions.anomalousReason')" min-width="200">
+        <template #default="{ row }">
+          <span v-if="row.status === 'anomalous'" class="anomalous-reason">{{ row.anomalous_reason }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('common.actions') || '操作'" width="180">
+        <template #default="{ row }">
+          <template v-if="row.status === 'anomalous'">
+            <el-button type="primary" size="small" link @click="$emit('recheck', row)">
+              {{ t('positions.recheck') }}
+            </el-button>
+            <el-button type="danger" size="small" link @click="$emit('forceClose', row)">
+              {{ t('positions.forceClose') }}
+            </el-button>
+          </template>
+        </template>
+      </el-table-column>
     </el-table>
   </div>
 </template>
@@ -76,6 +92,7 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { computed } from 'vue'
 import { formatPrice, formatPnL, formatPercent, formatTime } from '@/utils/formatters'
 import TrendBadge from '@/components/common/TrendBadge.vue'
 
@@ -88,7 +105,9 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'recheck', 'forceClose'])
+
+const hasAnomalous = computed(() => props.positions.some(p => p.status === 'anomalous'))
 
 const handleClose = (position) => {
   emit('close', position)
@@ -134,4 +153,17 @@ const handleViewChart = (position) => {
 .dir-short { color: $danger; }
 .profit { color: $success; }
 .loss { color: $danger; }
+.anomalous-reason {
+  color: $warning;
+  font-size: 12px;
+}
+:deep(.el-table__row) {
+  td:first-child {
+    border-left: 3px solid transparent;
+  }
+  &[class*="anomalous-row"] td:first-child,
+  &:has(.anomalous-reason) td:first-child {
+    border-left-color: $warning;
+  }
+}
 </style>

@@ -1,7 +1,9 @@
 package trading
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/smallfire/starfire/internal/models"
@@ -12,12 +14,18 @@ import (
 // TestnetPositionMonitor Bybit Testnet 持仓监控服务
 // 轮询 Bybit API 获取真实仓位状态，更新本地记录
 type TestnetPositionMonitor struct {
-	client    *BybitTradingClient
-	trackRepo repository.TradeTrackRepo
+	client     *BybitTradingClient
+	trackRepo  repository.TradeTrackRepo
 	symbolRepo repository.SymbolRepo
-	logger    *zap.Logger
-	stopChan  chan struct{}
+	logger     *zap.Logger
+	stopChan   chan struct{}
+
+	// missCount 记录每个 track 连续未匹配到 Bybit 持仓的次数
+	// 连续 3 次（约 90 秒）未匹配才执行兜底平仓，避免 API 抖动误杀正常持仓
+	missCount map[int]int
 }
+
+const missThreshold = 3
 
 // NewTestnetPositionMonitor 创建 Testnet 持仓监控
 func NewTestnetPositionMonitor(
@@ -32,6 +40,7 @@ func NewTestnetPositionMonitor(
 		symbolRepo: symbolRepo,
 		logger:     logger,
 		stopChan:   make(chan struct{}),
+		missCount:  make(map[int]int),
 	}
 }
 
@@ -70,7 +79,8 @@ func (m *TestnetPositionMonitor) checkAllPositions() {
 	}
 
 	if len(tracks) == 0 {
-		m.logger.Info("[Testnet] 无待监控的 testnet 持仓")
+		// 即使 DB 无 open 记录，仍需检查 Bybit 上的孤儿仓位
+		m.cleanupBybitOrphans()
 		return
 	}
 	m.logger.Info("[Testnet] 开始检查持仓", zap.Int("track_count", len(tracks)))
@@ -98,7 +108,7 @@ func (m *TestnetPositionMonitor) checkAllPositions() {
 	if err == nil {
 		for i := range recentClosed {
 			c := &recentClosed[i]
-				if _, ok := closedPnlMap[c.Symbol]; !ok {
+			if _, ok := closedPnlMap[c.Symbol]; !ok {
 				closedPnlMap[c.Symbol] = c
 			}
 		}
@@ -133,6 +143,8 @@ func (m *TestnetPositionMonitor) checkAllPositions() {
 			}
 			matchedSymbols[symbolCode] = true
 			m.updateOpenPosition(track, bybitPos)
+			// 匹配成功，重置未匹配计数
+			delete(m.missCount, track.ID)
 			continue
 		}
 
@@ -146,13 +158,84 @@ func (m *TestnetPositionMonitor) checkAllPositions() {
 			m.logger.Info("[Testnet] 匹配到已平仓记录", zap.Int("track_id", track.ID), zap.String("symbol", symbolCode))
 			matchedSymbols[symbolCode] = true
 			m.handleClosedPositionFromPnl(track, symbolCode, closedInfo)
+			delete(m.missCount, track.ID)
 			continue
 		}
 
-		// 兜底：查不到记录，按已平仓处理
-		m.logger.Info("[Testnet] 未匹配到任何持仓，执行兜底平仓", zap.Int("track_id", track.ID), zap.String("symbol", symbolCode))
-		m.handleClosedPosition(track, symbolCode)
+		// 未匹配到：累加未匹配计数，达到阈值才执行兜底平仓
+		m.missCount[track.ID]++
+		if m.missCount[track.ID] < missThreshold {
+			m.logger.Warn("[Testnet] 持仓未匹配，等待下次检查",
+				zap.Int("track_id", track.ID),
+				zap.String("symbol", symbolCode),
+				zap.Int("miss_count", m.missCount[track.ID]),
+				zap.Int("threshold", missThreshold))
+			continue
+		}
+		m.logger.Warn("[Testnet] 连续未匹配达到阈值，标记为异常持仓",
+			zap.Int("track_id", track.ID),
+			zap.String("symbol", symbolCode),
+			zap.Int("miss_count", m.missCount[track.ID]))
+		delete(m.missCount, track.ID)
+		m.markAnomalous(track, symbolCode)
 	}
+
+	// 5. 清理 Bybit 孤儿仓位（Bybit 上有持仓但 DB 无对应记录）
+	m.cleanupOrphanPositions(bybitPositions, matchedSymbols)
+
+		// 6. 自动恢复异常持仓（API 恢复后自动从 anomalous 恢复为 open）
+		m.tryRecoverAnomalous(bybitPosMap, closedPnlMap)
+	}
+
+// cleanupOrphanPositions 清理 Bybit 上的孤儿仓位
+// 这些仓位在 Bybit 上存在但 DB 中没有对应的 open 记录，可能是历史遗留或手动创建的
+func (m *TestnetPositionMonitor) cleanupOrphanPositions(bybitPositions []PositionInfo, matchedSymbols map[string]bool) {
+	orphanCount := 0
+	for _, pos := range bybitPositions {
+		if matchedSymbols[pos.Symbol] {
+			continue // 已匹配，跳过
+		}
+		orphanCount++
+		m.logger.Warn("[Testnet] 发现孤儿仓位，尝试平仓",
+			zap.String("symbol", pos.Symbol),
+			zap.String("side", pos.Side),
+			zap.String("size", pos.Size))
+
+		if err := m.client.ClosePosition(pos.Symbol, pos.Side, pos.Size); err != nil {
+			m.logger.Error("[Testnet] 孤儿仓位平仓失败",
+				zap.String("symbol", pos.Symbol),
+				zap.Error(err))
+			// 遇到频率限制，等待 1 秒后继续
+			if strings.Contains(err.Error(), "10006") {
+				time.Sleep(1 * time.Second)
+			}
+		} else {
+			m.logger.Info("[Testnet] 孤儿仓位已平仓",
+				zap.String("symbol", pos.Symbol),
+				zap.String("side", pos.Side),
+				zap.String("size", pos.Size))
+		}
+		// 每次平仓后等待 200ms，避免触发 API 频率限制
+		time.Sleep(200 * time.Millisecond)
+	}
+	if orphanCount > 0 {
+		m.logger.Info("[Testnet] 孤儿仓位清理完成", zap.Int("orphan_count", orphanCount))
+	}
+}
+
+// cleanupBybitOrphans 当 DB 无 open 记录时，检查并清理 Bybit 上的残留仓位
+func (m *TestnetPositionMonitor) cleanupBybitOrphans() {
+	bybitPositions, err := m.client.QueryAllPositions()
+	if err != nil {
+		m.logger.Warn("[Testnet] 查询 Bybit 持仓失败，跳过孤儿检查", zap.Error(err))
+		return
+	}
+	if len(bybitPositions) == 0 {
+		return
+	}
+	m.logger.Info("[Testnet] DB 无持仓但 Bybit 有残留仓位，开始清理", zap.Int("bybit_count", len(bybitPositions)))
+	emptyMatched := make(map[string]bool)
+	m.cleanupOrphanPositions(bybitPositions, emptyMatched)
 }
 
 // buildSymbolMap 批量构建 symbolID -> symbolCode 映射
@@ -381,9 +464,39 @@ func (m *TestnetPositionMonitor) handleClosedPosition(track *models.TradeTrack, 
 	}
 }
 
-// inferExitReason 根据盈亏判断平仓原因
-// PnL 为负 → 止损（亏损），PnL >= 0 → 止盈（盈利）
+// inferExitReason 根据退出价与止损/止盈价的比较判断平仓原因
+// 退出价触及止损 → stop_loss，触及止盈 → take_profit，其他 → manual（系统强制平仓）
 func (m *TestnetPositionMonitor) inferExitReason(track *models.TradeTrack) string {
+	if track.ExitPrice != nil && *track.ExitPrice > 0 {
+		exitPrice := *track.ExitPrice
+
+		// 检查止损：long 方向退出价 <= SL，short 方向退出价 >= SL
+		if track.StopLossPrice != nil && *track.StopLossPrice > 0 {
+			sl := *track.StopLossPrice
+			if track.Direction == models.DirectionLong && exitPrice <= sl {
+				return models.ExitReasonStopLoss
+			}
+			if track.Direction == models.DirectionShort && exitPrice >= sl {
+				return models.ExitReasonStopLoss
+			}
+		}
+
+		// 检查止盈：long 方向退出价 >= TP，short 方向退出价 <= TP
+		if track.TakeProfitPrice != nil && *track.TakeProfitPrice > 0 {
+			tp := *track.TakeProfitPrice
+			if track.Direction == models.DirectionLong && exitPrice >= tp {
+				return models.ExitReasonTakeProfit
+			}
+			if track.Direction == models.DirectionShort && exitPrice <= tp {
+				return models.ExitReasonTakeProfit
+			}
+		}
+
+		// 退出价在 SL 和 TP 之间，说明是系统兜底平仓
+		return models.ExitReasonManual
+	}
+
+	// 兜底：无退出价时，根据 PnL 符号推断
 	if track.PnL != nil && *track.PnL < 0 {
 		return models.ExitReasonStopLoss
 	}
@@ -412,4 +525,228 @@ func (m *TestnetPositionMonitor) updateOpenPosition(track *models.TradeTrack, po
 	if err := m.trackRepo.Update(track); err != nil {
 		m.logger.Error("[Testnet] 更新持仓数据失败", zap.Int("track_id", track.ID), zap.Error(err))
 	}
+}
+
+// markAnomalous 将持仓标记为异常状态（不自动平仓），等待人工介入
+// tryRecoverAnomalous 检查异常持仓是否能自动恢复
+// 复用已查询的 Bybit 持仓数据，如果能匹配到则恢复为 open，如果发现已平仓则按平仓处理
+func (m *TestnetPositionMonitor) tryRecoverAnomalous(bybitPosMap map[string]*PositionInfo, closedPnlMap map[string]*ClosedPnlInfo) {
+	tracks, err := m.trackRepo.GetAnomalous()
+	if err != nil {
+		m.logger.Error("[Testnet] 查询异常持仓失败", zap.Error(err))
+		return
+	}
+	if len(tracks) == 0 {
+		return
+	}
+	m.logger.Info("[Testnet] 检查异常持仓自动恢复", zap.Int("count", len(tracks)))
+
+	for _, track := range tracks {
+		symbol, err := m.symbolRepo.GetByID(track.SymbolID)
+		if err != nil || symbol == nil {
+			continue
+		}
+		symbolCode := symbol.SymbolCode
+
+		// 1. 检查 Bybit 实时持仓
+		if bybitPos, ok := bybitPosMap[symbolCode]; ok && bybitPos.Size != "0" {
+			track.Status = models.TrackStatusOpen
+			track.AnomalousReason = nil
+			m.updateOpenPosition(track, bybitPos)
+			m.logger.Info("[Testnet] 异常持仓自动恢复为 open",
+				zap.Int("track_id", track.ID),
+				zap.String("symbol", symbolCode))
+			continue
+		}
+
+		// 2. 检查已平仓记录
+		if closedInfo, ok := closedPnlMap[symbolCode]; ok {
+			m.handleClosedPositionFromPnl(track, symbolCode, closedInfo)
+			m.logger.Info("[Testnet] 异常持仓已确认为平仓",
+				zap.Int("track_id", track.ID),
+				zap.String("symbol", symbolCode))
+			continue
+		}
+
+		// 3. 仍然找不到，保持异常
+		m.logger.Debug("[Testnet] 异常持仓仍未匹配",
+			zap.Int("track_id", track.ID),
+			zap.String("symbol", symbolCode))
+	}
+}
+
+func (m *TestnetPositionMonitor) markAnomalous(track *models.TradeTrack, symbolCode string) {
+	reason := fmt.Sprintf("连续 %d 次检查未能在 Bybit 匹配到持仓 (symbol=%s)", missThreshold, symbolCode)
+
+	now := time.Now()
+	track.Status = models.TrackStatusAnomalous
+	track.AnomalousReason = ptrString(reason)
+	track.UpdatedAt = now
+
+	if err := m.trackRepo.Update(track); err != nil {
+		m.logger.Error("[Testnet] 标记异常持仓失败", zap.Int("track_id", track.ID), zap.Error(err))
+		return
+	}
+
+	m.logger.Info("[Testnet] 已标记为异常持仓，等待人工介入",
+		zap.Int("track_id", track.ID),
+		zap.String("symbol", symbolCode),
+		zap.String("reason", reason))
+}
+
+// RecheckPosition 重新检测异常持仓，如果 Bybit 上能找到则恢复正常，否则仍标记异常
+func (m *TestnetPositionMonitor) RecheckPosition(trackID int) (*models.TradeTrack, string, error) {
+	track, err := m.trackRepo.GetByID(trackID)
+	if err != nil {
+		return nil, "", fmt.Errorf("查询持仓记录失败: %w", err)
+	}
+	if track == nil {
+		return nil, "", fmt.Errorf("持仓记录不存在")
+	}
+	if track.Status != models.TrackStatusAnomalous {
+		return track, "持仓状态不是异常，无需重新检测", nil
+	}
+
+	// 获取 symbolCode
+	symbol, err := m.symbolRepo.GetByID(track.SymbolID)
+	if err != nil || symbol == nil {
+		return nil, "", fmt.Errorf("查询标的信息失败: %w", err)
+	}
+	symbolCode := symbol.SymbolCode
+
+	// 1. 检查 Bybit 实时持仓
+	posInfo, err := m.client.QueryPosition(symbolCode)
+	if err != nil {
+		return nil, "", fmt.Errorf("查询 Bybit 持仓失败: %w", err)
+	}
+	if posInfo != nil && posInfo.Size != "0" {
+		// Bybit 上有持仓，恢复正常
+		track.Status = models.TrackStatusOpen
+		track.AnomalousReason = nil
+		m.updateOpenPosition(track, posInfo)
+		return track, fmt.Sprintf("Bybit 持仓正常 (size=%s, unrealizedPnl=%s)", posInfo.Size, posInfo.UnrealizedPnL), nil
+	}
+
+	// 2. 检查 Bybit 已平仓记录
+	closedPnls, err := m.client.GetClosedPnlBySymbol(symbolCode, 10)
+	if err == nil && len(closedPnls) > 0 {
+		pnlInfo := closedPnls[0]
+		qty, _ := strconv.ParseFloat(pnlInfo.Qty, 64)
+		closedPnlVal, _ := strconv.ParseFloat(pnlInfo.ClosedPnl, 64)
+		if qty > 0 || closedPnlVal != 0 {
+			// 找到平仓记录，按正常平仓处理
+			m.handleClosedPositionFromPnl(track, symbolCode, &pnlInfo)
+			return track, fmt.Sprintf("已在 Bybit 平仓 (entry=%s, exit=%s, pnl=%s)", pnlInfo.EntryPrice, pnlInfo.ExitPrice, pnlInfo.ClosedPnl), nil
+		}
+	}
+
+	// 3. 仍然找不到，保持异常状态，更新原因
+	reason := fmt.Sprintf("重新检测仍无法匹配 (symbol=%s, time=%s)", symbolCode, time.Now().Format("2006-01-02 15:04:05"))
+	track.AnomalousReason = ptrString(reason)
+	track.UpdatedAt = time.Now()
+	if err := m.trackRepo.Update(track); err != nil {
+		m.logger.Error("[Testnet] 更新异常持仓信息失败", zap.Int("track_id", track.ID), zap.Error(err))
+	}
+	return track, reason, nil
+}
+
+// ForceCloseAnomalous 人工强制平仓异常持仓
+func (m *TestnetPositionMonitor) ForceCloseAnomalous(trackID int) (*models.TradeTrack, error) {
+	track, err := m.trackRepo.GetByID(trackID)
+	if err != nil {
+		return nil, fmt.Errorf("查询持仓记录失败: %w", err)
+	}
+	if track == nil {
+		return nil, fmt.Errorf("持仓记录不存在")
+	}
+	if track.Status != models.TrackStatusAnomalous {
+		return nil, fmt.Errorf("只能强制平仓异常状态的持仓")
+	}
+
+	// 获取 symbolCode
+	symbol, err := m.symbolRepo.GetByID(track.SymbolID)
+	if err != nil || symbol == nil {
+		return nil, fmt.Errorf("查询标的信息失败: %w", err)
+	}
+	symbolCode := symbol.SymbolCode
+
+	now := time.Now()
+
+	// 尝试从 Bybit 获取真实平仓数据
+	closedPnls, cpErr := m.client.GetClosedPnlBySymbol(symbolCode, 10)
+	if cpErr == nil && len(closedPnls) > 0 {
+		pnlInfo := closedPnls[0]
+		qty, _ := strconv.ParseFloat(pnlInfo.Qty, 64)
+		closedPnlVal, _ := strconv.ParseFloat(pnlInfo.ClosedPnl, 64)
+		if qty > 0 || closedPnlVal != 0 {
+			m.handleClosedPositionFromPnl(track, symbolCode, &pnlInfo)
+			return track, nil
+		}
+	}
+
+	// 尝试在 Bybit 上主动平仓
+	if track.Quantity != nil && *track.Quantity > 0 {
+		var side string
+		if track.Direction == models.DirectionLong {
+			side = "Buy"
+		} else {
+			side = "Sell"
+		}
+		qtyStr := strconv.FormatFloat(*track.Quantity, 'f', 6, 64)
+		if closeErr := m.client.ClosePosition(symbolCode, side, qtyStr); closeErr != nil {
+			m.logger.Warn("[Testnet] 人工平仓时 Bybit 平仓失败，可能是仓位已不存在",
+				zap.String("symbol", symbolCode),
+				zap.Error(closeErr))
+		}
+	}
+
+	// 使用当前市价计算
+	exitPrice := 0.0
+	marketPrice, err := m.client.GetTickerPrice(symbolCode)
+	if err == nil {
+		exitPrice = marketPrice
+	}
+	if exitPrice <= 0 && track.EntryPrice != nil {
+		exitPrice = *track.EntryPrice
+	}
+
+	var pnl float64
+	if track.EntryPrice != nil && track.Quantity != nil {
+		if track.Direction == models.DirectionLong {
+			pnl = (exitPrice - *track.EntryPrice) * *track.Quantity
+		} else {
+			pnl = (*track.EntryPrice - exitPrice) * *track.Quantity
+		}
+	}
+
+	var pnlPercent float64
+	if track.PositionValue != nil && *track.PositionValue != 0 {
+		pnlPercent = pnl / *track.PositionValue
+	}
+
+	track.Status = models.TrackStatusClosed
+	track.ExitPrice = &exitPrice
+	track.ExitTime = &now
+	track.PnL = &pnl
+	track.PnLPercent = &pnlPercent
+	track.ExitReason = ptrString(models.ExitReasonAnomalous)
+	track.AnomalousReason = nil
+	track.UpdatedAt = now
+
+	if err := m.trackRepo.Update(track); err != nil {
+		m.logger.Error("[Testnet] 更新人工平仓记录失败", zap.Int("track_id", track.ID), zap.Error(err))
+		return nil, fmt.Errorf("更新平仓记录失败: %w", err)
+	}
+
+	m.logger.Info("[Testnet] 人工强制平仓完成",
+		zap.Int("track_id", track.ID),
+		zap.String("symbol", symbolCode),
+		zap.Float64("exit_price", exitPrice),
+		zap.Float64("pnl", pnl))
+	return track, nil
+}
+
+// GetAnomalousCount 获取异常持仓数量
+func (m *TestnetPositionMonitor) GetAnomalousCount() (int, error) {
+	return m.trackRepo.CountByStatus(models.TrackStatusAnomalous)
 }

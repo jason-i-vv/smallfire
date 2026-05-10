@@ -293,30 +293,41 @@ func (c *BybitTradingClient) QueryPosition(symbol string) (*PositionInfo, error)
 
 // QueryAllPositions 批量查询所有持仓（不分页，默认100条）
 func (c *BybitTradingClient) QueryAllPositions() ([]PositionInfo, error) {
-	path := "/v5/position/list?category=linear&settleCoin=USDT&limit=100"
+	var allPositions []PositionInfo
+	cursor := ""
 
-	apiResp, err := c.authRequest("GET", path, nil)
-	if err != nil {
-		return nil, fmt.Errorf("批量查询持仓失败: %w", err)
-	}
-
-	var result struct {
-		List       []PositionInfo `json:"list"`
-		NextPageCursor string     `json:"nextPageCursor"`
-	}
-	if err := json.Unmarshal(apiResp.Result, &result); err != nil {
-		return nil, fmt.Errorf("解析持仓响应失败: %w", err)
-	}
-
-	// 过滤出 size > 0 的持仓
-	openPositions := make([]PositionInfo, 0)
-	for _, pos := range result.List {
-		if pos.Size != "0" && pos.Size != "" {
-			openPositions = append(openPositions, pos)
+	for {
+		path := "/v5/position/list?category=linear&settleCoin=USDT&limit=100"
+		if cursor != "" {
+			path += "&cursor=" + cursor
 		}
+
+		apiResp, err := c.authRequest("GET", path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("批量查询持仓失败: %w", err)
+		}
+
+		var result struct {
+			List           []PositionInfo `json:"list"`
+			NextPageCursor string         `json:"nextPageCursor"`
+		}
+		if err := json.Unmarshal(apiResp.Result, &result); err != nil {
+			return nil, fmt.Errorf("解析持仓响应失败: %w", err)
+		}
+
+		for _, pos := range result.List {
+			if pos.Size != "0" && pos.Size != "" {
+				allPositions = append(allPositions, pos)
+			}
+		}
+
+		if result.NextPageCursor == "" {
+			break
+		}
+		cursor = result.NextPageCursor
 	}
 
-	return openPositions, nil
+	return allPositions, nil
 }
 
 // ClosePosition 平仓

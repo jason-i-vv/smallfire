@@ -1,192 +1,245 @@
 <template>
-  <div class="dashboard">
-    <!-- 核心指标卡片 -->
-    <el-row :gutter="20" class="stats-row">
-      <el-col :span="6">
-        <StatCard
-          :title="t('dashboard.totalPnl')"
-          :value="formatPnL(stats.totalPnL)"
-          :change="stats.pnlChange"
-          type="profit"
-        />
-      </el-col>
-      <el-col :span="6">
-        <StatCard
-          :title="t('dashboard.winRate')"
-          :value="stats.winRate + '%'"
-          :change="stats.winRateChange"
-          type="rate"
-        />
-      </el-col>
-      <el-col :span="6">
-        <StatCard
-          :title="t('dashboard.profitFactor')"
-          :value="stats.profitFactor"
-          type="ratio"
-        />
-      </el-col>
-      <el-col :span="6">
-        <StatCard
-          :title="t('dashboard.maxDrawdown')"
-          :value="stats.maxDrawdown + '%'"
-          type="drawdown"
-        />
-      </el-col>
-    </el-row>
+  <div class="statistics">
+    <!-- 筛选栏 -->
+    <div class="filter-bar">
+      <el-date-picker
+        v-model="dateRange"
+        type="daterange"
+        range-separator="至"
+        start-placeholder="开始日期"
+        end-placeholder="结束日期"
+        value-format="YYYY-MM-DD"
+        @change="fetchData"
+      />
+      <el-button @click="resetFilter">{{ t('common.reset') }}</el-button>
+    </div>
 
-    <!-- 权益曲线 -->
-    <el-card class="chart-card">
-      <template #header>
-        <span>{{ t('dashboard.equityCurve') }}</span>
-      </template>
-      <EquityCurve :data="equityData" />
-    </el-card>
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-state">
+      <el-icon class="is-loading"><Loading /></el-icon>
+      <span>{{ t('common.loading') }}</span>
+    </div>
 
-    <!-- 持仓列表和信号列表 -->
-    <el-row :gutter="20" class="content-row">
-      <el-col :span="12">
-        <el-card>
-          <template #header>
-            <span>{{ t('dashboard.currentPositions') }}</span>
-          </template>
-          <PositionList :positions="positions" @close="handleClosePosition" />
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card>
-          <template #header>
-            <span>{{ t('dashboard.latestSignals') }}</span>
-          </template>
-          <SignalList :signals="recentSignals" @view="handleViewSignal" />
-        </el-card>
-      </el-col>
-    </el-row>
+    <!-- 空状态 -->
+    <div v-else-if="!loading && noData" class="empty-state">
+      <p>{{ t('statistics.noData') }}</p>
+    </div>
+
+    <!-- 数据面板 -->
+    <template v-else>
+      <!-- 综合统计卡片 -->
+      <el-row :gutter="16" class="stats-row">
+        <el-col :span="6" v-for="stat in summaryStats" :key="stat.label">
+          <div class="stat-item">
+            <div class="stat-label">{{ stat.label }}</div>
+            <div class="stat-value" :class="stat.class">{{ stat.value }}</div>
+          </div>
+        </el-col>
+      </el-row>
+
+      <!-- 权益曲线 + 周期盈亏 -->
+      <el-row :gutter="20">
+        <el-col :span="12">
+          <el-card>
+            <template #header>{{ t('dashboard.equityCurve') }}</template>
+            <EquityCurveChart :data="scoreEquityData" />
+          </el-card>
+        </el-col>
+        <el-col :span="12">
+          <el-card>
+            <template #header>{{ t('statistics.distribution') }}</template>
+            <PnLByPeriodChart
+              :data="periodPnLData"
+              v-model:period="selectedPeriod"
+            />
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 盈亏分布 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="12">
+          <el-card>
+            <template #header>{{ t('statistics.pnlDistribution') || '盈亏分布' }}</template>
+            <PnLDistributionChart :data="pnlDistData" />
+          </el-card>
+        </el-col>
+        <el-col :span="12">
+          <el-card>
+            <template #header>{{ t('statistics.bySymbol') || '按标的统计' }}</template>
+            <SymbolAnalysisTable :data="symbolData" />
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 评分区间分析 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>{{ t('statistics.byScore') || '评分区间胜率分析' }}</template>
+            <ScoreAnalysisTable :data="scoreAnalysisData" />
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 策略分析 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>{{ t('statistics.byStrategy') || '策略盈亏分析' }}</template>
+            <StrategyAnalysisTable :data="strategyAnalysisData" />
+          </el-card>
+        </el-col>
+      </el-row>
+    </template>
+
+    <!-- 市场状态 Tab -->
+    <div class="regime-section">
+      <div class="section-header">
+        <h3>{{ t('statistics.regimeAnalysis') || '市场状态分析' }}</h3>
+      </div>
+
+      <!-- 市场状态统计卡片 -->
+      <RegimeAnalysisCard :data="regimeData" class="mt-20" />
+
+      <!-- 策略 × 市场状态 交叉分析 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>{{ t('statistics.strategyRegimeAnalysis') || '策略 × 市场状态 交叉分析' }}</template>
+            <StrategyRegimeTable :data="strategyRegimeData" />
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 评分维度 × 市场状态 分析 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>{{ t('statistics.scoreRegimeAnalysis') || '评分维度 × 市场状态 分析' }}</template>
+            <ScoreDimensionTable :data="scoreRegimeData" />
+          </el-card>
+        </el-col>
+      </el-row>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
-import StatCard from '@/components/common/StatCard.vue'
-import EquityCurve from '@/components/charts/EquityCurve.vue'
-import PositionList from '@/components/trades/PositionList.vue'
-import SignalList from '@/components/signals/SignalList.vue'
+import { Loading } from '@element-plus/icons-vue'
+import EquityCurveChart from '@/components/charts/EquityCurveChart.vue'
+import PnLByPeriodChart from '@/components/charts/PnLByPeriodChart.vue'
+import PnLDistributionChart from '@/components/charts/PnLDistributionChart.vue'
+import SymbolAnalysisTable from '@/components/trades/SymbolAnalysisTable.vue'
+import ScoreAnalysisTable from '@/components/trades/ScoreAnalysisTable.vue'
+import StrategyAnalysisTable from '@/components/trades/StrategyAnalysisTable.vue'
+import RegimeAnalysisCard from '@/components/trades/RegimeAnalysisCard.vue'
+import StrategyRegimeTable from '@/components/trades/StrategyRegimeTable.vue'
+import ScoreDimensionTable from '@/components/trades/ScoreDimensionTable.vue'
 import { tradeApi } from '@/api/trades'
-import { signalApi } from '@/api/signals'
-import { formatPnL } from '@/utils/formatters'
+import { formatPnL, formatPercent } from '@/utils/formatters'
 
 const { t } = useI18n()
+const loading = ref(false)
+const dateRange = ref(null)
+const selectedPeriod = ref('daily')
+// 固定为 testnet（Bybit 模拟盘）
+const tradeSource = 'testnet'
 
-const stats = ref({
-  totalPnL: 0,
-  pnlChange: 0,
-  winRate: '--',
-  winRateChange: 0,
-  profitFactor: '--',
-  maxDrawdown: '--'
+const stats = ref(null)
+const scoreEquityData = ref({ ranges: [] })
+const symbolData = ref([])
+const periodPnLData = ref([])
+const pnlDistData = ref({ buckets: [] })
+const scoreAnalysisData = ref([])
+const strategyAnalysisData = ref([])
+const regimeData = ref([])
+const strategyRegimeData = ref([])
+const scoreRegimeData = ref([])
+
+const noData = computed(() => {
+  return stats.value && stats.value.total_trades === 0
 })
-const equityData = ref([])
-const positions = ref([])
-const recentSignals = ref([])
+
+const summaryStats = computed(() => {
+  if (!stats.value) return []
+  const s = stats.value
+  return [
+    { label: t('statistics.totalReturn') || '总收益率', value: formatPercent(s.total_return), class: s.total_return >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.totalPnl'), value: formatPnL(s.total_pnl), class: s.total_pnl >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.winRate'), value: formatPercent(s.win_rate), class: 'stat-rate' },
+    { label: t('statistics.profitFactor'), value: s.profit_factor > 0 ? s.profit_factor.toFixed(2) + ':1' : '-', class: 'stat-rate' },
+    { label: t('statistics.maxDrawdown'), value: formatPercent(-s.max_drawdown_pct), class: 'stat-loss' },
+    { label: t('statistics.totalTrades') || '交易次数', value: s.total_trades.toString(), class: 'stat-neutral' },
+    { label: t('statistics.sharpeRatio') || '夏普比率', value: s.sharpe_ratio.toFixed(2), class: s.sharpe_ratio >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.calmarRatio') || '卡玛比率', value: s.calmar_ratio.toFixed(2), class: s.calmar_ratio >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.avgWin') || '平均盈利', value: formatPnL(s.avg_win), class: 'stat-profit' },
+    { label: t('statistics.avgLoss') || '平均亏损', value: formatPnL(-s.avg_loss), class: 'stat-loss' },
+    { label: t('statistics.expectancy') || '期望值', value: formatPnL(s.expectancy), class: s.expectancy >= 0 ? 'stat-profit' : 'stat-loss' },
+    { label: t('statistics.avgHoldingHours') || '平均持仓(h)', value: s.avg_holding_hours.toFixed(1), class: 'stat-neutral' },
+  ]
+})
+
+const getDateParams = () => {
+  const params = { trade_source: tradeSource }
+  if (dateRange.value && dateRange.value.length === 2) {
+    params.start_date = dateRange.value[0]
+    params.end_date = dateRange.value[1]
+  }
+  return params
+}
 
 const fetchData = async () => {
+  loading.value = true
   try {
-    const [statsRes, equityRes, positionsRes, signalsRes] = await Promise.all([
-      tradeApi.stats(),
-      tradeApi.equity(),
-      tradeApi.positions(),
-      signalApi.list({ limit: 5 })
+    const params = getDateParams()
+    const [
+      statsRes, equityRes, symbolRes,
+      periodRes, distRes, scoreRes, strategyRes,
+      regimeRes, strategyRegimeRes, scoreRegimeRes
+    ] = await Promise.all([
+      tradeApi.stats(params),
+      tradeApi.scoreEquityCurve(params),
+      tradeApi.symbolAnalysis(params),
+      tradeApi.periodPnL({ ...params, period: selectedPeriod.value }),
+      tradeApi.pnlDistribution(params),
+      tradeApi.scoreAnalysis(params),
+      tradeApi.strategyAnalysis(params),
+      tradeApi.regimeAnalysis(params),
+      tradeApi.strategyRegimeAnalysis(params),
+      tradeApi.scoreRegimeAnalysis(params)
     ])
 
-    if (statsRes.data?.summary) {
-      stats.value = statsRes.data.summary
-    } else if (statsRes.data) {
-      // 新 API 直接返回 TradeStatistics 对象
-      const d = statsRes.data
-      stats.value = {
-        totalPnL: d.total_pnl || 0,
-        winRate: d.win_rate != null ? (d.win_rate * 100).toFixed(1) : '--',
-        profitFactor: d.profit_factor ? d.profit_factor.toFixed(2) : '--',
-        maxDrawdown: d.max_drawdown_pct != null ? (d.max_drawdown_pct * 100).toFixed(1) : '--'
-      }
-    }
-    if (equityRes.data?.equity_curve) {
-      equityData.value = equityRes.data.equity_curve
-    } else if (Array.isArray(equityRes.data)) {
-      // 新 API 直接返回 [{time, equity}] 数组
-      equityData.value = equityRes.data.map(d => ({
-        timestamp: d.time * 1000,
-        equity: d.equity
-      }))
-    }
-    if (positionsRes.data) {
-      positions.value = Array.isArray(positionsRes.data) ? positionsRes.data : []
-    }
-    if (signalsRes.data?.items) {
-      recentSignals.value = signalsRes.data.items
-    }
+    stats.value = statsRes.data || null
+    scoreEquityData.value = equityRes.data || { ranges: [] }
+    symbolData.value = symbolRes.data || []
+    periodPnLData.value = periodRes.data || []
+    pnlDistData.value = distRes.data || { buckets: [] }
+    scoreAnalysisData.value = scoreRes.data || []
+    strategyAnalysisData.value = strategyRes.data || []
+    regimeData.value = regimeRes.data || []
+    strategyRegimeData.value = strategyRegimeRes.data || []
+    scoreRegimeData.value = scoreRegimeRes.data || []
   } catch (error) {
     console.error('Failed to fetch dashboard data:', error)
-    // 使用模拟数据
-    stats.value = {
-      totalPnL: 12580.50,
-      pnlChange: 5.2,
-      winRate: '62.5',
-      winRateChange: 2.1,
-      profitFactor: '1.85',
-      maxDrawdown: '12.3'
-    }
-    equityData.value = [
-      { timestamp: Date.now() - 7 * 24 * 60 * 60 * 1000, equity: 100000 },
-      { timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000, equity: 102500 },
-      { timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000, equity: 101800 },
-      { timestamp: Date.now() - 4 * 24 * 60 * 60 * 1000, equity: 105200 },
-      { timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000, equity: 107300 },
-      { timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000, equity: 106800 },
-      { timestamp: Date.now() - 1 * 24 * 60 * 60 * 1000, equity: 112580.5 }
-    ]
-    positions.value = [
-      {
-        id: 1,
-        symbol_code: 'BTCUSDT',
-        direction: 'long',
-        entry_price: 65000,
-        current_price: 67500,
-        quantity: 0.5,
-        unrealized_pnl: 1250,
-        pnl_percent: 3.85
-      }
-    ]
-    recentSignals.value = [
-      {
-        id: 1,
-        created_at: Date.now() - 1000 * 60 * 30,
-        symbol_code: 'ETHUSDT',
-        signal_type: 'box_breakout',
-        direction: 'long',
-        strength: 3,
-        price: 3450,
-        stop_loss_price: 3380,
-        target_price: 3600
-      }
-    ]
+  } finally {
+    loading.value = false
   }
 }
 
-const handleClosePosition = async (position) => {
-  try {
-    await tradeApi.closePosition(position.id, { reason: 'manual' })
-    ElMessage.success(t('common.closeSuccess'))
-    fetchData()
-  } catch (error) {
-    ElMessage.error(t('common.closeFailed'))
-  }
+const resetFilter = () => {
+  dateRange.value = null
+  fetchData()
 }
 
-const handleViewSignal = (signal) => {
-  console.log('View signal:', signal)
-}
+watch(selectedPeriod, () => {
+  const params = getDateParams()
+  tradeApi.periodPnL({ ...params, period: selectedPeriod.value }).then(res => {
+    periodPnLData.value = res.data || []
+  }).catch(() => {})
+})
 
 onMounted(() => {
   fetchData()
@@ -196,24 +249,81 @@ onMounted(() => {
 <style lang="scss" scoped>
 @import '@/assets/styles/variables.scss';
 
-.dashboard {
+.statistics {
   padding: 24px;
 
+  .filter-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    align-items: center;
+  }
+
   .stats-row {
-    margin-bottom: 24px;
+    margin-bottom: 20px;
+
+    .stat-item {
+      background-color: $surface;
+      border: 1px solid $border;
+      border-radius: $border-radius;
+      padding: 16px;
+
+      .stat-label {
+        color: $text-secondary;
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
+
+      .stat-value {
+        color: $text-primary;
+        font-size: 20px;
+        font-weight: 600;
+      }
+
+      .stat-profit { color: $success; }
+      .stat-loss { color: $danger; }
+      .stat-rate { color: $primary; }
+      .stat-neutral { color: $text-primary; }
+    }
   }
 
-  .chart-card {
-    margin-bottom: 24px;
+  .loading-state, .empty-state {
+    text-align: center;
+    padding: 60px 24px;
+    background-color: $surface;
+    border: 1px solid $border;
+    border-radius: $border-radius;
+    color: $text-secondary;
   }
 
-  .content-row {
-    margin-bottom: 24px;
+  .mt-20 {
+    margin-top: 20px;
+  }
+
+  .regime-section {
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid $border;
+
+    .section-header {
+      margin-bottom: 16px;
+
+      h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: $text-primary;
+        margin: 0;
+      }
+    }
   }
 
   :deep(.el-card) {
     background: $surface !important;
     border-color: $border !important;
+
+    .el-card__body {
+      padding: 16px;
+    }
   }
 
   :deep(.el-card__header) {

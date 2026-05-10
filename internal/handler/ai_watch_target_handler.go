@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/smallfire/starfire/internal/middleware"
@@ -14,13 +16,19 @@ import (
 	"go.uber.org/zap"
 )
 
-type AIWatchTargetHandler struct {
-	repo   repository.AIWatchTargetRepo
-	logger *zap.Logger
+// WatchScheduler 手动分析接口（由 AIWatchScheduler 实现）
+type WatchScheduler interface {
+	AnalyzeTarget(ctx context.Context, target *models.AIWatchTarget) error
 }
 
-func NewAIWatchTargetHandler(repo repository.AIWatchTargetRepo, logger *zap.Logger) *AIWatchTargetHandler {
-	return &AIWatchTargetHandler{repo: repo, logger: logger}
+type AIWatchTargetHandler struct {
+	repo      repository.AIWatchTargetRepo
+	scheduler WatchScheduler
+	logger    *zap.Logger
+}
+
+func NewAIWatchTargetHandler(repo repository.AIWatchTargetRepo, scheduler WatchScheduler, logger *zap.Logger) *AIWatchTargetHandler {
+	return &AIWatchTargetHandler{repo: repo, scheduler: scheduler, logger: logger}
 }
 
 type aiWatchTargetRequest struct {
@@ -109,6 +117,46 @@ func (h *AIWatchTargetHandler) Delete(c *gin.Context) {
 		return
 	}
 	HandleSuccess(c, gin.H{"deleted": true})
+}
+
+func (h *AIWatchTargetHandler) Analyze(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		HandleError(c, http.StatusBadRequest, err)
+		return
+	}
+	if h.scheduler == nil {
+		HandleError(c, http.StatusServiceUnavailable, errors.New("AI 分析服务未启用"))
+		return
+	}
+
+	// 查询标的
+	targets, err := h.repo.List(currentUserIDPtr(c), "")
+	if err != nil {
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	var target *models.AIWatchTarget
+	for _, t := range targets {
+		if t.ID == id {
+			target = t
+			break
+		}
+	}
+	if target == nil {
+		HandleError(c, http.StatusNotFound, errors.New("观察标的未找到"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	defer cancel()
+
+	if err := h.scheduler.AnalyzeTarget(ctx, target); err != nil {
+		h.logger.Error("手动分析失败", zap.Int("id", id), zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, target)
 }
 
 func currentUserIDPtr(c *gin.Context) *int {

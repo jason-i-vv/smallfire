@@ -30,7 +30,7 @@ func NewFactory(cfg *config.MarketsConfig, symbolRepo repository.SymbolRepo, kli
 	}
 	if cfg.AStock.Enabled {
 		// A股注册多个数据源，按优先级自动降级
-		// 新浪财经优先，东方财富次之，Infoway 作为第三备选
+		// 新浪优先（海外可用），东方财富次之（国内/前复权），Infoway 第三备选
 		f.fetchers["a_stock"] = NewSinaFetcher(cfg.AStock)
 		f.fallbackers["a_stock"] = []Fetcher{
 			NewEastmoneyFetcher(cfg.AStock),

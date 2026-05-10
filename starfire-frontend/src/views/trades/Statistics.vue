@@ -1,20 +1,5 @@
 <template>
   <div class="statistics">
-    <!-- 来源筛选卡片 -->
-    <div class="filter-section">
-      <h3 class="filter-title">{{ t('trades.tradeSource') }}</h3>
-      <div class="filter-cards">
-        <div
-          v-for="item in sourceOptions"
-          :key="item.value"
-          :class="['filter-card', { active: tradeSource === item.value }]"
-          @click="toggleSource(item.value)"
-        >
-          <span class="card-label">{{ item.label }}</span>
-        </div>
-      </div>
-    </div>
-
     <!-- 筛选栏 -->
     <div class="filter-bar">
       <el-date-picker
@@ -107,6 +92,36 @@
         </el-col>
       </el-row>
     </template>
+
+    <!-- 市场状态 Tab -->
+    <div class="regime-section">
+      <div class="section-header">
+        <h3>{{ t('statistics.regimeAnalysis') || '市场状态分析' }}</h3>
+      </div>
+
+      <!-- 市场状态统计卡片 -->
+      <RegimeAnalysisCard :data="regimeData" class="mt-20" />
+
+      <!-- 策略 × 市场状态 交叉分析 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>{{ t('statistics.strategyRegimeAnalysis') || '策略 × 市场状态 交叉分析' }}</template>
+            <StrategyRegimeTable :data="strategyRegimeData" />
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 评分维度 × 市场状态 分析 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>{{ t('statistics.scoreRegimeAnalysis') || '评分维度 × 市场状态 分析' }}</template>
+            <ScoreDimensionTable :data="scoreRegimeData" />
+          </el-card>
+        </el-col>
+      </el-row>
+    </div>
   </div>
 </template>
 
@@ -120,6 +135,9 @@ import PnLDistributionChart from '@/components/charts/PnLDistributionChart.vue'
 import SymbolAnalysisTable from '@/components/trades/SymbolAnalysisTable.vue'
 import ScoreAnalysisTable from '@/components/trades/ScoreAnalysisTable.vue'
 import StrategyAnalysisTable from '@/components/trades/StrategyAnalysisTable.vue'
+import RegimeAnalysisCard from '@/components/trades/RegimeAnalysisCard.vue'
+import StrategyRegimeTable from '@/components/trades/StrategyRegimeTable.vue'
+import ScoreDimensionTable from '@/components/trades/ScoreDimensionTable.vue'
 import { tradeApi } from '@/api/trades'
 import { formatPnL, formatPercent } from '@/utils/formatters'
 
@@ -127,7 +145,7 @@ const { t } = useI18n()
 const loading = ref(false)
 const dateRange = ref(null)
 const selectedPeriod = ref('daily')
-const tradeSource = ref('')
+const tradeSource = ref('paper')
 
 const sourceOptions = computed(() => [
   { label: t('trades.sourceAll'), value: '' },
@@ -148,6 +166,9 @@ const periodPnLData = ref([])
 const pnlDistData = ref({ buckets: [] })
 const scoreAnalysisData = ref([])
 const strategyAnalysisData = ref([])
+const regimeData = ref([])
+const strategyRegimeData = ref([])
+const scoreRegimeData = ref([])
 
 const noData = computed(() => {
   return stats.value && stats.value.total_trades === 0
@@ -184,7 +205,8 @@ const fetchData = async () => {
     if (tradeSource.value) params.trade_source = tradeSource.value
     const [
       statsRes, equityRes, symbolRes,
-      periodRes, distRes, scoreRes, strategyRes
+      periodRes, distRes, scoreRes, strategyRes,
+      regimeRes, strategyRegimeRes, scoreRegimeRes
     ] = await Promise.all([
       tradeApi.stats(params),
       tradeApi.scoreEquityCurve(params),
@@ -192,7 +214,10 @@ const fetchData = async () => {
       tradeApi.periodPnL({ ...params, period: selectedPeriod.value }),
       tradeApi.pnlDistribution(params),
       tradeApi.scoreAnalysis(params),
-      tradeApi.strategyAnalysis(params)
+      tradeApi.strategyAnalysis(params),
+      tradeApi.regimeAnalysis(params),
+      tradeApi.strategyRegimeAnalysis(params),
+      tradeApi.scoreRegimeAnalysis(params)
     ])
 
     stats.value = statsRes.data || null
@@ -203,6 +228,9 @@ const fetchData = async () => {
     pnlDistData.value = distRes.data || { buckets: [] }
     scoreAnalysisData.value = scoreRes.data || []
     strategyAnalysisData.value = strategyRes.data || []
+    regimeData.value = regimeRes.data || []
+    strategyRegimeData.value = strategyRegimeRes.data || []
+    scoreRegimeData.value = scoreRegimeRes.data || []
   } catch (error) {
     console.error('Failed to fetch statistics:', error)
   } finally {
@@ -331,6 +359,23 @@ onMounted(() => {
 
   .mt-20 {
     margin-top: 20px;
+  }
+
+  .regime-section {
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid $border;
+
+    .section-header {
+      margin-bottom: 16px;
+
+      h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: $text-primary;
+        margin: 0;
+      }
+    }
   }
 
   :deep(.el-card) {

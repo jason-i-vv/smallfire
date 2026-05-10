@@ -67,6 +67,24 @@ type TradeTrackRepo interface {
 	GetOpenByOpportunityID(opportunityID int) (*models.TradeTrack, error)
 	GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error)
 	GetOpenBySource(source string) ([]*models.TradeTrack, error)
+	GetAnomalous() ([]*models.TradeTrack, error)
+	CountByStatus(status string) (int, error)
+	GetRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]RegimeStatsResult, error)
+	GetStrategyRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]StrategyRegimeStatsResult, error)
+	// SQL aggregation methods
+	GetBasicStatsSQL(startDate, endDate *time.Time, tradeSource string) (*BasicStatsSQLResult, error)
+	GetLightTrackDataSQL(startDate, endDate *time.Time, tradeSource string) ([]LightTrackData, error)
+	GetDirectionStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]DirectionSQLResult, error)
+	GetSymbolStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]SymbolSQLResult, error)
+	GetExitReasonStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]ExitReasonSQLResult, error)
+	GetPeriodPnLSQL(startDate, endDate *time.Time, period, tradeSource string) ([]PeriodPnLSQLResult, error)
+	GetPnLValuesSQL(startDate, endDate *time.Time, tradeSource string) ([]float64, error)
+	GetStrategyStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]StrategySQLResult, error)
+	GetSignalStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]SignalSQLResult, error)
+	GetScoreStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]ScoreSQLResult, error)
+	GetEquityCurveSQL(startDate, endDate *time.Time, tradeSource string) ([]EquitySQLResult, error)
+	GetScoreEquitySQL(startDate, endDate *time.Time, tradeSource string) ([]ScoreEquitySQLResult, error)
+	GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSource string) ([]ScoreRegimeSQLResult, error)
 }
 
 // SignalBasicInfo 信号基本信息（批量查询用）
@@ -226,6 +244,7 @@ type LimitStatRepo interface {
 // AIWatchTargetRepo AI观察位数据访问接口
 type AIWatchTargetRepo interface {
 	List(userID *int, agentType string) ([]*models.AIWatchTarget, error)
+	ListEnabled(marketCode, symbolCode, period string) ([]*models.AIWatchTarget, error)
 	Upsert(target *models.AIWatchTarget) error
 	Delete(userID *int, id int) error
 }

@@ -21,16 +21,16 @@ func (r *OpportunityRepoPG) Create(opp *models.TradingOpportunity) error {
 	query := `INSERT INTO trading_opportunities
 		(symbol_id, symbol_code, direction, score, score_details, signal_count,
 		 confluence_directions, confluence_ratio, suggested_entry, suggested_stop_loss,
-		 suggested_take_profit, ai_adjustment, ai_judgment, status, period,
+		 suggested_take_profit, ai_adjustment, ai_judgment, status, regime, strategy_type, period,
 		 first_signal_at, last_signal_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		RETURNING id, created_at, updated_at`
 
 	return r.db.QueryRow(context.Background(), query,
 		opp.SymbolID, opp.SymbolCode, opp.Direction, opp.Score, opp.ScoreDetails,
 		opp.SignalCount, opp.ConfluenceDirections, opp.ConfluenceRatio,
 		opp.SuggestedEntry, opp.SuggestedStopLoss, opp.SuggestedTakeProfit,
-		opp.AIAdjustment, opp.AIJudgment, opp.Status, opp.Period,
+		opp.AIAdjustment, opp.AIJudgment, opp.Status, opp.Regime, opp.StrategyType, opp.Period,
 		opp.FirstSignalAt, opp.LastSignalAt,
 	).Scan(&opp.ID, &opp.CreatedAt, &opp.UpdatedAt)
 }
@@ -41,7 +41,8 @@ func (r *OpportunityRepoPG) Update(opp *models.TradingOpportunity) error {
 		confluence_directions = $5, confluence_ratio = $6,
 		suggested_entry = $7, suggested_stop_loss = $8, suggested_take_profit = $9,
 		ai_adjustment = $10, ai_judgment = $11, status = $12,
-		last_signal_at = $13, expired_at = $14, updated_at = NOW()
+		regime = $13, strategy_type = $14,
+		last_signal_at = $15, expired_at = $16, updated_at = NOW()
 		WHERE id = $1`
 
 	_, err := r.db.Exec(context.Background(), query,
@@ -49,6 +50,7 @@ func (r *OpportunityRepoPG) Update(opp *models.TradingOpportunity) error {
 		opp.ConfluenceDirections, opp.ConfluenceRatio,
 		opp.SuggestedEntry, opp.SuggestedStopLoss, opp.SuggestedTakeProfit,
 		opp.AIAdjustment, opp.AIJudgment, opp.Status,
+		opp.Regime, opp.StrategyType,
 		opp.LastSignalAt, opp.ExpiredAt,
 	)
 	return err
@@ -58,7 +60,7 @@ func (r *OpportunityRepoPG) GetByID(id int) (*models.TradingOpportunity, error) 
 	opp := &models.TradingOpportunity{}
 	query := `SELECT id, symbol_id, symbol_code, direction, score, score_details, signal_count,
 		confluence_directions, confluence_ratio, suggested_entry, suggested_stop_loss,
-		suggested_take_profit, ai_adjustment, ai_judgment, status, period,
+		suggested_take_profit, ai_adjustment, ai_judgment, status, regime, strategy_type, period,
 		first_signal_at, last_signal_at, expired_at, created_at, updated_at
 		FROM trading_opportunities WHERE id = $1`
 
@@ -67,7 +69,7 @@ func (r *OpportunityRepoPG) GetByID(id int) (*models.TradingOpportunity, error) 
 		&opp.ScoreDetails, &opp.SignalCount, &opp.ConfluenceDirections,
 		&opp.ConfluenceRatio, &opp.SuggestedEntry, &opp.SuggestedStopLoss,
 		&opp.SuggestedTakeProfit, &opp.AIAdjustment, &opp.AIJudgment,
-		&opp.Status, &opp.Period, &opp.FirstSignalAt, &opp.LastSignalAt,
+		&opp.Status, &opp.Regime, &opp.StrategyType, &opp.Period, &opp.FirstSignalAt, &opp.LastSignalAt,
 		&opp.ExpiredAt, &opp.CreatedAt, &opp.UpdatedAt,
 	)
 	if err != nil {
@@ -79,7 +81,7 @@ func (r *OpportunityRepoPG) GetByID(id int) (*models.TradingOpportunity, error) 
 func (r *OpportunityRepoPG) GetActive() ([]*models.TradingOpportunity, error) {
 	query := `SELECT id, symbol_id, symbol_code, direction, score, score_details, signal_count,
 		confluence_directions, confluence_ratio, suggested_entry, suggested_stop_loss,
-		suggested_take_profit, ai_adjustment, ai_judgment, status, period,
+		suggested_take_profit, ai_adjustment, ai_judgment, status, regime, strategy_type, period,
 		first_signal_at, last_signal_at, expired_at, created_at, updated_at
 		FROM trading_opportunities
 		WHERE status = 'active'
@@ -91,7 +93,7 @@ func (r *OpportunityRepoPG) GetActive() ([]*models.TradingOpportunity, error) {
 func (r *OpportunityRepoPG) GetActiveBySymbol(symbolID int) ([]*models.TradingOpportunity, error) {
 	query := `SELECT id, symbol_id, symbol_code, direction, score, score_details, signal_count,
 		confluence_directions, confluence_ratio, suggested_entry, suggested_stop_loss,
-		suggested_take_profit, ai_adjustment, ai_judgment, status, period,
+		suggested_take_profit, ai_adjustment, ai_judgment, status, regime, strategy_type, period,
 		first_signal_at, last_signal_at, expired_at, created_at, updated_at
 		FROM trading_opportunities
 		WHERE symbol_id = $1 AND status = 'active'
@@ -104,7 +106,7 @@ func (r *OpportunityRepoPG) GetActiveBySymbolAndDirection(symbolID int, directio
 	opp := &models.TradingOpportunity{}
 	query := `SELECT id, symbol_id, symbol_code, direction, score, score_details, signal_count,
 		confluence_directions, confluence_ratio, suggested_entry, suggested_stop_loss,
-		suggested_take_profit, ai_adjustment, ai_judgment, status, period,
+		suggested_take_profit, ai_adjustment, ai_judgment, status, regime, strategy_type, period,
 		first_signal_at, last_signal_at, expired_at, created_at, updated_at
 		FROM trading_opportunities
 		WHERE symbol_id = $1 AND direction = $2 AND status = 'active'
@@ -115,7 +117,7 @@ func (r *OpportunityRepoPG) GetActiveBySymbolAndDirection(symbolID int, directio
 		&opp.ScoreDetails, &opp.SignalCount, &opp.ConfluenceDirections,
 		&opp.ConfluenceRatio, &opp.SuggestedEntry, &opp.SuggestedStopLoss,
 		&opp.SuggestedTakeProfit, &opp.AIAdjustment, &opp.AIJudgment,
-		&opp.Status, &opp.Period, &opp.FirstSignalAt, &opp.LastSignalAt,
+		&opp.Status, &opp.Regime, &opp.StrategyType, &opp.Period, &opp.FirstSignalAt, &opp.LastSignalAt,
 		&opp.ExpiredAt, &opp.CreatedAt, &opp.UpdatedAt,
 	)
 	if err != nil {
@@ -135,9 +137,9 @@ func (r *OpportunityRepoPG) List(filter *OpportunityListFilter) ([]*models.Tradi
 	countQuery := `SELECT COUNT(*) FROM trading_opportunities`
 	listQuery := `SELECT id, symbol_id, symbol_code, direction, score, score_details, signal_count,
 		confluence_directions, confluence_ratio, suggested_entry, suggested_stop_loss,
-		suggested_take_profit, ai_adjustment, ai_judgment, status, period,
+		suggested_take_profit, ai_adjustment, ai_judgment, status, regime, strategy_type, period,
 		first_signal_at, last_signal_at, expired_at, created_at, updated_at,
-		COALESCE((SELECT t.status FROM trade_tracks t WHERE t.opportunity_id = trading_opportunities.id AND t.status = 'open' LIMIT 1), '') as trade_status
+		COALESCE((SELECT t.status FROM trade_tracks t WHERE t.opportunity_id = trading_opportunities.id ORDER BY CASE WHEN t.status = 'open' THEN 0 ELSE 1 END LIMIT 1), '') as trade_status
 		FROM trading_opportunities`
 
 	// 构建 WHERE 条件
@@ -222,7 +224,7 @@ func (r *OpportunityRepoPG) scanOpp(row interface{ Scan(...any) error }, opp *mo
 		&opp.ScoreDetails, &opp.SignalCount, &opp.ConfluenceDirections,
 		&opp.ConfluenceRatio, &opp.SuggestedEntry, &opp.SuggestedStopLoss,
 		&opp.SuggestedTakeProfit, &opp.AIAdjustment, &opp.AIJudgment,
-		&opp.Status, &opp.Period, &opp.FirstSignalAt, &opp.LastSignalAt,
+		&opp.Status, &opp.Regime, &opp.StrategyType, &opp.Period, &opp.FirstSignalAt, &opp.LastSignalAt,
 		&opp.ExpiredAt, &opp.CreatedAt, &opp.UpdatedAt,
 		&opp.TradeStatus,
 	)

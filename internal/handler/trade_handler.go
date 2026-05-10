@@ -15,11 +15,12 @@ import (
 
 // TradeHandler 交易跟踪API处理器
 type TradeHandler struct {
-	trackRepo     repository.TradeTrackRepo
-	executor      *trading.TradeExecutor
-	statsService  *trading.StatisticsService
-	testnetTrader *trading.TestnetTrader // 可选：testnet 交易服务
-	logger        *zap.Logger
+	trackRepo      repository.TradeTrackRepo
+	executor       *trading.TradeExecutor
+	statsService   *trading.StatisticsService
+	testnetTrader  *trading.TestnetTrader           // 可选：testnet 交易服务
+	testnetMonitor *trading.TestnetPositionMonitor   // 可选：testnet 持仓监控
+	logger         *zap.Logger
 }
 
 // NewTradeHandler 创建交易跟踪API处理器
@@ -37,6 +38,11 @@ func (h *TradeHandler) SetTestnetTrader(trader *trading.TestnetTrader) {
 	h.testnetTrader = trader
 }
 
+// SetTestnetMonitor 设置 Testnet 持仓监控服务（可选）
+func (h *TradeHandler) SetTestnetMonitor(monitor *trading.TestnetPositionMonitor) {
+	h.testnetMonitor = monitor
+}
+
 // GetOpenPositions 获取持仓列表（分页）
 func (h *TradeHandler) GetOpenPositions(c *gin.Context) {
 	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -52,6 +58,7 @@ func (h *TradeHandler) GetOpenPositions(c *gin.Context) {
 		"direction":    c.Query("direction"),
 		"min_score":    c.Query("min_score"),
 		"trade_source": c.Query("trade_source"),
+		"status":       c.Query("status"),
 	})
 	if err != nil {
 		h.logger.Error("获取持仓列表失败", zap.Error(err))
@@ -501,4 +508,108 @@ func (h *TradeHandler) GetScoreEquityCurves(c *gin.Context) {
 		return
 	}
 	HandleSuccess(c, data)
+}
+
+// GetRegimeAnalysis 获取市场状态统计分析
+func (h *TradeHandler) GetRegimeAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	tradeSource := c.Query("trade_source")
+
+	data, err := h.statsService.GetRegimeAnalysis(startDate, endDate, tradeSource)
+	if err != nil {
+		h.logger.Error("获取市场状态分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetStrategyRegimeAnalysis 获取策略 × 市场状态 交叉分析
+func (h *TradeHandler) GetStrategyRegimeAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	tradeSource := c.Query("trade_source")
+
+	data, err := h.statsService.GetStrategyRegimeAnalysis(startDate, endDate, tradeSource)
+	if err != nil {
+		h.logger.Error("获取策略市场状态交叉分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetScoreRegimeAnalysis 获取评分维度 × 市场状态 交叉分析
+func (h *TradeHandler) GetScoreRegimeAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	tradeSource := c.Query("trade_source")
+
+	data, err := h.statsService.GetScoreRegimeAnalysis(startDate, endDate, tradeSource)
+	if err != nil {
+		h.logger.Error("获取评分市场状态交叉分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetAnomalousCount 获取异常持仓数量（用于侧边栏 Badge）
+func (h *TradeHandler) GetAnomalousCount(c *gin.Context) {
+	count, err := h.trackRepo.CountByStatus(models.TrackStatusAnomalous)
+	if err != nil {
+		h.logger.Error("统计异常持仓数量失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, gin.H{"count": count})
+}
+
+// RecheckAnomalousPosition 重新检测异常持仓
+func (h *TradeHandler) RecheckAnomalousPosition(c *gin.Context) {
+	if h.testnetMonitor == nil {
+		HandleError(c, http.StatusBadRequest, fmt.Errorf("Testnet 监控服务未启用"))
+		return
+	}
+
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		HandleError(c, http.StatusBadRequest, fmt.Errorf("无效的 ID"))
+		return
+	}
+
+	track, message, err := h.testnetMonitor.RecheckPosition(id)
+	if err != nil {
+		h.logger.Error("重新检测异常持仓失败", zap.Int("id", id), zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	HandleSuccess(c, gin.H{
+		"track":   track.ToResponse(),
+		"message": message,
+	})
+}
+
+// ForceCloseAnomalousPosition 人工强制平仓异常持仓
+func (h *TradeHandler) ForceCloseAnomalousPosition(c *gin.Context) {
+	if h.testnetMonitor == nil {
+		HandleError(c, http.StatusBadRequest, fmt.Errorf("Testnet 监控服务未启用"))
+		return
+	}
+
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		HandleError(c, http.StatusBadRequest, fmt.Errorf("无效的 ID"))
+		return
+	}
+
+	track, err := h.testnetMonitor.ForceCloseAnomalous(id)
+	if err != nil {
+		h.logger.Error("强制平仓异常持仓失败", zap.Int("id", id), zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	HandleSuccess(c, gin.H{
+		"track": track.ToResponse(),
+	})
 }

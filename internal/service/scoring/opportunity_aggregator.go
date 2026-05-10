@@ -424,6 +424,8 @@ func (a *OpportunityAggregator) createOpportunity(signals []*models.Signal, ctx 
 		SuggestedStopLoss:    stopLoss,
 		SuggestedTakeProfit:  takeProfit,
 		Status:               models.OpportunityStatusActive,
+		Regime:               computeRegime(ctx.MarketRegime, signals[0].Direction),
+		StrategyType:         pickStrategyType(signals),
 		Period:               signals[0].Period,
 		FirstSignalAt:        firstSignalAt,
 		LastSignalAt:         lastSignalAt,
@@ -506,6 +508,10 @@ func (a *OpportunityAggregator) updateOpportunity(opp *models.TradingOpportunity
 	// 更新评分明细
 	scoreDetailsJSONB := models.JSONB(result.Breakdown)
 	opp.ScoreDetails = &scoreDetailsJSONB
+
+		// 更新 regime 和 strategy_type
+		opp.Regime = computeRegime(ctx.MarketRegime, opp.Direction)
+		opp.StrategyType = pickStrategyType(newSignals)
 
 	if err := a.oppRepo.Update(opp); err != nil {
 		a.logger.Error("更新交易机会失败", zap.Error(err))
@@ -630,4 +636,37 @@ func calcTrendDirectionScore(trend, direction string, signals []*models.Signal) 
 
 	// 逆势且无逆势信号支撑
 	return 0.2
+}
+
+// computeRegime 根据趋势方向和交易方向计算市场状态
+func computeRegime(trend, direction string) string {
+	if trend == models.TrendTypeBullish && direction == models.DirectionLong {
+		return "顺势"
+	}
+	if trend == models.TrendTypeBearish && direction == models.DirectionShort {
+		return "顺势"
+	}
+	if trend == models.TrendTypeBullish && direction == models.DirectionShort {
+		return "逆势"
+	}
+	if trend == models.TrendTypeBearish && direction == models.DirectionLong {
+		return "逆势"
+	}
+	return "震荡"
+}
+
+// pickStrategyType 从信号中选择最主要的策略类型（取 strength 最高的 source_type）
+func pickStrategyType(signals []*models.Signal) string {
+	if len(signals) == 0 {
+		return "unknown"
+	}
+	bestStrength := -1
+	bestSource := "unknown"
+	for _, sig := range signals {
+		if sig.Strength > bestStrength && sig.SourceType != "" {
+			bestStrength = sig.Strength
+			bestSource = sig.SourceType
+		}
+	}
+	return bestSource
 }

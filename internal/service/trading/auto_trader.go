@@ -70,7 +70,22 @@ func (t *AutoTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		}
 	}
 
-	// 4. 获取入场价格和时间
+	// 4. 检查本地是否已有同交易对同方向的 paper 持仓
+	openTracks, err := t.trackRepo.GetOpenBySource(models.TradeSourcePaper)
+	if err != nil {
+		t.logger.Error("查询已有paper持仓失败", zap.Error(err))
+		return
+	}
+	for _, existing := range openTracks {
+		if existing.SymbolID == opp.SymbolID && existing.Direction == opp.Direction {
+			t.logger.Debug("同交易对同方向已有paper持仓，跳过",
+				zap.String("symbol", opp.SymbolCode),
+				zap.String("direction", opp.Direction),
+				zap.Int("existing_track_id", existing.ID))
+			return
+		}
+	}
+	// 5. 获取入场价格和时间
 	entryPrice, entryTime := GetEntryPriceAndTime(opp, t.klineRepo)
 	if entryPrice <= 0 {
 		t.logger.Warn("无法获取入场价格，跳过",
@@ -79,7 +94,7 @@ func (t *AutoTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		return
 	}
 
-	// 5. 固定金额开仓
+	// 6. 固定金额开仓
 	track, err := t.openFixedPosition(opp, entryPrice, entryTime)
 	if err != nil {
 		t.logger.Error("模拟开仓失败",

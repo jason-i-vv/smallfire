@@ -50,5 +50,19 @@ export const tradeApi = {
   strategyAnalysis: (params) => api.get('/trades/strategy-analysis', { params }),
 
   // 按评分的权益曲线
-  scoreEquityCurve: (params) => api.get('/trades/score-equity-curve', { params })
+  scoreEquityCurve: (params) => api.get('/trades/score-equity-curve', { params }),
+
+  // 市场状态分析
+  regimeAnalysis: (params) => api.get('/trades/regime-analysis', { params }),
+
+  // 策略 × 市场状态 交叉分析
+  strategyRegimeAnalysis: (params) => api.get('/trades/strategy-regime-analysis', { params }),
+
+  // 评分维度 × 市场状态 交叉分析
+  scoreRegimeAnalysis: (params) => api.get('/trades/score-regime-analysis', { params }),
+
+  // 异常持仓操作
+  anomalousCount: () => api.get('/trades/anomalous/count'),
+  recheckAnomalous: (id) => api.post(`/trades/anomalous/${id}/recheck`),
+  forceCloseAnomalous: (id) => api.post(`/trades/anomalous/${id}/force-close`)
 }

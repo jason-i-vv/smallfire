@@ -1,5 +1,5 @@
 <template>
-  <span v-if="trend" class="trend-badge" :class="trendClass">
+  <span v-if="trend && trend !== 'unknown'" class="trend-badge" :class="trendClass">
     {{ trendLabel }}
   </span>
 </template>

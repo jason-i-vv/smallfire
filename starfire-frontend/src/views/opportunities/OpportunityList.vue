@@ -80,6 +80,7 @@
         <template #default="{ row }">
           <span class="symbol-code">{{ row.symbol_code }}</span>
           <TrendBadge :trend="row.score_details?.regime" />
+          <span v-if="row.regime" class="regime-badge" :class="'regime-' + row.regime">{{ row.regime }}</span>
         </template>
       </el-table-column>
 
@@ -642,6 +643,30 @@ watch(filters, () => {
   .symbol-code {
     font-weight: 600;
     color: $text-primary;
+  }
+
+  .regime-badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 4px;
+    font-weight: 500;
+    vertical-align: middle;
+    white-space: nowrap;
+
+    &.regime-顺势 {
+      color: #00b42a;
+      background: rgba(0, 180, 42, 0.1);
+    }
+    &.regime-逆势 {
+      color: #ff7d00;
+      background: rgba(255, 125, 0, 0.1);
+    }
+    &.regime-震荡 {
+      color: #86909c;
+      background: rgba(134, 144, 156, 0.1);
+    }
   }
 
   .dir-long {

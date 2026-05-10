@@ -7,53 +7,29 @@
       </el-button>
     </section>
 
-    <el-dialog v-model="addDialogVisible" title="新增趋势观察" width="520px">
-      <el-alert
-        class="dialog-tip"
-        type="info"
-        :closable="false"
-        show-icon
-        title="开启后会先分析当前最新收盘K线，之后在所选周期每根K线收盘后自动跟踪。"
-      />
-      <div class="dialog-grid">
-        <el-form-item label="市场">
-          <div class="field-with-help">
-            <el-select v-model="draft.market_code" class="field">
-              <el-option label="Bybit" value="bybit" />
-            </el-select>
-            <span>当前趋势回调 agent 先支持加密货币。</span>
-          </div>
-        </el-form-item>
-        <el-form-item label="币对">
-          <div class="field-with-help">
-            <el-input
-              v-model="draft.symbol_code"
-              class="field"
-              placeholder="例如 BTCUSDT"
-              clearable
-              @keyup.enter="addTarget"
-            />
-            <span>输入交易所里的交易对代码。</span>
-          </div>
-        </el-form-item>
-        <el-form-item label="周期">
-          <div class="field-with-help">
-            <el-segmented v-model="draft.period" :options="periodOptions" />
-            <span>AI 会在该周期新K线收盘后分析一次。</span>
-          </div>
-        </el-form-item>
-        <el-form-item label="历史上下文">
-          <div class="field-with-help">
-            <el-input-number v-model="draft.limit" :min="60" :max="200" :step="10" />
-            <span>每次只分析最新收盘K线；这里是提供给 AI 判断趋势结构的历史K线数量。</span>
-          </div>
-        </el-form-item>
-        <el-form-item label="飞书">
-          <div class="field-with-help">
-            <el-switch v-model="draft.send_feishu" />
-            <span>只有 AI 发现可执行买点时才发送提醒。</span>
-          </div>
-        </el-form-item>
+    <el-dialog v-model="addDialogVisible" title="新增趋势观察" width="480px" class="add-dialog">
+      <div class="dialog-form">
+        <div class="form-row">
+          <label>币对</label>
+          <el-input
+            v-model="draft.symbol_code"
+            placeholder="例如 BTCUSDT"
+            clearable
+            @keyup.enter="addTarget"
+          />
+        </div>
+        <div class="form-row">
+          <label>周期</label>
+          <el-segmented v-model="draft.period" :options="periodOptions" />
+        </div>
+        <div class="form-row">
+          <label>历史上下文 <span class="hint">根K线</span></label>
+          <el-input-number v-model="draft.limit" :min="60" :max="200" :step="10" />
+        </div>
+        <div class="form-row form-row-switch">
+          <label>飞书提醒</label>
+          <el-switch v-model="draft.send_feishu" />
+        </div>
       </div>
       <template #footer>
         <el-button @click="addDialogVisible = false">取消</el-button>
@@ -91,11 +67,10 @@
             <el-tag :type="statusType(row)" effect="dark">{{ statusLabel(row) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="重点" min-width="170">
+        <el-table-column label="信号" min-width="170">
           <template #default="{ row }">
             <div class="signal-summary">
-              <el-tag v-if="row.result?.found" type="success" effect="dark">买点</el-tag>
-              <el-tag v-if="invalidCount(row) > 0" type="danger">失效 {{ invalidCount(row) }}</el-tag>
+              <el-tag v-if="row.result?.found" type="success" effect="dark">买点 {{ alertCount(row) }}</el-tag>
               <el-tag v-if="watchCount(row) > 0" type="warning">观察 {{ watchCount(row) }}</el-tag>
               <el-tag v-if="row.data_status === 'waiting_data'" type="info">等待数据</el-tag>
               <span v-if="!row.result" class="muted">未分析</span>
@@ -154,10 +129,10 @@
         </header>
 
         <div class="detail-summary">
-          <div><span>提醒</span><strong>{{ alertCount(activeTarget) }}</strong></div>
-          <div><span>重点观察</span><strong>{{ watchCount(activeTarget) }}</strong></div>
-          <div><span>失效</span><strong>{{ invalidCount(activeTarget) }}</strong></div>
-          <div><span>普通折叠</span><strong>{{ quietCount(activeTarget) }}</strong></div>
+          <div><span>买点</span><strong>{{ alertCount(activeTarget) }}</strong></div>
+          <div><span>观察</span><strong>{{ watchCount(activeTarget) }}</strong></div>
+          <div><span>趋势失效</span><strong>{{ invalidCount(activeTarget) }}</strong></div>
+          <div><span>普通</span><strong>{{ quietCount(activeTarget) }}</strong></div>
         </div>
 
         <el-tabs v-model="detailTab" @tab-change="onDetailTabChange">
@@ -165,19 +140,33 @@
             <div class="chart-layout">
               <div ref="chartRef" class="chart-box" v-loading="chartLoading" />
               <aside class="focus-panel">
-                <div class="panel-title">重点标记</div>
-                <el-empty v-if="importantSteps.length === 0" description="暂无重点事件" :image-size="64" />
-                <button
-                  v-for="step in importantSteps"
-                  :key="step.kline_time"
-                  class="focus-item"
-                  :class="`focus-${step.decision || step.buy_point}`"
-                  @click="scrollToStep(step)"
-                >
-                  <span>{{ formatTime(step.kline_time) }}</span>
-                  <strong>{{ decisionLabel(step.decision) }} · {{ step.confidence }}</strong>
-                  <em>{{ step.reasoning }}</em>
-                </button>
+                <div class="panel-title">分析记录</div>
+                <el-empty v-if="allSteps.length === 0" description="暂无分析记录" :image-size="64" />
+                <template v-for="row in displayRows" :key="row.key">
+                  <button
+                    v-if="row.type === 'important'"
+                    class="focus-item"
+                    :class="`focus-${row.step.decision || row.step.buy_point}`"
+                    @click="scrollToStep(row.step)"
+                  >
+                    <span>{{ formatTime(row.step.kline_time) }}</span>
+                    <strong>{{ decisionLabel(row.step.decision) }} · {{ row.step.confidence }}</strong>
+                    <em>{{ row.step.reasoning }}</em>
+                  </button>
+                  <div v-else class="quiet-row">
+                    <button class="quiet-dot" @click="toggleQuietItem(row.key)">
+                      <span>{{ row.steps[0] && row.steps[row.steps.length - 1] ? formatTime(row.steps[0].kline_time) + ' ~ ' + formatTime(row.steps[row.steps.length - 1].kline_time) : '' }}</span>
+                      <span class="dot-label">{{ expandedQuietKeys.has(row.key) ? '收起' : '...' }}</span>
+                    </button>
+                    <template v-if="expandedQuietKeys.has(row.key)">
+                      <button v-for="step in row.steps" :key="step.kline_time" class="focus-item focus-quiet" @click="scrollToStep(step)">
+                        <span>{{ formatTime(step.kline_time) }}</span>
+                        <strong>{{ decisionLabel(step.decision) }} · {{ step.confidence }}</strong>
+                        <em>{{ step.reasoning }}</em>
+                      </button>
+                    </template>
+                  </div>
+                </template>
               </aside>
             </div>
           </el-tab-pane>
@@ -238,7 +227,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Delete, Plus, View } from '@element-plus/icons-vue'
 import { createChart, CrosshairMode } from 'lightweight-charts'
@@ -247,7 +236,6 @@ import { klineApi } from '@/api/klines'
 import { trendApi } from '@/api/trends'
 import { formatPrice } from '@/utils/formatters'
 
-const STORAGE_KEY = 'starfire.trendAgent.watchlist.v2'
 const AGENT_TYPE = 'trend_pullback'
 
 const periodOptions = [
@@ -264,7 +252,7 @@ const draft = reactive({
   send_feishu: true
 })
 
-const targets = ref(loadTargets())
+const targets = ref([])
 const activeTargetId = ref(targets.value[0]?.id || null)
 const detailVisible = ref(false)
 const addDialogVisible = ref(false)
@@ -272,42 +260,42 @@ const detailTab = ref('chart')
 const importantOnly = ref(true)
 const chartLoading = ref(false)
 const chartRef = ref(null)
-const trackingRunning = ref(false)
 
 let chart = null
 let candleSeries = null
 let volumeSeries = null
 let resizeObserver = null
-let trackingTimer = null
+let pollTimer = null
 
 const activeTarget = computed(() => targets.value.find(item => item.id === activeTargetId.value) || null)
 const activeResult = computed(() => activeTarget.value?.result || null)
 const enabledCount = computed(() => targets.value.filter(item => item.enabled).length)
-const allSteps = computed(() => activeResult.value?.steps || [])
+const allSteps = computed(() => {
+  const steps = activeResult.value?.steps || []
+  return [...steps].reverse()
+})
 const importantSteps = computed(() => allSteps.value.filter(isImportantStep))
-const visibleSteps = computed(() => importantOnly.value ? importantSteps.value : allSteps.value)
-
-watch(targets, persistTargets, { deep: true })
-
-function loadTargets() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-    if (Array.isArray(saved) && saved.length > 0) {
-      return saved.map(normalizeTarget)
-    }
-  } catch (error) {
-    console.warn('读取趋势观察仓失败:', error)
-  }
-  return [normalizeTarget({
-    id: newTargetId('BTCUSDT', '1h'),
-    symbol_code: 'BTCUSDT',
-    market_code: 'bybit',
-    period: '1h',
-    limit: 120,
-    send_feishu: false,
-    enabled: true
-  })]
+const expandedQuietKeys = ref(new Set())
+function toggleQuietItem(key) {
+  const s = new Set(expandedQuietKeys.value)
+  s.has(key) ? s.delete(key) : s.add(key)
+  expandedQuietKeys.value = s
 }
+const displayRows = computed(() => {
+  const rows = []
+  let quietBuf = []
+  for (const step of allSteps.value) {
+    if (isImportantStep(step)) {
+      if (quietBuf.length) { rows.push({ type: 'quiet', steps: quietBuf, key: 'q' + quietBuf[0].kline_time }); quietBuf = [] }
+      rows.push({ type: 'important', step, key: step.kline_time })
+    } else {
+      quietBuf.push(step)
+    }
+  }
+  if (quietBuf.length) rows.push({ type: 'quiet', steps: quietBuf, key: 'q' + quietBuf[0].kline_time })
+  return rows
+})
+const visibleSteps = computed(() => importantOnly.value ? importantSteps.value : allSteps.value)
 
 function normalizeTarget(target) {
   return {
@@ -327,40 +315,32 @@ function normalizeTarget(target) {
   }
 }
 
-function persistTargets() {
-  const payload = targets.value.map(({ loading, ...target }) => ({ ...target, loading: false }))
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
-}
-
 async function loadRemoteTargets() {
   try {
-    const res = await api.get('/ai-watch-targets', { params: { agent_type: AGENT_TYPE } })
+    const res = await trendApi.listWatchTargets(AGENT_TYPE)
     const remoteTargets = Array.isArray(res.data) ? res.data : []
-    if (remoteTargets.length === 0) return
     targets.value = remoteTargets.map(normalizeTarget)
     activeTargetId.value = targets.value[0]?.id || null
-    persistTargets()
   } catch (error) {
-    console.warn('读取远程趋势观察位失败，使用本地缓存:', error)
+    console.warn('读取趋势观察位失败:', error)
   }
 }
 
 async function saveTargetRemote(target) {
   try {
-    const res = await api.post('/ai-watch-targets', serializeTarget(target))
+    const res = await trendApi.saveWatchTarget(serializeTarget(target))
     if (res.data?.id) target.id = res.data.id
-    persistTargets()
   } catch (error) {
-    console.warn('保存远程趋势观察位失败:', error)
+    console.warn('保存趋势观察位失败:', error)
   }
 }
 
 async function deleteTargetRemote(target) {
   if (!Number.isInteger(Number(target.id))) return
   try {
-    await api.delete(`/ai-watch-targets/${target.id}`)
+    await trendApi.deleteWatchTarget(target.id)
   } catch (error) {
-    console.warn('删除远程趋势观察位失败:', error)
+    console.warn('删除趋势观察位失败:', error)
   }
 }
 
@@ -407,10 +387,8 @@ async function addTarget() {
   targets.value.unshift(target)
   activeTargetId.value = target.id
   addDialogVisible.value = false
-  persistTargets()
   await saveTargetRemote(target)
-  ensureTrackingActive()
-  analyzeTarget(target, { quiet: true })
+  // 后端会自动在K线收盘后分析
 }
 
 function removeTarget(target) {
@@ -418,106 +396,29 @@ function removeTarget(target) {
   if (activeTargetId.value === target.id) {
     activeTargetId.value = targets.value[0]?.id || null
   }
-  persistTargets()
   deleteTargetRemote(target)
-  if (enabledCount.value === 0) stopTrackingTimer()
 }
 
 function onTargetToggle(target) {
-  persistTargets()
   saveTargetRemote(target)
-  if (target.enabled) {
-    ensureTrackingActive()
-    analyzeTarget(target, { quiet: true })
-  } else if (enabledCount.value === 0) {
-    stopTrackingTimer()
-  }
-}
-
-function ensureTrackingActive(options = {}) {
-  stopTrackingTimer()
-  if (enabledCount.value === 0) return
-  if (options.immediate) {
-    runAutoTracking().finally(scheduleNextTracking)
-    return
-  }
-  scheduleNextTracking()
-}
-
-function stopTrackingTimer() {
-  if (trackingTimer) {
-    window.clearTimeout(trackingTimer)
-    trackingTimer = null
-  }
-}
-
-function scheduleNextTracking() {
-  stopTrackingTimer()
-  const enabled = targets.value.filter(item => item.enabled)
-  if (enabled.length === 0) return
-  const nowSec = Math.floor(Date.now() / 1000)
-  const nextSec = Math.min(...enabled.map(target => nextCandleCloseTime(nowSec, target.period)))
-  const delay = Math.max((nextSec - nowSec) * 1000, 5000)
-  trackingTimer = window.setTimeout(async () => {
-    await runAutoTracking()
-    scheduleNextTracking()
-  }, delay)
-}
-
-function nextCandleCloseTime(nowSec, period) {
-  const periodSec = periodSeconds(period)
-  return Math.floor(nowSec / periodSec) * periodSec + periodSec + 10
-}
-
-function periodSeconds(period) {
-  return {
-    '15m': 15 * 60,
-    '1h': 60 * 60,
-    '4h': 4 * 60 * 60,
-    '1d': 24 * 60 * 60
-  }[period] || 60 * 60
-}
-
-async function runAutoTracking() {
-  if (trackingRunning.value) return
-  const enabled = targets.value.filter(item => item.enabled)
-  if (enabled.length === 0) {
-    stopTrackingTimer()
-    return
-  }
-  trackingRunning.value = true
-  try {
-    for (const target of enabled) {
-      await analyzeTarget(target, { quiet: true })
-    }
-  } finally {
-    trackingRunning.value = false
-  }
 }
 
 async function analyzeTarget(target, options = {}) {
   target.loading = true
   target.error = ''
   try {
-    const symbolID = await ensureSymbolID(target)
-    const res = await trendApi.analyzePullback({
-      symbol_id: symbolID,
-      symbol_code: target.symbol_code,
-      market_code: target.market_code,
-      period: target.period,
-      direction: 'long',
-      limit: target.limit,
-      step_limit: 1,
-      send_feishu: target.send_feishu
-    })
-    target.result = mergeTrackingResult(target.result, res.data)
-    target.data_status = 'ready'
-    target.last_run_at = Date.now()
-    activeTargetId.value = target.id
-    persistTargets()
-    saveTargetRemote(target)
+    const res = await trendApi.analyzeWatchTarget(target.id)
+    const updated = res.data
+    target.result = updated.result || target.result
+    target.data_status = updated.data_status || 'ready'
+    target.last_run_at = updated.last_run_at || Date.now()
+    target.error = updated.error || ''
+    if (!detailVisible.value || activeTargetId.value === target.id) {
+      activeTargetId.value = target.id
+    }
     if (!options.quiet) {
-      ElMessage[res.data?.found ? 'success' : 'info'](res.data?.found ? '发现趋势回调买点' : '未发现可执行买点')
+      const found = updated.result?.found || (updated.result?.steps || []).some(s => s.decision === 'alert')
+      ElMessage[found ? 'success' : 'info'](found ? '发现趋势回调买点' : '未发现可执行买点')
     }
     if (detailVisible.value && activeTarget.value?.id === target.id && detailTab.value === 'chart') {
       await nextTick()
@@ -526,16 +427,11 @@ async function analyzeTarget(target, options = {}) {
   } catch (error) {
     const message = error?.response?.data?.message || error.message || '分析失败'
     if (isWaitingDataError(message)) {
-      target.error = ''
       target.data_status = 'waiting_data'
-      target.last_run_at = Date.now()
-      persistTargets()
-      saveTargetRemote(target)
       if (!options.quiet) ElMessage.warning('暂无足够K线数据，已保留观察位，后续会自动重试')
       return
     }
     target.error = message
-    saveTargetRemote(target)
     console.error('趋势回调分析失败:', error)
     if (!options.quiet) ElMessage.error(target.error)
   } finally {
@@ -547,25 +443,11 @@ function isWaitingDataError(message) {
   return /K线数量不足|暂无.*K线|没有.*K线|查询标的失败|no rows in result set|no .*kline|not enough/i.test(message || '')
 }
 
-function mergeTrackingResult(previous, incoming) {
-  if (!previous?.steps?.length) return incoming
-  const stepMap = new Map()
-  for (const step of previous.steps || []) stepMap.set(step.kline_time, step)
-  for (const step of incoming?.steps || []) stepMap.set(step.kline_time, step)
-  return {
-    ...previous,
-    ...incoming,
-    steps: Array.from(stepMap.values()).sort((a, b) => a.kline_time - b.kline_time),
-    analyzed: stepMap.size
-  }
-}
-
 async function ensureSymbolID(target) {
   if (target.symbol_id) return target.symbol_id
   const res = await api.get('/symbols/resolve', { params: { symbol_code: target.symbol_code, market_code: target.market_code, period: target.period } })
   target.symbol_id = res.data?.id
   if (!target.symbol_id) throw new Error(`未找到标的: ${target.symbol_code}`)
-  persistTargets()
   return target.symbol_id
 }
 
@@ -606,13 +488,11 @@ async function renderChart() {
     setChartData(klines, target.result?.steps || [])
     if (klines.length === 0) {
       target.data_status = 'waiting_data'
-      persistTargets()
     }
   } catch (error) {
     const message = error?.response?.data?.message || error.message || ''
     if (isWaitingDataError(message)) {
       target.data_status = 'waiting_data'
-      persistTargets()
       return
     }
     console.error('加载趋势图表失败:', error)
@@ -703,6 +583,7 @@ function isImportantStep(step) {
   return step.decision === 'alert' ||
     step.decision === 'invalid' ||
     step.buy_point === 'ready' ||
+    step.buy_point === 'watch' ||
     step.missed ||
     step.confidence >= 55 ||
     step.pullback_state === 'dangerous'
@@ -793,26 +674,28 @@ function statusLabel(target) {
   if (target.data_status === 'waiting_data') return '等待数据'
   if (!target.result) return target.enabled ? '待分析' : '已关闭'
   if (target.result.found) return '发现买点'
-  if (invalidCount(target) > 0) return '有风险'
-  return '观察中'
+  if (invalidCount(target) > 0) return '趋势失效'
+  return '跟踪中'
 }
 
 function statusType(target) {
+  if (target.loading) return 'warning'
   if (target.error) return 'danger'
   if (target.data_status === 'waiting_data') return 'info'
   if (target.result?.found) return 'success'
   if (invalidCount(target) > 0) return 'danger'
-  if (target.enabled) return 'warning'
+  if (target.enabled) return '' // 默认色
   return 'info'
 }
 
 onMounted(async () => {
   await loadRemoteTargets()
-  ensureTrackingActive({ immediate: true })
+  // 每 60 秒从后端刷新结果
+  pollTimer = window.setInterval(loadRemoteTargets, 60000)
 })
 
 onBeforeUnmount(() => {
-  stopTrackingTimer()
+  if (pollTimer) { window.clearInterval(pollTimer); pollTimer = null }
   if (resizeObserver) resizeObserver.disconnect()
   if (chart) chart.remove()
 })
@@ -839,29 +722,45 @@ onBeforeUnmount(() => {
   padding: 16px 20px;
 }
 
-.dialog-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px 16px;
+.dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 
-  .field {
-    width: 100%;
+  .form-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    label {
+      flex-shrink: 0;
+      width: 90px;
+      font-size: 14px;
+      color: $text-primary;
+      text-align: right;
+
+      .hint {
+        font-size: 12px;
+        color: $text-secondary;
+        margin-left: 4px;
+      }
+    }
+
+    .el-input,
+    .el-input-number,
+    .el-segmented {
+      flex: 1;
+    }
   }
-}
 
-.dialog-tip {
-  margin-bottom: 16px;
-}
+  .form-row-switch {
+    label {
+      flex: 1;
+    }
 
-.field-with-help {
-  width: 100%;
-
-  span {
-    display: block;
-    margin-top: 6px;
-    color: $text-secondary;
-    font-size: 12px;
-    line-height: 1.45;
+    .el-switch {
+      flex-shrink: 0;
+    }
   }
 }
 
@@ -1025,6 +924,41 @@ onBeforeUnmount(() => {
 .focus-watch {
   border-color: rgba($warning, 0.45);
   background: rgba($warning, 0.06);
+}
+
+.focus-quiet {
+  border-color: $border;
+  background: transparent;
+
+  strong {
+    color: $text-secondary;
+  }
+}
+
+.quiet-row {
+  margin: 0;
+}
+
+.quiet-dot {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px 10px;
+  color: $text-secondary;
+  font-size: 12px;
+
+  .dot-label {
+    color: $primary;
+    letter-spacing: 2px;
+  }
+
+  &:hover {
+    color: $text-primary;
+  }
 }
 
 .list-toolbar {

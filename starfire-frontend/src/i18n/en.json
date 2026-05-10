@@ -113,14 +113,14 @@
     "noActiveOpportunities": "No active opportunities"
   },
   "menu": {
-    "dashboard": "Dashboard",
+    "dashboard": "Bybit Testnet Overview",
     "signals": "Signals",
     "signalList": "Signal List",
     "signalDetail": "Signal Detail",
     "opportunities": "Opportunities",
     "positions": "Positions",
     "trades": "Trade History",
-    "statistics": "Statistics",
+    "statistics": "Paper Trading Overview",
     "market": "Market Overview",
     "marketAnalysis": "Market Analysis",
     "marketOverview": "Market Data",
@@ -288,7 +288,19 @@
     "tradeSource": "Channel",
     "sourceAll": "All",
     "sourcePaper": "Paper",
-    "sourceTestnet": "Bybit Testnet"
+    "sourceTestnet": "Bybit Testnet",
+    "statusFilter": "Status",
+    "statusAll": "All",
+    "statusOpen": "Normal",
+    "statusAnomalous": "Anomalous",
+    "anomalousReason": "Anomaly Reason",
+    "recheck": "Recheck",
+    "forceClose": "Force Close",
+    "recheckDone": "Recheck completed",
+    "recheckFailed": "Recheck failed",
+    "forceCloseDone": "Force close completed",
+    "forceCloseFailed": "Force close failed",
+    "forceCloseConfirm": "Are you sure you want to force close this position? This action cannot be undone."
   },
   "trades": {
     "title": "Trade History",
@@ -369,7 +381,15 @@
     "byScore": "Score Win Rate Analysis",
     "byStrategy": "Strategy PnL Analysis",
     "strategy": "Strategy",
-    "scoreRange": "Score Range"
+    "scoreRange": "Score Range",
+    "regimeAnalysis": "Regime Analysis",
+    "viewMore": "View More Details >>",
+    "strategyRegimeAnalysis": "Strategy × Regime Analysis",
+    "scoreRegimeAnalysis": "Score × Regime Analysis",
+    "dimension": "Dimension",
+    "trending": "Trending",
+    "counterTrend": "Counter Trend",
+    "sideways": "Sideways"
   },
   "market": {
     "title": "Market Overview",
