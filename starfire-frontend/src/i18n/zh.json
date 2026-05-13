@@ -138,9 +138,7 @@
     "paperTrading": "模拟交易",
     "marketData": "市场行情",
     "trends": "趋势",
-    "aiAgents": "AI Agent",
-    "trendAgent": "趋势 Agent",
-    "waveAgent": "艾略特 Agent",
+    "aiWatch": "AI 跟踪",
     "aStockMarket": "A股行情"
   },
   "header": {
@@ -387,6 +385,7 @@
     "viewMore": "查看更多详情 >>",
     "strategyRegimeAnalysis": "策略 × 市场状态 交叉分析",
     "scoreRegimeAnalysis": "评分维度 × 市场状态 分析",
+    "scoreGradeRegimeAnalysis": "评分区间 × 市场状态 交叉分析",
     "dimension": "维度",
     "trending": "顺势",
     "counterTrend": "逆势",
@@ -543,7 +542,11 @@
     "accuracy": "准确率",
     "confidence": "置信度",
     "directionStats": "方向统计",
-    "noData": "暂无数据"
+    "noData": "暂无数据",
+    "analyzing": "分析中",
+    "analyzingTip": "分析已提交，结果将在后台更新",
+    "cooldown": "冷却期",
+    "cooldownDesc": "同一标的两次分析之间的最小间隔，避免频繁调用消耗API配额"
   },
   "users": {
     "title": "用户管理",

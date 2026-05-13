@@ -138,9 +138,7 @@
     "paperTrading": "Paper Trading",
     "marketData": "Market Data",
     "trends": "Trends",
-    "aiAgents": "AI Agents",
-    "trendAgent": "Trend Agent",
-    "waveAgent": "Elliott Wave Agent",
+    "aiWatch": "AI Watch",
     "aStockMarket": "A-Share Market"
   },
   "header": {
@@ -386,6 +384,7 @@
     "viewMore": "View More Details >>",
     "strategyRegimeAnalysis": "Strategy × Regime Analysis",
     "scoreRegimeAnalysis": "Score × Regime Analysis",
+    "scoreGradeRegimeAnalysis": "Score Grade × Regime Analysis",
     "dimension": "Dimension",
     "trending": "Trending",
     "counterTrend": "Counter Trend",
@@ -546,7 +545,11 @@
     "accuracy": "Accuracy",
     "confidence": "Confidence",
     "directionStats": "Direction Stats",
-    "noData": "No data"
+    "noData": "No data",
+    "analyzing": "Analyzing",
+    "analyzingTip": "Analysis submitted, results will update in background",
+    "cooldown": "Cooldown",
+    "cooldownDesc": "Minimum interval between analyses for the same symbol to avoid excessive API usage"
   },
   "users": {
     "title": "User Management",

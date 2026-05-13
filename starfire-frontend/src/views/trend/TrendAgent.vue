@@ -7,33 +7,90 @@
       </el-button>
     </section>
 
-    <el-dialog v-model="addDialogVisible" title="新增趋势观察" width="480px" class="add-dialog">
+    <el-dialog v-model="addDialogVisible" title="新增趋势观察" width="500px" class="add-dialog">
       <div class="dialog-form">
-        <div class="form-row">
-          <label>币对</label>
-          <el-input
-            v-model="draft.symbol_code"
-            placeholder="例如 BTCUSDT"
-            clearable
-            @keyup.enter="addTarget"
-          />
-        </div>
-        <div class="form-row">
-          <label>周期</label>
-          <el-segmented v-model="draft.period" :options="periodOptions" />
-        </div>
-        <div class="form-row">
-          <label>历史上下文 <span class="hint">根K线</span></label>
-          <el-input-number v-model="draft.limit" :min="60" :max="200" :step="10" />
-        </div>
-        <div class="form-row form-row-switch">
-          <label>飞书提醒</label>
-          <el-switch v-model="draft.send_feishu" />
+        <div class="form-card">
+          <div class="form-row form-row-skill">
+            <div class="form-label">
+              <span class="label-icon"><el-icon><Grid /></el-icon></span>
+              <span>策略</span>
+            </div>
+            <div class="skill-selector">
+              <el-radio-group v-model="draft.skill_name" class="skill-group">
+                <el-radio-button v-for="s in skillOptions" :key="s.name" :value="s.name">
+                  <span class="skill-btn-label">{{ s.label }}</span>
+                </el-radio-button>
+              </el-radio-group>
+              <div class="skill-desc-row">
+                <span class="skill-current-desc">{{ currentSkillDesc }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-label">
+              <span class="label-icon"><el-icon><Coin /></el-icon></span>
+              <span>币对</span>
+            </div>
+            <el-select
+              v-model="draft.symbol_code"
+              class="form-control"
+              filterable
+              clearable
+              remote
+              reserve-keyword
+              placeholder="搜索币对..."
+              :remote-method="fetchSymbols"
+              :loading="symbolLoading"
+              @keyup.enter="addTarget"
+            >
+              <el-option
+                v-for="s in symbolList"
+                :key="s.symbol_code"
+                :label="s.symbol_code"
+                :value="s.symbol_code"
+              >
+                <div class="symbol-option">
+                  <span class="symbol-code">{{ s.symbol_code }}</span>
+                  <span class="symbol-market">{{ s.market_code }}</span>
+                </div>
+              </el-option>
+            </el-select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-label">
+              <span class="label-icon"><el-icon><Timer /></el-icon></span>
+              <span>周期</span>
+            </div>
+            <el-segmented v-model="draft.period" :options="periodOptions" class="form-control form-segmented" />
+          </div>
+
+          <div class="form-row">
+            <div class="form-label">
+              <span class="label-icon"><el-icon><Calendar /></el-icon></span>
+              <span>历史K线</span>
+            </div>
+            <el-input-number v-model="draft.limit" :min="60" :max="200" :step="10" class="form-control" />
+          </div>
+
+          <div class="form-row form-row-switch">
+            <div class="form-label">
+              <span class="label-icon"><el-icon><Bell /></el-icon></span>
+              <span>飞书提醒</span>
+            </div>
+            <el-switch v-model="draft.send_feishu" class="form-switch" />
+          </div>
         </div>
       </div>
       <template #footer>
-        <el-button @click="addDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="addTarget">开启跟踪</el-button>
+        <div class="dialog-footer">
+          <el-button @click="addDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="addTarget">
+            <el-icon><Position /></el-icon>
+            开启跟踪
+          </el-button>
+        </div>
       </template>
     </el-dialog>
 
@@ -56,10 +113,11 @@
             <el-switch v-model="row.enabled" @change="onTargetToggle(row)" />
           </template>
         </el-table-column>
-        <el-table-column label="标的" min-width="130">
+        <el-table-column label="标的" min-width="160">
           <template #default="{ row }">
             <strong class="symbol">{{ row.symbol_code }}</strong>
             <span class="muted">{{ row.market_code }} · {{ row.period }}</span>
+            <el-tag size="small" type="info" style="margin-left: 4px">{{ skillLabel(row.skill_name) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="状态" min-width="135">
@@ -70,7 +128,7 @@
         <el-table-column label="信号" min-width="170">
           <template #default="{ row }">
             <div class="signal-summary">
-              <el-tag v-if="row.result?.found" type="success" effect="dark">买点 {{ alertCount(row) }}</el-tag>
+              <el-tag v-if="row.result?.found || alertCount(row) > 0" type="success" effect="dark">买点 {{ alertCount(row) }}</el-tag>
               <el-tag v-if="watchCount(row) > 0" type="warning">观察 {{ watchCount(row) }}</el-tag>
               <el-tag v-if="row.data_status === 'waiting_data'" type="info">等待数据</el-tag>
               <span v-if="!row.result" class="muted">未分析</span>
@@ -121,6 +179,10 @@
             <span>{{ activeTarget.market_code }} · {{ activeTarget.period }} · {{ activeTarget.result?.analyzed || 0 }} 根观察K线</span>
           </div>
           <div class="detail-actions">
+            <el-button type="primary" size="small" @click="triggerAnalysis(activeTarget)" :loading="activeTarget.loading">
+              <el-icon><Cpu /></el-icon>
+              手动分析
+            </el-button>
             <el-switch v-model="activeTarget.enabled" active-text="AI跟踪" @change="onTargetToggle(activeTarget)" />
             <el-tag :type="activeTarget.loading ? 'warning' : 'info'" effect="dark">
               {{ activeTarget.loading ? '分析中' : '自动巡检' }}
@@ -142,31 +204,45 @@
               <aside class="focus-panel">
                 <div class="panel-title">分析记录</div>
                 <el-empty v-if="allSteps.length === 0" description="暂无分析记录" :image-size="64" />
-                <template v-for="row in displayRows" :key="row.key">
-                  <button
-                    v-if="row.type === 'important'"
-                    class="focus-item"
-                    :class="`focus-${row.step.decision || row.step.buy_point}`"
-                    @click="scrollToStep(row.step)"
-                  >
-                    <span>{{ formatTime(row.step.kline_time) }}</span>
-                    <strong>{{ decisionLabel(row.step.decision) }} · {{ row.step.confidence }}</strong>
-                    <em>{{ row.step.reasoning }}</em>
-                  </button>
-                  <div v-else class="quiet-row">
-                    <button class="quiet-dot" @click="toggleQuietItem(row.key)">
-                      <span>{{ row.steps[0] && row.steps[row.steps.length - 1] ? formatTime(row.steps[0].kline_time) + ' ~ ' + formatTime(row.steps[row.steps.length - 1].kline_time) : '' }}</span>
-                      <span class="dot-label">{{ expandedQuietKeys.has(row.key) ? '收起' : '...' }}</span>
+                <div v-else class="timeline">
+                  <template v-for="row in displayRows" :key="row.key">
+                    <!-- 重点记录：带左边线的时间线卡片 -->
+                    <button
+                      v-if="row.type === 'important'"
+                      class="tl-card"
+                      :class="`tl-${importanceKey(row.step)}`"
+                      @click="scrollToStep(row.step)"
+                    >
+                      <div class="tl-card-head">
+                        <span class="tl-time">{{ formatTime(row.step.kline_time) }}</span>
+                        <el-tag size="small" :type="importanceType(row.step)" effect="dark">{{ importanceLabel(row.step) }}</el-tag>
+                        <span class="tl-conf">{{ row.step.confidence }}</span>
+                      </div>
+                      <div v-if="row.step.buy_point === 'ready'" class="tl-card-prices">
+                        <span v-if="row.step.entry_price">入场 {{ formatMaybe(row.step.entry_price) }}</span>
+                        <span v-if="row.step.stop_loss">止损 {{ formatMaybe(row.step.stop_loss) }}</span>
+                        <span v-if="row.step.take_profit">止盈 {{ formatMaybe(row.step.take_profit) }}</span>
+                      </div>
+                      <div class="tl-card-reason">{{ row.step.reasoning }}</div>
                     </button>
-                    <template v-if="expandedQuietKeys.has(row.key)">
-                      <button v-for="step in row.steps" :key="step.kline_time" class="focus-item focus-quiet" @click="scrollToStep(step)">
-                        <span>{{ formatTime(step.kline_time) }}</span>
-                        <strong>{{ decisionLabel(step.decision) }} · {{ step.confidence }}</strong>
-                        <em>{{ step.reasoning }}</em>
+                    <!-- 普通记录：折叠为省略连接线 -->
+                    <div v-else class="tl-quiet-group">
+                      <button class="tl-quiet-toggle" @click="toggleQuietItem(row.key)">
+                        <span class="tl-quiet-line"></span>
+                        <span class="tl-quiet-text">{{ expandedQuietKeys.has(row.key) ? '收起' : `··· ${row.steps.length} 条普通记录 ···` }}</span>
                       </button>
-                    </template>
-                  </div>
-                </template>
+                      <template v-if="expandedQuietKeys.has(row.key)">
+                        <button v-for="step in row.steps" :key="step.kline_time" class="tl-card tl-quiet" @click="scrollToStep(step)">
+                          <div class="tl-card-head">
+                            <span class="tl-time">{{ formatTime(step.kline_time) }}</span>
+                            <span class="tl-conf">{{ step.confidence }}</span>
+                          </div>
+                          <div class="tl-card-reason">{{ step.reasoning }}</div>
+                        </button>
+                      </template>
+                    </div>
+                  </template>
+                </div>
               </aside>
             </div>
           </el-tab-pane>
@@ -227,24 +303,31 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Delete, Plus, View } from '@element-plus/icons-vue'
+import { Delete, Plus, View, Grid, Coin, Timer, Calendar, Bell, Position, Cpu } from '@element-plus/icons-vue'
 import { createChart, CrosshairMode } from 'lightweight-charts'
 import api from '@/api'
+import { symbolApi } from '@/api/symbols'
 import { klineApi } from '@/api/klines'
-import { trendApi } from '@/api/trends'
+import { trendApi, SKILLS } from '@/api/trends'
 import { formatPrice } from '@/utils/formatters'
 
-const AGENT_TYPE = 'trend_pullback'
+const AGENT_TYPE = 'trend_pullback' // 默认策略，支持所有策略
 
 const periodOptions = [
   { label: '15m', value: '15m' },
   { label: '1h', value: '1h' },
   { label: '4h', value: '4h' }
 ]
+const skillOptions = SKILLS
+function skillLabel(name) {
+  return SKILLS.find(s => s.name === name)?.label || name
+}
+const currentSkillDesc = computed(() => SKILLS.find(s => s.name === draft.skill_name)?.description || '')
 
 const draft = reactive({
+  skill_name: 'trend_pullback',
   market_code: 'bybit',
   symbol_code: 'BTCUSDT',
   period: '1h',
@@ -260,6 +343,8 @@ const detailTab = ref('chart')
 const importantOnly = ref(true)
 const chartLoading = ref(false)
 const chartRef = ref(null)
+const symbolList = ref([])
+const symbolLoading = ref(false)
 
 let chart = null
 let candleSeries = null
@@ -297,10 +382,27 @@ const displayRows = computed(() => {
 })
 const visibleSteps = computed(() => importantOnly.value ? importantSteps.value : allSteps.value)
 
+async function fetchSymbols(query = '') {
+  symbolLoading.value = true
+  try {
+    const res = await symbolApi.listByMarket('bybit')
+    let list = Array.isArray(res.data) ? res.data : []
+    if (query) {
+      list = list.filter(s => s.symbol_code.toLowerCase().includes(query.toLowerCase()))
+    }
+    symbolList.value = list
+  } catch (e) {
+    symbolList.value = []
+  } finally {
+    symbolLoading.value = false
+  }
+}
+
 function normalizeTarget(target) {
   return {
     id: target.id || newTargetId(target.symbol_code, target.period),
     symbol_id: target.symbol_id || null,
+    skill_name: target.skill_name || AGENT_TYPE,
     symbol_code: (target.symbol_code || '').toUpperCase(),
     market_code: target.market_code || 'bybit',
     period: target.period || '1h',
@@ -317,12 +419,39 @@ function normalizeTarget(target) {
 
 async function loadRemoteTargets() {
   try {
-    const res = await trendApi.listWatchTargets(AGENT_TYPE)
-    const remoteTargets = Array.isArray(res.data) ? res.data : []
-    targets.value = remoteTargets.map(normalizeTarget)
+    // 加载所有策略的观察仓
+    const allTargets = []
+    for (const skill of ['trend_pullback', 'elliott_wave']) {
+      try {
+        const res = await trendApi.listWatchTargets(skill)
+        const remoteTargets = Array.isArray(res.data) ? res.data : []
+        allTargets.push(...remoteTargets)
+      } catch (e) {
+        // 某个策略可能没有数据，忽略
+      }
+    }
+    // 合并：保留本地 loading 和 analyzing 状态，用远程数据更新其余字段
+    const remoteMap = new Map(allTargets.map(t => [t.id, t]))
+    targets.value = targets.value.map(local => {
+      const remote = remoteMap.get(local.id)
+      if (!remote) return local
+      const normalized = normalizeTarget(remote)
+      // 如果正在分析中（本地 loading 或远程 analyzing），保留 loading 状态
+      if (local.loading || normalized.data_status === 'analyzing') {
+        normalized.loading = true
+      }
+      return normalized
+    })
+    // 添加远程有但本地没有的新标的
+    const localIds = new Set(targets.value.map(t => t.id))
+    for (const remote of allTargets) {
+      if (!localIds.has(remote.id)) {
+        targets.value.push(normalizeTarget(remote))
+      }
+    }
     activeTargetId.value = targets.value[0]?.id || null
   } catch (error) {
-    console.warn('读取趋势观察位失败:', error)
+    console.warn('读取观察位失败:', error)
   }
 }
 
@@ -346,7 +475,7 @@ async function deleteTargetRemote(target) {
 
 function serializeTarget(target) {
   return {
-    agent_type: AGENT_TYPE,
+    skill_name: target.skill_name || AGENT_TYPE,
     market_code: target.market_code,
     symbol_code: target.symbol_code,
     symbol_id: target.symbol_id || null,
@@ -403,27 +532,27 @@ function onTargetToggle(target) {
   saveTargetRemote(target)
 }
 
+async function triggerAnalysis(target) {
+  await analyzeTarget(target)
+}
+
 async function analyzeTarget(target, options = {}) {
   target.loading = true
   target.error = ''
   try {
+    // 异步模式：后端立即返回，分析在后台执行，前端通过轮询获取结果
     const res = await trendApi.analyzeWatchTarget(target.id)
     const updated = res.data
-    target.result = updated.result || target.result
-    target.data_status = updated.data_status || 'ready'
-    target.last_run_at = updated.last_run_at || Date.now()
-    target.error = updated.error || ''
+    target.data_status = updated.data_status || 'analyzing'
     if (!detailVisible.value || activeTargetId.value === target.id) {
       activeTargetId.value = target.id
     }
     if (!options.quiet) {
-      const found = updated.result?.found || (updated.result?.steps || []).some(s => s.decision === 'alert')
-      ElMessage[found ? 'success' : 'info'](found ? '发现趋势回调买点' : '未发现可执行买点')
+      ElMessage.info('分析已提交，结果将在后台更新')
     }
-    if (detailVisible.value && activeTarget.value?.id === target.id && detailTab.value === 'chart') {
-      await nextTick()
-      await renderChart()
-    }
+    // 立即触发一次轮询以加快状态更新
+    setTimeout(() => loadRemoteTargets(), 5000)
+    setTimeout(() => loadRemoteTargets(), 15000)
   } catch (error) {
     const message = error?.response?.data?.message || error.message || '分析失败'
     if (isWaitingDataError(message)) {
@@ -589,6 +718,13 @@ function isImportantStep(step) {
     step.pullback_state === 'dangerous'
 }
 
+function importanceKey(step) {
+  if (step.decision === 'alert') return 'alert'
+  if (step.decision === 'invalid') return 'risk'
+  if (isImportantStep(step)) return 'watch'
+  return 'quiet'
+}
+
 function importanceLabel(step) {
   if (step.decision === 'alert') return '重点'
   if (step.decision === 'invalid') return '风险'
@@ -669,17 +805,17 @@ function quietCount(target) {
 }
 
 function statusLabel(target) {
-  if (target.loading) return '分析中'
+  if (target.loading || target.data_status === 'analyzing') return '分析中'
   if (target.error) return '异常'
   if (target.data_status === 'waiting_data') return '等待数据'
   if (!target.result) return target.enabled ? '待分析' : '已关闭'
-  if (target.result.found) return '发现买点'
+  if (target.result.found || alertCount(target) > 0) return '发现买点'
   if (invalidCount(target) > 0) return '趋势失效'
   return '跟踪中'
 }
 
 function statusType(target) {
-  if (target.loading) return 'warning'
+  if (target.loading || target.data_status === 'analyzing') return 'warning'
   if (target.error) return 'danger'
   if (target.data_status === 'waiting_data') return 'info'
   if (target.result?.found) return 'success'
@@ -687,6 +823,13 @@ function statusType(target) {
   if (target.enabled) return '' // 默认色
   return 'info'
 }
+
+watch(addDialogVisible, async (val) => {
+  if (val) {
+    draft.symbol_code = ''
+    await fetchSymbols()
+  }
+})
 
 onMounted(async () => {
   await loadRemoteTargets()
@@ -723,44 +866,207 @@ onBeforeUnmount(() => {
 }
 
 .dialog-form {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  padding: 4px 4px 0;
+}
 
-  .form-row {
+.form-card {
+  background: $background;
+  border: 1px solid $border;
+  border-radius: 12px;
+  padding: 4px 0;
+  overflow: hidden;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+  gap: 16px;
+  border-bottom: 1px solid rgba($border, 0.6);
+  transition: background $transition-fast;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: rgba($primary, 0.03);
+  }
+}
+
+.form-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  width: 100px;
+  font-size: 14px;
+  font-weight: 500;
+  color: $text-primary;
+
+  .label-icon {
     display: flex;
     align-items: center;
-    gap: 12px;
+    color: $primary;
+    font-size: 16px;
+  }
+}
 
-    label {
-      flex-shrink: 0;
-      width: 90px;
-      font-size: 14px;
-      color: $text-primary;
-      text-align: right;
+.form-control {
+  flex: 1;
 
-      .hint {
-        font-size: 12px;
-        color: $text-secondary;
-        margin-left: 4px;
-      }
+  :deep(.el-input__wrapper) {
+    border-radius: 8px;
+    box-shadow: 0 0 0 1px $border;
+    transition: box-shadow $transition-fast;
+
+    &:hover {
+      box-shadow: 0 0 0 1px rgba($primary, 0.4);
     }
 
-    .el-input,
-    .el-input-number,
-    .el-segmented {
-      flex: 1;
+    &.is-focus {
+      box-shadow: 0 0 0 2px rgba($primary, 0.25);
     }
   }
 
-  .form-row-switch {
-    label {
-      flex: 1;
+  :deep(.el-input-number__decrease),
+  :deep(.el-input-number__increase) {
+    border-radius: 0 6px 6px 0;
+    background: $background;
+
+    &:hover {
+      color: $primary;
+    }
+  }
+}
+
+.form-segmented {
+  :deep(.el-segmented) {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 8px;
+    padding: 3px;
+
+    .el-segmented__item {
+      border-radius: 6px;
+      transition: all $transition-fast;
+      font-weight: 500;
+
+      &.is-selected {
+        background: $primary;
+        color: #fff;
+        box-shadow: 0 2px 6px rgba($primary, 0.35);
+      }
+    }
+  }
+}
+
+.form-row-switch {
+  .form-label {
+    flex: 1;
+  }
+}
+
+.form-switch {
+  :deep(.el-switch.is-checked .el-switch__core) {
+    background-color: $primary;
+    border-color: $primary;
+  }
+}
+
+.skill-option {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+
+  .skill-name {
+    font-weight: 500;
+    color: $text-primary;
+  }
+
+  .skill-desc {
+    font-size: 12px;
+    color: $text-secondary;
+    margin-top: 2px;
+  }
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 8px;
+
+  .el-button--primary {
+    background: $primary;
+    border-color: $primary;
+
+    &:hover {
+      background: $primary-light;
+      border-color: $primary-light;
+    }
+  }
+}
+
+.form-row-skill {
+  align-items: flex-start;
+  padding-top: 16px;
+}
+
+.skill-selector {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  :deep(.el-radio-button) {
+    flex: 1;
+    min-width: 120px;
+
+    .el-radio-button__inner {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid $border;
+      background: $surface;
+      color: $text-secondary;
+      font-weight: 500;
+      transition: all $transition-fast;
+      box-shadow: none;
+      padding: 10px 16px;
+      font-size: 14px;
+
+      &:hover {
+        background: rgba($primary, 0.06);
+        border-color: rgba($primary, 0.3);
+        color: $primary;
+      }
     }
 
-    .el-switch {
-      flex-shrink: 0;
+    &.is-active .el-radio-button__inner {
+      background: $primary;
+      border-color: $primary;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba($primary, 0.35);
     }
+  }
+}
+
+.skill-btn-label {
+  font-weight: 500;
+}
+
+.skill-desc-row {
+  .skill-current-desc {
+    font-size: 12px;
+    color: $text-secondary;
+    line-height: 1.5;
+    padding-left: 2px;
   }
 }
 
@@ -882,82 +1188,177 @@ onBeforeUnmount(() => {
 .panel-title {
   color: $text-primary;
   font-weight: 600;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
-.focus-item {
+// ---- 时间线 ----
+.timeline {
+  position: relative;
+  padding-left: 20px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: $border;
+    border-radius: 1px;
+  }
+}
+
+.tl-card {
+  position: relative;
+  display: block;
   width: 100%;
-  border: 1px solid $border;
-  border-radius: 6px;
-  padding: 10px;
-  margin-bottom: 8px;
-  background: transparent;
   text-align: left;
-  cursor: pointer;
-
-  span,
-  em {
-    display: block;
-    color: $text-secondary;
-    font-size: 12px;
-    font-style: normal;
-  }
-
-  strong {
-    display: block;
-    color: $text-primary;
-    margin: 4px 0;
-  }
-}
-
-.focus-alert {
-  border-color: rgba($success, 0.6);
-  background: rgba($success, 0.08);
-}
-
-.focus-invalid {
-  border-color: rgba($danger, 0.6);
-  background: rgba($danger, 0.08);
-}
-
-.focus-wait,
-.focus-watch {
-  border-color: rgba($warning, 0.45);
-  background: rgba($warning, 0.06);
-}
-
-.focus-quiet {
-  border-color: $border;
   background: transparent;
-
-  strong {
-    color: $text-secondary;
-  }
-}
-
-.quiet-row {
-  margin: 0;
-}
-
-.quiet-dot {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: none;
   border: none;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 4px;
   cursor: pointer;
-  padding: 5px 10px;
-  color: $text-secondary;
-  font-size: 12px;
+  transition: background $transition-fast;
 
-  .dot-label {
-    color: $primary;
-    letter-spacing: 2px;
+  // 左边的时间线节点圆点
+  &::before {
+    content: '';
+    position: absolute;
+    left: -17px;
+    top: 14px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: $border;
   }
 
   &:hover {
+    background: rgba($primary, 0.05);
+  }
+}
+
+// 左边线颜色
+.tl-alert {
+  border-left: 3px solid #00c853;
+
+  &::before {
+    background: #00c853;
+    box-shadow: 0 0 6px rgba(#00c853, 0.4);
+  }
+}
+
+.tl-risk {
+  border-left: 3px solid #ff5252;
+
+  &::before {
+    background: #ff5252;
+    box-shadow: 0 0 6px rgba(#ff5252, 0.4);
+  }
+}
+
+.tl-watch {
+  border-left: 3px solid #ffd740;
+
+  &::before {
+    background: #ffd740;
+  }
+}
+
+.tl-quiet {
+  border-left: 3px solid $border;
+  background: transparent;
+
+  &::before {
+    background: $border;
+    width: 6px;
+    height: 6px;
+    left: -16px;
+    top: 12px;
+  }
+
+  &:hover {
+    background: rgba($border, 0.15);
+  }
+}
+
+.tl-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+
+  .tl-time {
+    color: $text-secondary;
+    font-size: 12px;
+    font-family: 'Monaco', 'Menlo', monospace;
+  }
+
+  .tl-conf {
+    margin-left: auto;
     color: $text-primary;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'Monaco', 'Menlo', monospace;
+  }
+}
+
+.tl-card-prices {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  color: $text-secondary;
+}
+
+.tl-card-reason {
+  color: $text-primary;
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+// 普通记录折叠
+.tl-quiet-group {
+  margin-bottom: 4px;
+}
+
+.tl-quiet-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: $text-secondary;
+
+  .tl-quiet-line {
+    flex: 1;
+    height: 1px;
+    background: repeating-linear-gradient(
+      90deg,
+      $border 0,
+      $border 4px,
+      transparent 4px,
+      transparent 8px
+    );
+  }
+
+  .tl-quiet-text {
+    font-size: 12px;
+    color: $primary;
+    white-space: nowrap;
+    letter-spacing: 1px;
+  }
+
+  &:hover .tl-quiet-text {
+    color: $primary;
   }
 }
 

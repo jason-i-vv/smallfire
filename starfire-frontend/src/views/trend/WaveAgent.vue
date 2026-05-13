@@ -166,31 +166,39 @@
               <aside class="focus-panel">
                 <div class="panel-title">分析记录</div>
                 <el-empty v-if="allSteps.length === 0" description="暂无分析记录" :image-size="64" />
-                <template v-for="row in displayRows" :key="row.key">
-                  <button
-                    v-if="row.type === 'important'"
-                    class="focus-item"
-                    :class="`focus-${importanceKey(row.step)}`"
-                    @click="showStepInList"
-                  >
-                    <span>{{ formatTime(row.step.kline_time) }}</span>
-                    <strong>{{ importanceLabel(row.step) }} · {{ stageLabel(row.step.wave_stage) }} · {{ row.step.confidence }}</strong>
-                    <em>{{ row.step.wave_count || row.step.reasoning }}</em>
-                  </button>
-                  <div v-else class="quiet-row">
-                    <button class="quiet-dot" @click="toggleQuietItem(row.key)">
-                      <span>{{ row.steps[0] && row.steps[row.steps.length - 1] ? formatTime(row.steps[0].kline_time) + ' ~ ' + formatTime(row.steps[row.steps.length - 1].kline_time) : '' }}</span>
-                      <span class="dot-label">{{ expandedQuietKeys.has(row.key) ? '收起' : '...' }}</span>
+                <div v-else class="timeline">
+                  <template v-for="row in displayRows" :key="row.key">
+                    <button
+                      v-if="row.type === 'important'"
+                      class="tl-card"
+                      :class="`tl-${importanceKey(row.step)}`"
+                      @click="showStepInList"
+                    >
+                      <div class="tl-card-head">
+                        <span class="tl-time">{{ formatTime(row.step.kline_time) }}</span>
+                        <el-tag size="small" :type="importanceType(row.step)" effect="dark">{{ importanceLabel(row.step) }}</el-tag>
+                        <el-tag v-if="row.step.wave_stage" size="small" :type="stageType(row.step.wave_stage)">{{ stageLabel(row.step.wave_stage) }}</el-tag>
+                        <span class="tl-conf">{{ row.step.confidence }}</span>
+                      </div>
+                      <div class="tl-card-reason">{{ row.step.wave_count || row.step.reasoning }}</div>
                     </button>
-                    <template v-if="expandedQuietKeys.has(row.key)">
-                      <button v-for="step in row.steps" :key="step.kline_time" class="focus-item focus-quiet" @click="showStepInList">
-                        <span>{{ formatTime(step.kline_time) }}</span>
-                        <strong>{{ importanceLabel(step) }} · {{ stageLabel(step.wave_stage) }} · {{ step.confidence }}</strong>
-                        <em>{{ step.wave_count || step.reasoning }}</em>
+                    <div v-else class="tl-quiet-group">
+                      <button class="tl-quiet-toggle" @click="toggleQuietItem(row.key)">
+                        <span class="tl-quiet-line"></span>
+                        <span class="tl-quiet-text">{{ expandedQuietKeys.has(row.key) ? '收起' : `··· ${row.steps.length} 条普通记录 ···` }}</span>
                       </button>
-                    </template>
-                  </div>
-                </template>
+                      <template v-if="expandedQuietKeys.has(row.key)">
+                        <button v-for="step in row.steps" :key="step.kline_time" class="tl-card tl-quiet" @click="showStepInList">
+                          <div class="tl-card-head">
+                            <span class="tl-time">{{ formatTime(step.kline_time) }}</span>
+                            <span class="tl-conf">{{ step.confidence }}</span>
+                          </div>
+                          <div class="tl-card-reason">{{ step.wave_count || step.reasoning }}</div>
+                        </button>
+                      </template>
+                    </div>
+                  </template>
+                </div>
               </aside>
             </div>
           </el-tab-pane>
@@ -374,7 +382,7 @@ function persistTargets() {
 
 async function loadRemoteTargets() {
   try {
-    const res = await api.get('/ai-watch-targets', { params: { agent_type: AGENT_TYPE } })
+    const res = await api.get('/ai-watch-targets', { params: { skill_name: AGENT_TYPE } })
     const remoteTargets = Array.isArray(res.data) ? res.data : []
     if (remoteTargets.length === 0) return
     targets.value = remoteTargets.map(normalizeTarget)
@@ -406,7 +414,7 @@ async function deleteTargetRemote(target) {
 
 function serializeTarget(target) {
   return {
-    agent_type: AGENT_TYPE,
+    skill_name: AGENT_TYPE,
     market_code: target.market_code,
     symbol_code: target.symbol_code,
     symbol_id: target.symbol_id || null,
@@ -903,7 +911,7 @@ function quietCount(target) {
 }
 
 function statusLabel(target) {
-  if (target.loading) return '分析中'
+  if (target.loading || target.data_status === 'analyzing') return '分析中'
   if (target.error) return '异常'
   if (target.data_status === 'waiting_data') return '等待数据'
   if (!target.result) return target.enabled ? '待分析' : '已关闭'
@@ -913,6 +921,7 @@ function statusLabel(target) {
 }
 
 function statusType(target) {
+  if (target.loading || target.data_status === 'analyzing') return 'warning'
   if (target.error) return 'danger'
   if (target.data_status === 'waiting_data') return 'info'
   if (target.result?.found || alertCount(target) > 0) return 'success'
@@ -1103,58 +1112,165 @@ onBeforeUnmount(() => {
 .panel-title {
   color: $text-primary;
   font-weight: 600;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
-.focus-item {
+// ---- 时间线 ----
+.timeline {
+  position: relative;
+  padding-left: 20px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: $border;
+    border-radius: 1px;
+  }
+}
+
+.tl-card {
+  position: relative;
+  display: block;
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 10px;
-  margin-bottom: 8px;
   text-align: left;
-  border: 1px solid $border;
-  border-left: 3px solid $primary;
+  background: transparent;
+  border: none;
   border-radius: 6px;
-  background: $surface;
-  color: $text-primary;
+  padding: 10px 12px;
+  margin-bottom: 4px;
   cursor: pointer;
+  transition: background $transition-fast;
 
-  span {
+  &::before {
+    content: '';
+    position: absolute;
+    left: -17px;
+    top: 14px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: $border;
+  }
+
+  &:hover {
+    background: rgba($primary, 0.05);
+  }
+}
+
+.tl-alert {
+  border-left: 3px solid #00c853;
+
+  &::before {
+    background: #00c853;
+    box-shadow: 0 0 6px rgba(#00c853, 0.4);
+  }
+}
+
+.tl-risk {
+  border-left: 3px solid #ff5252;
+
+  &::before {
+    background: #ff5252;
+    box-shadow: 0 0 6px rgba(#ff5252, 0.4);
+  }
+}
+
+.tl-watch {
+  border-left: 3px solid #ffd740;
+
+  &::before {
+    background: #ffd740;
+  }
+}
+
+.tl-quiet {
+  border-left: 3px solid $border;
+  background: transparent;
+
+  &::before {
+    background: $border;
+    width: 6px;
+    height: 6px;
+    left: -16px;
+    top: 12px;
+  }
+
+  &:hover {
+    background: rgba($border, 0.15);
+  }
+}
+
+.tl-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+
+  .tl-time {
     color: $text-secondary;
     font-size: 12px;
+    font-family: 'Monaco', 'Menlo', monospace;
   }
 
-  em {
-    color: $text-secondary;
-    font-style: normal;
+  .tl-conf {
+    margin-left: auto;
+    color: $text-primary;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'Monaco', 'Menlo', monospace;
+  }
+}
+
+.tl-card-reason {
+  color: $text-primary;
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tl-quiet-group {
+  margin-bottom: 4px;
+}
+
+.tl-quiet-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: $text-secondary;
+
+  .tl-quiet-line {
+    flex: 1;
+    height: 1px;
+    background: repeating-linear-gradient(
+      90deg,
+      $border 0,
+      $border 4px,
+      transparent 4px,
+      transparent 8px
+    );
+  }
+
+  .tl-quiet-text {
     font-size: 12px;
-    line-height: 1.4;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+    color: $primary;
+    white-space: nowrap;
+    letter-spacing: 1px;
   }
 
-  &.focus-alert {
-    border-left-color: #00c853;
-  }
-
-  &.focus-risk {
-    border-left-color: #ff5252;
-  }
-
-  &.focus-watch {
-    border-left-color: #ffd740;
-  }
-
-  &.focus-quiet {
-    border-left-color: $border;
-
-    strong {
-      color: $text-secondary;
-    }
+  &:hover .tl-quiet-text {
+    color: $primary;
   }
 }
 
@@ -1163,32 +1279,6 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
   color: $text-secondary;
   font-size: 13px;
-}
-
-.quiet-row {
-  margin: 0;
-}
-
-.quiet-dot {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 5px 10px;
-  color: $text-secondary;
-  font-size: 12px;
-
-  .dot-label {
-    color: $primary;
-    letter-spacing: 2px;
-  }
-
-  &:hover {
-    color: $text-primary;
-  }
 }
 
 .step-expand {
