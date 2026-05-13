@@ -13,8 +13,12 @@ import (
 
 // CalcSLTP 计算止盈止损价格
 // 优先级：1. opportunity 建议值 → 2. ATR 动态计算 → 3. 固定百分比兜底
+// 优化：震荡市放宽止损、收窄止盈；量比异常收紧止损
 func CalcSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.TradingConfig, klineRepo repository.KlineRepo, logger *zap.Logger) (float64, float64) {
 	sl, tp := 0.0, 0.0
+
+	// 根据市场状态动态调整止盈止损比例
+	slPct, tpPct := GetRegimeSLTP(opp, cfg)
 
 	// 1. 尝试使用 opportunity 建议值
 	if opp.SuggestedStopLoss != nil && *opp.SuggestedStopLoss > 0 {
@@ -45,23 +49,55 @@ func CalcSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.Tr
 		}
 	}
 
-	// 3. 兜底：固定百分比
+	// 3. 兜底：动态百分比（基于市场状态）
 	if sl == 0 {
 		if opp.Direction == models.DirectionLong {
-			sl = entryPrice * (1 - cfg.StopLossPercent)
+			sl = entryPrice * (1 - slPct)
 		} else {
-			sl = entryPrice * (1 + cfg.StopLossPercent)
+			sl = entryPrice * (1 + slPct)
 		}
 	}
 	if tp == 0 {
 		if opp.Direction == models.DirectionLong {
-			tp = entryPrice * (1 + cfg.TakeProfitPercent)
+			tp = entryPrice * (1 + tpPct)
 		} else {
-			tp = entryPrice * (1 - cfg.TakeProfitPercent)
+			tp = entryPrice * (1 - tpPct)
 		}
 	}
 
 	return sl, tp
+}
+
+// GetRegimeSLTP 根据市场状态返回止盈止损比例
+// 震荡市：SL=3%, TP=3%, RR=1:1（价格来回波动，止损太紧容易被扫，止盈太远到不了）
+// 趋势市：SL=2%, TP=5%, RR=2.5:1（趋势明确，可以给更大止盈空间）
+// 量比异常(>10x)：SL=1.5%, TP=3%（高波动期收紧止损）
+func GetRegimeSLTP(opp *models.TradingOpportunity, cfg *config.TradingConfig) (float64, float64) {
+	slPct := cfg.StopLossPercent   // 默认 0.02
+	tpPct := cfg.TakeProfitPercent // 默认 0.05
+
+	// 检查量比是否异常
+	volumeRatio := 0.0
+	if opp.ScoreDetails != nil {
+		if vr, ok := (*opp.ScoreDetails)["volume_ratio"]; ok {
+			if f, ok := vr.(float64); ok {
+				volumeRatio = f
+			}
+		}
+	}
+
+	if volumeRatio > 10.0 {
+		// 异常放量：收紧止损和止盈
+		slPct = 0.015
+		tpPct = 0.03
+	} else if opp.Regime == "震荡" {
+		// 震荡市：放宽止损到3%，收窄止盈到3%
+		slPct = 0.03
+		tpPct = 0.03
+	}
+	// 趋势市（顺势/逆势）使用默认值
+
+	return slPct, tpPct
 }
 
 // CalcATRSLTP 基于近期K线的ATR计算止盈止损

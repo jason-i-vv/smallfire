@@ -79,7 +79,12 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		return
 	}
 
-	// 3. 检查该机会是否已有 testnet 持仓
+	// 3. 交易质量过滤
+	if !ShouldTrade(opp) {
+		return
+	}
+
+	// 4. 检查该机会是否已有 testnet 持仓
 	if opp.ID > 0 {
 		existing, err := t.trackRepo.GetOpenByOpportunityIDAndSource(opp.ID, models.TradeSourceTestnet)
 		if err != nil {
@@ -94,7 +99,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		}
 	}
 
-	// 4. 检查最大持仓数（查 Bybit 实际持仓）
+	// 5. 检查最大持仓数（查 Bybit 实际持仓）
 	bybitPositions, berr := t.client.QueryAllPositions()
 	if berr != nil {
 		t.logger.Warn("[Testnet] 查询 Bybit 持仓失败，使用数据库记录", zap.Error(berr))
@@ -112,7 +117,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		return
 	}
 
-	// 5. 检查 Bybit 是否已有同交易对同方向的持仓
+	// 6. 检查 Bybit 是否已有同交易对同方向的持仓
 	existingPos, err := t.client.QueryPosition(opp.SymbolCode)
 	if err != nil {
 		t.logger.Warn("[Testnet] 查询 Bybit 持仓失败",
@@ -136,7 +141,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		}
 	}
 
-	// 6. 检查本地数据库是否已有同交易对同方向的 open 记录
+	// 7. 检查本地数据库是否已有同交易对同方向的 open 记录
 	openTracks, _ := t.trackRepo.GetOpenBySource(models.TradeSourceTestnet)
 	for _, existingTrack := range openTracks {
 		if existingTrack.SymbolID == opp.SymbolID && existingTrack.Direction == opp.Direction {
@@ -148,7 +153,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		}
 	}
 
-	// 7. 获取入场价格和时间
+	// 8. 获取入场价格和时间
 	entryPrice, entryTime := GetEntryPriceAndTime(opp, t.klineRepo)
 	if entryPrice <= 0 {
 		t.logger.Warn("[Testnet] 无法获取入场价格，跳过",
@@ -157,7 +162,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		return
 	}
 
-	// 8. 设置杠杆
+	// 9. 设置杠杆
 	leverage := testnetCfg.Leverage
 	if leverage <= 0 {
 		leverage = 2
@@ -168,7 +173,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 			zap.Error(err))
 	}
 
-	// 9. 计算下单参数
+	// 10. 计算下单参数
 	tradeAmount := testnetCfg.FixedTradeAmount
 	if tradeAmount <= 0 {
 		tradeAmount = 100
@@ -215,7 +220,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 	slStr := strconv.FormatFloat(stopLossPrice, 'f', 6, 64)
 	tpStr := strconv.FormatFloat(takeProfitPrice, 'f', 6, 64)
 
-	// 10. 在 Bybit Testnet 下单
+	// 11. 在 Bybit Testnet 下单
 	orderSentTime := time.Now()
 	orderResp, err := t.client.PlaceOrder(&PlaceOrderRequest{
 		Symbol:     opp.SymbolCode,
@@ -246,7 +251,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		zap.Duration("signal_to_sent", orderSentTime.Sub(opp.CreatedAt)),
 		zap.Duration("sent_to_resp", orderRespTime.Sub(orderSentTime)))
 
-	// 10. 创建本地交易记录
+	// 12. 创建本地交易记录
 	fees := positionValue * 0.0004 * 2 // 预估手续费（基于仓位价值）
 	now := time.Now()
 	oppID := opp.ID

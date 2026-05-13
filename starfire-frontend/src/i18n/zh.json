@@ -389,7 +389,17 @@
     "dimension": "维度",
     "trending": "顺势",
     "counterTrend": "逆势",
-    "sideways": "震荡"
+    "sideways": "震荡",
+    "regimeSLTP": "动态止盈止损",
+    "sidewaysSL": "震荡止损",
+    "sidewaysTP": "震荡止盈",
+    "trendSL": "趋势止损",
+    "trendTP": "趋势止盈",
+    "lowWinRateWarning": "低胜率警告",
+    "shortPenalty": "做空惩罚",
+    "singleSignalWarning": "单信号风险",
+    "tradeFiltered": "交易已过滤",
+    "filterReason": "过滤原因"
   },
   "market": {
     "title": "行情总览",

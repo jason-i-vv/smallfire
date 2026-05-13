@@ -388,7 +388,17 @@
     "dimension": "Dimension",
     "trending": "Trending",
     "counterTrend": "Counter Trend",
-    "sideways": "Sideways"
+    "sideways": "Sideways",
+    "regimeSLTP": "Dynamic SL/TP",
+    "sidewaysSL": "Sideways SL",
+    "sidewaysTP": "Sideways TP",
+    "trendSL": "Trend SL",
+    "trendTP": "Trend TP",
+    "lowWinRateWarning": "Low Win Rate Warning",
+    "shortPenalty": "Short Penalty",
+    "singleSignalWarning": "Single Signal Risk",
+    "tradeFiltered": "Trade Filtered",
+    "filterReason": "Filter Reason"
   },
   "market": {
     "title": "Market Overview",

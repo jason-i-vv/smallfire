@@ -284,6 +284,9 @@ func (a *OpportunityAggregator) buildScoringContext(signals []*models.Signal, sy
 	ctx.RegimeMatchScore = matchScore
 	ctx.MarketRegime = regime
 
+	// 6. 交易方向（用于做空惩罚评分）
+	ctx.Direction = direction
+
 	return ctx
 }
 
