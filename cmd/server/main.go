@@ -238,6 +238,8 @@ func main() {
 	var cooldownTracker *aiservice.CooldownTracker
 	var trendPullbackAnalyzer *aiservice.TrendPullbackAnalyzer
 	var elliottWaveAnalyzer *aiservice.ElliottWaveAnalyzer
+	var claudeClient *aiservice.ClaudeClient
+	var watchEngine *aiservice.WatchEngine
 	if cfg.AI.Enabled && cfg.AI.APIKey != "" {
 		aiClient = aiservice.NewAIClient(cfg.AI)
 		trendPullbackAnalyzer = aiservice.NewTrendPullbackAnalyzer(aiClient, klineRepo, notifyManager, utils.Logger)
@@ -256,6 +258,18 @@ func main() {
 		)
 		if cfg.AI.Judge.AutoAnalyze {
 			oppAggregator.AddHandler(aiAnalyzer)
+		}
+
+		// 初始化 Claude 客户端 + Skill 系统 + WatchEngine
+		if cfg.AI.Claude.Enabled {
+			claudeClient = aiservice.NewClaudeClient(cfg.AI.Claude, cfg.AI.LogDir, utils.Logger)
+			skillRegistry := aiservice.NewSkillRegistry()
+			skillRegistry.Register(&aiservice.TrendPullbackSkill{})
+			skillRegistry.Register(&aiservice.ElliottWaveSkill{})
+			watchEngine = aiservice.NewWatchEngine(claudeClient, skillRegistry, klineRepo, notifyManager, utils.Logger)
+			utils.Info("Claude AI 分析引擎初始化成功",
+				zap.String("model", cfg.AI.Claude.Model),
+				zap.Int("registered_skills", len(skillRegistry.List())))
 		}
 
 		// 初始化 AI 关键价位识别器
@@ -372,8 +386,16 @@ func main() {
 	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelV2Repo, utils.Logger)
 	// AI 观察仓调度器（K 线同步后自动分析）
 	var watchScheduler *aiservice.AIWatchScheduler
-	if trendPullbackAnalyzer != nil || elliottWaveAnalyzer != nil {
+	if watchEngine != nil {
+		// 优先使用 Claude + WatchEngine
 		watchScheduler = aiservice.NewAIWatchScheduler(
+			aiWatchTargetRepo, symbolRepo,
+			watchEngine,
+			utils.Logger,
+		)
+	} else if trendPullbackAnalyzer != nil || elliottWaveAnalyzer != nil {
+		// 回退到 MiniMax
+		watchScheduler = aiservice.NewAIWatchSchedulerLegacy(
 			aiWatchTargetRepo, symbolRepo,
 			trendPullbackAnalyzer, elliottWaveAnalyzer,
 			utils.Logger,
@@ -386,7 +408,7 @@ func main() {
 		}
 
 	trendHandler := handler.NewTrendHandler(trendRepo, symbolRepo, syncService, trendPullbackAnalyzer, elliottWaveAnalyzer, utils.Logger)
-	aiWatchTargetHandler := handler.NewAIWatchTargetHandler(aiWatchTargetRepo, watchScheduler, utils.Logger)
+	aiWatchTargetHandler := handler.NewAIWatchTargetHandler(aiWatchTargetRepo, watchScheduler, syncService, utils.Logger)
 	aiStatsSvc := aiservice.NewAIStatsService(db)
 	aiStatsHandler := handler.NewAIStatsHandler(aiStatsSvc, utils.Logger)
 	authHandler := handler.NewAuthHandler(authsvc, utils.Logger)
@@ -564,8 +586,9 @@ func main() {
 				tradesGroup.GET("/regime-analysis", tradeHandler.GetRegimeAnalysis)
 				tradesGroup.GET("/strategy-regime-analysis", tradeHandler.GetStrategyRegimeAnalysis)
 				tradesGroup.GET("/score-regime-analysis", tradeHandler.GetScoreRegimeAnalysis)
-				tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
+				tradesGroup.GET("/score-grade-regime-analysis", tradeHandler.GetScoreGradeRegimeAnalysis)
 				tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
+				tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
 				// 异常持仓操作（recheck/force-close）
 				tradesGroup.POST("/anomalous/:id/recheck", tradeHandler.RecheckAnomalousPosition)
 				tradesGroup.POST("/anomalous/:id/force-close", tradeHandler.ForceCloseAnomalousPosition)

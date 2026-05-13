@@ -41,9 +41,12 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       AI_API_KEY: ${AI_API_KEY:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      CLAUDE_BASE_URL: ${CLAUDE_BASE_URL:-}
     volumes:
       - ./config:/root/config:ro
       - ./ai_logs:/root/ai_logs
+      - ai_conversations:/root/ai_logs/ai_conversations
     networks:
       - starfire-network
     restart: unless-stopped
@@ -69,3 +72,4 @@ networks:
 
 volumes:
   postgres_data:
+  ai_conversations:

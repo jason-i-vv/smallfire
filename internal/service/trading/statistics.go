@@ -1155,3 +1155,52 @@ func (s *StatisticsService) GetScoreRegimeAnalysis(startDate, endDate *time.Time
 	}
 	return result, nil
 }
+
+// ScoreGradeRegimeResult 评分区间 × 市场状态 交叉分析结果
+type ScoreGradeRegimeResult struct {
+	ScoreRange string                  `json:"score_range"` // 评分区间，如 "80-100", "60-80", "40-60", "0-40"
+	Regimes    map[string]RegimeStats `json:"regimes"`     // key: 顺势/逆势/震荡
+}
+
+// GetScoreGradeRegimeAnalysis 获取评分区间 × 市场状态 交叉分析
+func (s *StatisticsService) GetScoreGradeRegimeAnalysis(startDate, endDate *time.Time, tradeSource string) ([]ScoreGradeRegimeResult, error) {
+	sqlResults, err := s.trackRepo.GetScoreRegimeSQL(startDate, endDate, tradeSource)
+	if err != nil {
+		return nil, fmt.Errorf("获取评分区间市场状态统计失败: %w", err)
+	}
+
+	// 构建 scoreRange -> regime -> stats 映射
+	dataMap := make(map[string]map[string]*RegimeStats)
+	for _, r := range sqlResults {
+		if dataMap[r.ScoreRange] == nil {
+			dataMap[r.ScoreRange] = make(map[string]*RegimeStats)
+		}
+		s := &RegimeStats{TotalTrades: r.TotalTrades, WinTrades: r.WinTrades, TotalPnL: r.TotalPnL}
+		if s.TotalTrades > 0 {
+			s.WinRate = float64(s.WinTrades) / float64(s.TotalTrades)
+			s.AvgPnL = s.TotalPnL / float64(s.TotalTrades)
+		}
+		dataMap[r.ScoreRange][r.Regime] = s
+	}
+
+	// 按顺序返回: 80-100, 60-80, 40-60, 0-40
+	scoreRangeOrder := []string{"80-100", "60-80", "40-60", "0-40"}
+	allRegimes := []string{"顺势", "逆势", "震荡"}
+
+	result := make([]ScoreGradeRegimeResult, 0, len(scoreRangeOrder))
+	for _, scoreRange := range scoreRangeOrder {
+		regimesMap := make(map[string]RegimeStats)
+		if regimes, ok := dataMap[scoreRange]; ok {
+			for _, regime := range allRegimes {
+				if stats, ok := regimes[regime]; ok {
+					regimesMap[regime] = *stats
+				}
+			}
+		}
+		result = append(result, ScoreGradeRegimeResult{
+			ScoreRange: scoreRange,
+			Regimes:    regimesMap,
+		})
+	}
+	return result, nil
+}

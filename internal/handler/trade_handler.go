@@ -552,6 +552,20 @@ func (h *TradeHandler) GetScoreRegimeAnalysis(c *gin.Context) {
 	HandleSuccess(c, data)
 }
 
+// GetScoreGradeRegimeAnalysis 获取评分区间 × 市场状态 交叉分析
+func (h *TradeHandler) GetScoreGradeRegimeAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	tradeSource := c.Query("trade_source")
+
+	data, err := h.statsService.GetScoreGradeRegimeAnalysis(startDate, endDate, tradeSource)
+	if err != nil {
+		h.logger.Error("获取评分区间市场状态交叉分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
 // GetAnomalousCount 获取异常持仓数量（用于侧边栏 Badge）
 func (h *TradeHandler) GetAnomalousCount(c *gin.Context) {
 	count, err := h.trackRepo.CountByStatus(models.TrackStatusAnomalous)

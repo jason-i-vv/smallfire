@@ -112,7 +112,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TradeTable from '@/components/trades/TradeTable.vue'
 import { tradeApi } from '@/api/trades'
@@ -126,6 +126,34 @@ const currentPage = ref(1)
 const pageSize = ref(20)
 const dateRange = ref(null)
 const symbols = ref([])
+
+const STORAGE_KEY = 'trade_history_filters'
+
+const loadFiltersFromStorage = () => {
+  try {
+    const saved = sessionStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      Object.assign(filters, parsed.filters || {})
+      dateRange.value = parsed.dateRange || null
+      currentPage.value = parsed.currentPage || 1
+    }
+  } catch (e) {
+    console.error('Failed to load filters from storage:', e)
+  }
+}
+
+const saveFiltersToStorage = () => {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+      filters: { ...filters },
+      dateRange: dateRange.value,
+      currentPage: currentPage.value
+    }))
+  } catch (e) {
+    console.error('Failed to save filters to storage:', e)
+  }
+}
 
 const filters = reactive({
   market: '',
@@ -256,12 +284,19 @@ const resetFilter = () => {
   filters.direction = ''
   filters.exit_reason = ''
   filters.min_score = ''
+  filters.trade_source = ''
   dateRange.value = null
   currentPage.value = 1
   fetchData()
 }
 
+// 监听筛选条件变化，自动保存到 sessionStorage
+watch([filters, dateRange, currentPage], () => {
+  saveFiltersToStorage()
+}, { deep: true })
+
 onMounted(() => {
+  loadFiltersFromStorage()
   fetchData()
 })
 </script>

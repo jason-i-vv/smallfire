@@ -61,6 +61,9 @@ export const tradeApi = {
   // 评分维度 × 市场状态 交叉分析
   scoreRegimeAnalysis: (params) => api.get('/trades/score-regime-analysis', { params }),
 
+  // 评分区间 × 市场状态 交叉分析
+  scoreGradeRegimeAnalysis: (params) => api.get('/trades/score-grade-regime-analysis', { params }),
+
   // 异常持仓操作
   anomalousCount: () => api.get('/trades/anomalous/count'),
   recheckAnomalous: (id) => api.post(`/trades/anomalous/${id}/recheck`),

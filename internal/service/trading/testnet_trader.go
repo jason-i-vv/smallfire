@@ -60,6 +60,15 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 
 	testnetCfg := t.config.Testnet
 
+	// [时间日志] 信号触发时间
+	t.logger.Info("[Testnet] 收到交易机会",
+		zap.Int("opportunity_id", opp.ID),
+		zap.String("symbol", opp.SymbolCode),
+		zap.String("direction", opp.Direction),
+		zap.Time("signal_created_at", opp.CreatedAt),
+		zap.Int("score", opp.Score),
+		zap.Time("local_time", time.Now()))
+
 	// 1. 检查是否启用
 	if !testnetCfg.Enabled {
 		return
@@ -207,6 +216,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 	tpStr := strconv.FormatFloat(takeProfitPrice, 'f', 6, 64)
 
 	// 10. 在 Bybit Testnet 下单
+	orderSentTime := time.Now()
 	orderResp, err := t.client.PlaceOrder(&PlaceOrderRequest{
 		Symbol:     opp.SymbolCode,
 		Side:       side,
@@ -222,6 +232,19 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 			zap.Error(err))
 		return
 	}
+
+	// [时间日志] 订单发送和 Bybit 响应时间
+	orderRespTime := time.Now()
+	t.logger.Info("[Testnet] 订单已发送",
+		zap.String("symbol", opp.SymbolCode),
+		zap.String("order_id", orderResp.OrderID),
+		zap.String("bybit_created_time", orderResp.CreateTime),
+		zap.Time("signal_time", opp.CreatedAt),
+		zap.Time("kline_entry_time", entryTime),
+		zap.Time("order_sent_time", orderSentTime),
+		zap.Time("order_resp_time", orderRespTime),
+		zap.Duration("signal_to_sent", orderSentTime.Sub(opp.CreatedAt)),
+		zap.Duration("sent_to_resp", orderRespTime.Sub(orderSentTime)))
 
 	// 10. 创建本地交易记录
 	fees := positionValue * 0.0004 * 2 // 预估手续费（基于仓位价值）
@@ -266,6 +289,14 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		}
 		return
 	}
+
+	// [时间日志] Track 创建完成
+	t.logger.Info("[Testnet] 交易记录已创建",
+		zap.String("symbol", opp.SymbolCode),
+		zap.Int("track_id", track.ID),
+		zap.Time("track_created_at", track.CreatedAt),
+		zap.Time("signal_time", opp.CreatedAt),
+		zap.Duration("signal_to_track_created", track.CreatedAt.Sub(opp.CreatedAt)))
 
 	// 从 Bybit 获取实际成交价，更新本地记录（用实际成交价替代本地计算的入场价）
 	if orderResp.OrderID != "" {

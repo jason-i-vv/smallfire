@@ -87,17 +87,20 @@ func (m *TestnetPositionMonitor) checkAllPositions() {
 
 	// 1. 一次性查询所有 Bybit 实时持仓
 	bybitPositions, err := m.client.QueryAllPositions()
+	var bybitPosMap map[string]*PositionInfo
 	if err != nil {
 		m.logger.Error("[Testnet] 批量查询 Bybit 持仓失败，逐个查询", zap.Error(err))
 		for _, track := range tracks {
 			m.checkPosition(track)
 		}
+		// 即使 batch 失败也要尝试恢复异常持仓
+		m.tryRecoverAnomalousAll()
 		return
 	}
 	m.logger.Info("[Testnet] Bybit 实时持仓", zap.Int("count", len(bybitPositions)))
 
 	// 构建 symbolCode -> bybit PositionInfo 的映射
-	bybitPosMap := make(map[string]*PositionInfo)
+	bybitPosMap = make(map[string]*PositionInfo)
 	for i := range bybitPositions {
 		bybitPosMap[bybitPositions[i].Symbol] = &bybitPositions[i]
 	}
@@ -183,9 +186,9 @@ func (m *TestnetPositionMonitor) checkAllPositions() {
 	// 5. 清理 Bybit 孤儿仓位（Bybit 上有持仓但 DB 无对应记录）
 	m.cleanupOrphanPositions(bybitPositions, matchedSymbols)
 
-		// 6. 自动恢复异常持仓（API 恢复后自动从 anomalous 恢复为 open）
-		m.tryRecoverAnomalous(bybitPosMap, closedPnlMap)
-	}
+	// 6. 自动恢复异常持仓（对每个持仓单独查询，避免 batch 数据不完整导致漏检）
+	m.tryRecoverAnomalousAll()
+}
 
 // cleanupOrphanPositions 清理 Bybit 上的孤儿仓位
 // 这些仓位在 Bybit 上存在但 DB 中没有对应的 open 记录，可能是历史遗留或手动创建的
@@ -528,9 +531,9 @@ func (m *TestnetPositionMonitor) updateOpenPosition(track *models.TradeTrack, po
 }
 
 // markAnomalous 将持仓标记为异常状态（不自动平仓），等待人工介入
-// tryRecoverAnomalous 检查异常持仓是否能自动恢复
-// 复用已查询的 Bybit 持仓数据，如果能匹配到则恢复为 open，如果发现已平仓则按平仓处理
-func (m *TestnetPositionMonitor) tryRecoverAnomalous(bybitPosMap map[string]*PositionInfo, closedPnlMap map[string]*ClosedPnlInfo) {
+// tryRecoverAnomalousAll 尝试恢复所有异常持仓
+// 逐个异常持仓独立查询 Bybit API，避免 batch 数据不完整导致漏检
+func (m *TestnetPositionMonitor) tryRecoverAnomalousAll() {
 	tracks, err := m.trackRepo.GetAnomalous()
 	if err != nil {
 		m.logger.Error("[Testnet] 查询异常持仓失败", zap.Error(err))
@@ -539,37 +542,52 @@ func (m *TestnetPositionMonitor) tryRecoverAnomalous(bybitPosMap map[string]*Pos
 	if len(tracks) == 0 {
 		return
 	}
-	m.logger.Info("[Testnet] 检查异常持仓自动恢复", zap.Int("count", len(tracks)))
+	m.logger.Info("[Testnet] 尝试自动恢复异常持仓", zap.Int("count", len(tracks)))
 
 	for _, track := range tracks {
 		symbol, err := m.symbolRepo.GetByID(track.SymbolID)
 		if err != nil || symbol == nil {
+			m.logger.Warn("[Testnet] 异常持仓查询 symbol 失败", zap.Int("track_id", track.ID), zap.Error(err))
 			continue
 		}
 		symbolCode := symbol.SymbolCode
 
-		// 1. 检查 Bybit 实时持仓
-		if bybitPos, ok := bybitPosMap[symbolCode]; ok && bybitPos.Size != "0" {
+		// 1. 直接查询 Bybit 实时持仓（不依赖 batch 数据）
+		posInfo, err := m.client.QueryPosition(symbolCode)
+		if err != nil {
+			m.logger.Warn("[Testnet] 恢复检查时查询 Bybit 持仓失败",
+				zap.Int("track_id", track.ID),
+				zap.String("symbol", symbolCode),
+				zap.Error(err))
+			continue
+		}
+		if posInfo != nil && posInfo.Size != "0" {
 			track.Status = models.TrackStatusOpen
 			track.AnomalousReason = nil
-			m.updateOpenPosition(track, bybitPos)
+			m.updateOpenPosition(track, posInfo)
 			m.logger.Info("[Testnet] 异常持仓自动恢复为 open",
 				zap.Int("track_id", track.ID),
 				zap.String("symbol", symbolCode))
 			continue
 		}
 
-		// 2. 检查已平仓记录
-		if closedInfo, ok := closedPnlMap[symbolCode]; ok {
-			m.handleClosedPositionFromPnl(track, symbolCode, closedInfo)
-			m.logger.Info("[Testnet] 异常持仓已确认为平仓",
-				zap.Int("track_id", track.ID),
-				zap.String("symbol", symbolCode))
-			continue
+		// 2. 查询已平仓记录
+		closedPnls, err := m.client.GetClosedPnlBySymbol(symbolCode, 10)
+		if err == nil && len(closedPnls) > 0 {
+			pnlInfo := closedPnls[0]
+			qty, _ := strconv.ParseFloat(pnlInfo.Qty, 64)
+			closedPnlVal, _ := strconv.ParseFloat(pnlInfo.ClosedPnl, 64)
+			if qty > 0 || closedPnlVal != 0 {
+				m.handleClosedPositionFromPnl(track, symbolCode, &pnlInfo)
+				m.logger.Info("[Testnet] 异常持仓已确认为平仓",
+					zap.Int("track_id", track.ID),
+					zap.String("symbol", symbolCode))
+				continue
+			}
 		}
 
-		// 3. 仍然找不到，保持异常
-		m.logger.Debug("[Testnet] 异常持仓仍未匹配",
+		// 3. 仍然找不到，保持异常状态
+		m.logger.Debug("[Testnet] 异常持仓仍未匹配，保持异常",
 			zap.Int("track_id", track.ID),
 			zap.String("symbol", symbolCode))
 	}

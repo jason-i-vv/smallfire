@@ -93,14 +93,9 @@ const routes = [
         component: () => import('@/views/symbols/TrackingList.vue')
       },
       {
-        path: 'trend-agent',
-        name: 'TrendAgent',
+        path: 'ai-watch',
+        name: 'AIWatch',
         component: () => import('@/views/trend/TrendAgent.vue')
-      },
-      {
-        path: 'wave-agent',
-        name: 'WaveAgent',
-        component: () => import('@/views/trend/WaveAgent.vue')
       },
       {
         path: 'settings',
