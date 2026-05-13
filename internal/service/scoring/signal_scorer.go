@@ -77,21 +77,6 @@ func (s *SignalScorer) Score(signal *models.Signal, ctx *ScoringContext) *models
 
 	totalScore := s.weightedSum(dimensions)
 
-	// 做空惩罚：历史数据显示做空胜率仅 23%，对做空信号额外扣分
-	if ctx.Direction == models.DirectionShort {
-		shortPenalty := 10
-		if dimensions.StrategyWinRate < 50 {
-			// 低胜率做空双重惩罚
-			shortPenalty = 20
-		}
-		totalScore -= shortPenalty
-	}
-
-	// 单信号惩罚：只有1个信号时额外扣分（无共识确认）
-	if ctx.ConfluenceCount <= 1 {
-		totalScore -= 10
-	}
-
 	// 钳制到 0-100
 	totalScore = clamp(totalScore, 0, 100)
 
@@ -145,24 +130,18 @@ func (s *SignalScorer) ScoreOpportunity(signals []*models.Signal, ctx *ScoringCo
 }
 
 // calcStrategyWinRate 策略历史胜率 → 0-100 分
-// 优化：低胜率(<50%)大幅降分，做空额外惩罚
+// 线性映射：胜率直接对应分数，让评分准确反映胜率
+// 42.5% → 42, 50% → 50, 77% → 77
 func (s *SignalScorer) calcStrategyWinRate(winRate float64) int {
 	if winRate <= 0 {
 		return 50 // 无历史数据时给中性分，不惩罚
 	}
-
-	// 低胜率惩罚：胜率 < 50% 时分数减半
-	// 42.5% → 21分（而非42.5分），46.9% → 23分
-	if winRate < 0.5 {
-		return int(winRate * 50)
-	}
-	// 胜率 >= 50%: 50 + (winRate - 0.5) * 100
-	// 0.5 → 50, 0.6 → 60, 0.7 → 70, 0.77 → 77
-	return 50 + int((winRate-0.5)*100)
+	score := int(winRate * 100)
+	return clamp(score, 0, 100)
 }
 
 // calcMultiConfluence 多策略共识 → 0-100 分
-// 优化：非线性计分，5个以上共识才给高分
+// 基于共识比例线性评分，1个信号适度降分
 func (s *SignalScorer) calcMultiConfluence(confluenceCount, totalSignals int, ratio float64) int {
 	if totalSignals == 0 {
 		return 50 // 无其他信号参考时给中性分
@@ -172,26 +151,13 @@ func (s *SignalScorer) calcMultiConfluence(confluenceCount, totalSignals int, ra
 		ratio = float64(confluenceCount) / float64(totalSignals)
 	}
 
-	// 非线性计分：反映真实数据中5+信号才真正有效
-	// 1-2个信号: 10分（几乎无共识价值）
-	// 3-4个信号: 40分（中等共识）
-	// 5-6个信号: 80分（强共识）
-	// 7+个信号: 100分（极强共识）
-	var countScore int
-	switch {
-	case confluenceCount >= 7:
-		countScore = 100
-	case confluenceCount >= 5:
-		countScore = 80
-	case confluenceCount >= 3:
-		countScore = 40
-	default: // 1-2
-		countScore = 10
+	// 基于共识比例评分：ratio 0.0~1.0 → 0~100
+	// 单信号(confluenceCount=1)适度降分：上限60分
+	if confluenceCount <= 1 {
+		return clamp(int(ratio*60), 0, 60)
 	}
 
-	// 共识比例微调（±10分）
-	ratioBonus := int((ratio - 0.5) * 20)
-	return clamp(countScore+ratioBonus, 0, 100)
+	return clamp(int(ratio*100), 0, 100)
 }
 
 // calcSignalStrength 信号强度(1-5) → 0-100 分
@@ -204,29 +170,26 @@ func (s *SignalScorer) calcSignalStrength(strength int) int {
 }
 
 // calcVolumeConfirm 成交量确认 → 0-100 分
-// 优化：极高量比(>10x)可能是异常事件（清算/操纵），不给满分
 func (s *SignalScorer) calcVolumeConfirm(volumeRatio float64) int {
 	if volumeRatio <= 0 {
 		return 50 // 无数据时给中性分，不惩罚
 	}
 
-	// 正常量比区间: 1-2x 适中, 2-5x 放量, 5-10x 强放量
-	// 异常量比: >10x 可能是清算/操纵，降低评分
 	var score int
 	switch {
 	case volumeRatio < 0.5:
 		score = 20 // 缩量
 	case volumeRatio < 1.0:
-		score = 35 // 偏低
+		score = 40 // 偏低
 	case volumeRatio < 2.0:
-		score = 50 // 正常
+		score = 60 // 正常
 	case volumeRatio < 5.0:
-		score = 75 // 放量确认
+		score = 80 // 放量确认
 	case volumeRatio <= 10.0:
-		score = 90 // 强放量
+		score = 95 // 强放量
 	default:
-		// >10x 异常放量，可能是清算等异常事件，不给满分
-		score = 60
+		// >10x 异常放量，适度降分（可能清算/操纵，但仍确认了方向性）
+		score = 80
 	}
 	return score
 }
