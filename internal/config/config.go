@@ -291,6 +291,18 @@ type AIConfig struct {
 	Judge       AIJudgeConfig    `mapstructure:"judge"`
 	Briefing    AIBriefingConfig `mapstructure:"briefing"`
 	KeyLevel    AIKeyLevelConfig `mapstructure:"key_level"`
+	Claude      ClaudeConfig     `mapstructure:"claude"`
+}
+
+// ClaudeConfig Claude API 配置（用于观察仓 AI 分析）
+type ClaudeConfig struct {
+	Enabled         bool   `mapstructure:"enabled"`
+	APIKey          string `mapstructure:"api_key"`
+	BaseURL         string `mapstructure:"base_url"`          // API 基础地址（支持代理/兼容接口）
+	Model           string `mapstructure:"model"`             // 默认 claude-sonnet-4-6
+	MaxTokens       int    `mapstructure:"max_tokens"`        // 默认 4096
+	ConversationDir string `mapstructure:"conversation_dir"` // 会话文件存储目录
+	MaxRounds       int    `mapstructure:"max_rounds"`        // 会话最大轮数，超过后压缩
 }
 
 // AIJudgeConfig AI 判定触发条件
@@ -365,6 +377,12 @@ func Load(configPath string) (*Config, error) {
 	// 尝试获取环境变量值，如果非空则覆盖配置文件
 	if envKey := os.Getenv("AI_API_KEY"); envKey != "" {
 		cfg.AI.APIKey = envKey
+	}
+	if envKey := os.Getenv("CLAUDE_API_KEY"); envKey != "" {
+		cfg.AI.Claude.APIKey = envKey
+	}
+	if envURL := os.Getenv("CLAUDE_BASE_URL"); envURL != "" {
+		cfg.AI.Claude.BaseURL = envURL
 	}
 	if envDBHost := os.Getenv("DB_HOST"); envDBHost != "" {
 		cfg.Database.Host = envDBHost

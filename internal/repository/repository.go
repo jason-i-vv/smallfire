@@ -243,7 +243,9 @@ type LimitStatRepo interface {
 
 // AIWatchTargetRepo AI观察位数据访问接口
 type AIWatchTargetRepo interface {
-	List(userID *int, agentType string) ([]*models.AIWatchTarget, error)
+	List(userID *int, skillName string) ([]*models.AIWatchTarget, error)
+	GetByID(id int, userID *int) (*models.AIWatchTarget, error)
+	GetByIDPublic(id int) (*models.AIWatchTarget, error)
 	ListEnabled(marketCode, symbolCode, period string) ([]*models.AIWatchTarget, error)
 	Upsert(target *models.AIWatchTarget) error
 	Delete(userID *int, id int) error

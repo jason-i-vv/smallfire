@@ -22,17 +22,22 @@ type WatchScheduler interface {
 }
 
 type AIWatchTargetHandler struct {
-	repo      repository.AIWatchTargetRepo
-	scheduler WatchScheduler
-	logger    *zap.Logger
+	repo         repository.AIWatchTargetRepo
+	scheduler    WatchScheduler
+	syncService  interface {
+		EnsureSymbolKlines(marketCode, symbolCode, period string) (*models.Symbol, error)
+	}
+	logger *zap.Logger
 }
 
-func NewAIWatchTargetHandler(repo repository.AIWatchTargetRepo, scheduler WatchScheduler, logger *zap.Logger) *AIWatchTargetHandler {
-	return &AIWatchTargetHandler{repo: repo, scheduler: scheduler, logger: logger}
+func NewAIWatchTargetHandler(repo repository.AIWatchTargetRepo, scheduler WatchScheduler, syncService interface {
+	EnsureSymbolKlines(marketCode, symbolCode, period string) (*models.Symbol, error)
+}, logger *zap.Logger) *AIWatchTargetHandler {
+	return &AIWatchTargetHandler{repo: repo, scheduler: scheduler, syncService: syncService, logger: logger}
 }
 
 type aiWatchTargetRequest struct {
-	AgentType  string          `json:"agent_type"`
+	SkillName  string          `json:"skill_name"`
 	MarketCode string          `json:"market_code"`
 	SymbolCode string          `json:"symbol_code"`
 	SymbolID   *int            `json:"symbol_id"`
@@ -47,14 +52,14 @@ type aiWatchTargetRequest struct {
 }
 
 func (h *AIWatchTargetHandler) List(c *gin.Context) {
-	agentType := strings.TrimSpace(c.Query("agent_type"))
-	if agentType == "" {
-		HandleError(c, http.StatusBadRequest, errors.New("agent_type is required"))
+	skillName := strings.TrimSpace(c.Query("skill_name"))
+	if skillName == "" {
+		HandleError(c, http.StatusBadRequest, errors.New("skill_name is required"))
 		return
 	}
-	targets, err := h.repo.List(currentUserIDPtr(c), agentType)
+	targets, err := h.repo.List(currentUserIDPtr(c), skillName)
 	if err != nil {
-		h.logger.Error("查询AI观察位失败", zap.String("agent_type", agentType), zap.Error(err))
+		h.logger.Error("查询AI观察位失败", zap.String("skill_name", skillName), zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
 		return
 	}
@@ -67,12 +72,12 @@ func (h *AIWatchTargetHandler) Upsert(c *gin.Context) {
 		HandleError(c, http.StatusBadRequest, err)
 		return
 	}
-	req.AgentType = strings.TrimSpace(req.AgentType)
+	req.SkillName = strings.TrimSpace(req.SkillName)
 	req.MarketCode = strings.TrimSpace(req.MarketCode)
 	req.SymbolCode = normalizeAIWatchSymbolCode(req.MarketCode, req.SymbolCode)
 	req.Period = strings.TrimSpace(req.Period)
-	if req.AgentType == "" || req.MarketCode == "" || req.SymbolCode == "" || req.Period == "" {
-		HandleError(c, http.StatusBadRequest, errors.New("agent_type、market_code、symbol_code、period 必填"))
+	if req.SkillName == "" || req.MarketCode == "" || req.SymbolCode == "" || req.Period == "" {
+		HandleError(c, http.StatusBadRequest, errors.New("skill_name、market_code、symbol_code、period 必填"))
 		return
 	}
 	if req.Limit <= 0 {
@@ -84,7 +89,7 @@ func (h *AIWatchTargetHandler) Upsert(c *gin.Context) {
 
 	target := &models.AIWatchTarget{
 		UserID:       currentUserIDPtr(c),
-		AgentType:    req.AgentType,
+		SkillName:    req.SkillName,
 		MarketCode:   req.MarketCode,
 		SymbolCode:   req.SymbolCode,
 		SymbolID:     req.SymbolID,
@@ -98,10 +103,30 @@ func (h *AIWatchTargetHandler) Upsert(c *gin.Context) {
 		Result:       req.Result,
 	}
 	if err := h.repo.Upsert(target); err != nil {
-		h.logger.Error("保存AI观察位失败", zap.String("agent_type", req.AgentType), zap.String("symbol", req.SymbolCode), zap.Error(err))
+		h.logger.Error("保存AI观察位失败", zap.String("skill_name", req.SkillName), zap.String("symbol", req.SymbolCode), zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
 		return
 	}
+
+	h.logger.Info("观察仓Upsert成功，开始同步K线",
+		zap.String("symbol", req.SymbolCode),
+		zap.String("period", req.Period),
+		zap.Bool("sync_service_ready", h.syncService != nil))
+
+	// 立即触发标的 K 线同步，确保观察仓能尽快被分析
+	if h.syncService != nil {
+		if _, err := h.syncService.EnsureSymbolKlines(req.MarketCode, req.SymbolCode, req.Period); err != nil {
+			h.logger.Warn("触发K线同步失败，观察仓将在下次同步时被处理",
+				zap.String("symbol", req.SymbolCode),
+				zap.String("period", req.Period),
+				zap.Error(err))
+		} else {
+			h.logger.Info("K线同步触发成功",
+				zap.String("symbol", req.SymbolCode),
+				zap.String("period", req.Period))
+		}
+	}
+
 	HandleSuccess(c, target)
 }
 
@@ -120,6 +145,7 @@ func (h *AIWatchTargetHandler) Delete(c *gin.Context) {
 }
 
 func (h *AIWatchTargetHandler) Analyze(c *gin.Context) {
+	h.logger.Info("Analyze 被调用", zap.String("path", c.Request.URL.Path))
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		HandleError(c, http.StatusBadRequest, err)
@@ -130,33 +156,42 @@ func (h *AIWatchTargetHandler) Analyze(c *gin.Context) {
 		return
 	}
 
-	// 查询标的
-	targets, err := h.repo.List(currentUserIDPtr(c), "")
+	// 按 ID 直接查询标的（Analyze 按 ID 定位，不限制 user_id）
+	target, err := h.repo.GetByIDPublic(id)
 	if err != nil {
 		HandleError(c, http.StatusInternalServerError, err)
 		return
-	}
-	var target *models.AIWatchTarget
-	for _, t := range targets {
-		if t.ID == id {
-			target = t
-			break
-		}
 	}
 	if target == nil {
 		HandleError(c, http.StatusNotFound, errors.New("观察标的未找到"))
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
-	defer cancel()
-
-	if err := h.scheduler.AnalyzeTarget(ctx, target); err != nil {
-		h.logger.Error("手动分析失败", zap.Int("id", id), zap.Error(err))
-		HandleError(c, http.StatusInternalServerError, err)
-		return
+	// 立即返回，后台异步执行分析
+	// 先将 data_status 标记为 analyzing，让前端知道分析已开始
+	target.DataStatus = "analyzing"
+	if err := h.repo.Upsert(target); err != nil {
+		h.logger.Warn("更新分析状态失败", zap.Int("id", id), zap.Error(err))
 	}
-	HandleSuccess(c, target)
+
+	// 异步执行分析
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		if err := h.scheduler.AnalyzeTarget(ctx, target); err != nil {
+			h.logger.Error("异步分析失败", zap.Int("id", id), zap.Error(err))
+			target.DataStatus = "error"
+			target.ErrorMessage = err.Error()
+			_ = h.repo.Upsert(target)
+		}
+	}()
+
+	HandleSuccess(c, gin.H{
+		"id":          id,
+		"data_status": "analyzing",
+		"message":     "分析已提交，结果将通过轮询获取",
+	})
 }
 
 func currentUserIDPtr(c *gin.Context) *int {

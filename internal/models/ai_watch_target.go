@@ -8,7 +8,7 @@ import (
 type AIWatchTarget struct {
 	ID           int             `json:"id" db:"id"`
 	UserID       *int            `json:"user_id,omitempty" db:"user_id"`
-	AgentType    string          `json:"agent_type" db:"agent_type"`
+	SkillName    string          `json:"skill_name" db:"skill_name"`
 	MarketCode   string          `json:"market_code" db:"market_code"`
 	SymbolCode   string          `json:"symbol_code" db:"symbol_code"`
 	SymbolID     *int            `json:"symbol_id,omitempty" db:"symbol_id"`

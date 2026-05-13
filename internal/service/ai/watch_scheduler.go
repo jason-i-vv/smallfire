@@ -15,16 +15,33 @@ import (
 // AIWatchScheduler AI 观察仓调度器
 // 实现 market.SyncHook，K 线同步完成后自动分析匹配的观察仓标的
 type AIWatchScheduler struct {
-	watchRepo  repository.AIWatchTargetRepo
-	symbolRepo repository.SymbolRepo
-	pullback   *TrendPullbackAnalyzer
-	wave       *ElliottWaveAnalyzer
-	logger     *zap.Logger
-	mu         sync.Mutex
+	watchRepo   repository.AIWatchTargetRepo
+	symbolRepo  repository.SymbolRepo
+	engine      *WatchEngine // 优先使用 Claude + WatchEngine
+	pullback    *TrendPullbackAnalyzer
+	wave        *ElliottWaveAnalyzer
+	logger      *zap.Logger
+	// per-symbol 锁，避免一个标的卡住影响其他所有标的
+	analyzing sync.Map // key: symbolCode+period, value: struct{}
 }
 
-// NewAIWatchScheduler 创建观察仓调度器
+// NewAIWatchScheduler 创建观察仓调度器（Claude WatchEngine 模式）
 func NewAIWatchScheduler(
+	watchRepo repository.AIWatchTargetRepo,
+	symbolRepo repository.SymbolRepo,
+	engine *WatchEngine,
+	logger *zap.Logger,
+) *AIWatchScheduler {
+	return &AIWatchScheduler{
+		watchRepo:  watchRepo,
+		symbolRepo: symbolRepo,
+		engine:     engine,
+		logger:     logger,
+	}
+}
+
+// NewAIWatchSchedulerLegacy 创建观察仓调度器（MiniMax 旧模式）
+func NewAIWatchSchedulerLegacy(
 	watchRepo repository.AIWatchTargetRepo,
 	symbolRepo repository.SymbolRepo,
 	pullback *TrendPullbackAnalyzer,
@@ -42,11 +59,13 @@ func NewAIWatchScheduler(
 
 // OnKlinesSynced 实现 SyncHook 接口，K 线同步完成后触发
 func (s *AIWatchScheduler) OnKlinesSynced(symbolID int, symbolCode, marketCode, period string) {
-	if !s.mu.TryLock() {
+	// per-symbol 锁，同一 symbol+period 串行，不同 symbol 并行
+	key := symbolCode + "/" + period
+	if _, loaded := s.analyzing.LoadOrStore(key, struct{}{}); loaded {
 		s.logger.Debug("观察仓调度跳过(正在分析)", zap.String("symbol", symbolCode), zap.String("period", period))
 		return
 	}
-	defer s.mu.Unlock()
+	defer s.analyzing.Delete(key)
 
 	targets, err := s.watchRepo.ListEnabled(marketCode, symbolCode, period)
 	if err != nil {
@@ -76,7 +95,7 @@ func (s *AIWatchScheduler) OnKlinesSynced(symbolID int, symbolCode, marketCode, 
 		cancel()
 		if err != nil {
 			s.logger.Error("观察仓分析失败",
-				zap.String("agent", target.AgentType),
+				zap.String("agent", target.SkillName),
 				zap.String("symbol", target.SymbolCode),
 				zap.String("period", target.Period),
 				zap.Error(err))
@@ -100,7 +119,16 @@ func (s *AIWatchScheduler) analyzeAndSave(ctx context.Context, target *models.AI
 
 	var newSteps json.RawMessage
 
-	switch target.AgentType {
+	// 优先使用 WatchEngine（Claude 模式）
+	if s.engine != nil {
+		if err := s.engine.AnalyzeTarget(ctx, target); err != nil {
+			return err
+		}
+		return s.watchRepo.Upsert(target)
+	}
+
+	// 回退到旧的 Analyzer 模式
+	switch target.SkillName {
 	case "trend_pullback":
 		resp, err := s.pullback.Analyze(ctx, TrendPullbackRequest{
 			SymbolID:   symbolID,
@@ -143,11 +171,11 @@ func (s *AIWatchScheduler) analyzeAndSave(ctx context.Context, target *models.AI
 	now := time.Now().UnixMilli()
 	target.LastRunAt = &now
 
-	// 最新 step 判定失效则自动关闭跟踪
-	if hasLatestInvalid(target.Result) {
+	// 最新 step 判定失效则自动关闭跟踪（改为连续 3 根才关闭）
+	if shouldDisableTracking(target.Result) {
 		target.Enabled = false
-		s.logger.Info("趋势失效，自动关闭AI跟踪",
-			zap.String("agent", target.AgentType),
+		s.logger.Info("趋势连续失效，自动关闭AI跟踪",
+			zap.String("agent", target.SkillName),
 			zap.String("symbol", target.SymbolCode),
 			zap.String("period", target.Period))
 	}
@@ -223,9 +251,36 @@ func mergeStepsJSON(prevJSON, newStepsJSON json.RawMessage) json.RawMessage {
 		merged = append(merged, prevMap[k])
 	}
 
-	result, _ := json.Marshal(map[string]interface{}{
+	// 从合并后的 steps 中计算 found 和 best
+	found := false
+	var bestStep map[string]interface{}
+	for _, raw := range merged {
+		var step map[string]interface{}
+		if json.Unmarshal(raw, &step) != nil {
+			continue
+		}
+		if decision, _ := step["decision"].(string); decision == "alert" {
+			found = true
+			confidence, _ := step["confidence"].(float64)
+			buyPoint, _ := step["buy_point"].(string)
+			if buyPoint == "ready" && confidence >= 70 {
+				bestStep = step
+			} else if bestStep == nil {
+				// 没有高置信度的，至少取第一个 alert
+				bestStep = step
+			}
+		}
+	}
+
+	resultMap := map[string]interface{}{
 		"steps":    merged,
 		"analyzed": len(merged),
-	})
+		"found":    found,
+	}
+	if bestStep != nil {
+		resultMap["best"] = bestStep
+	}
+
+	result, _ := json.Marshal(resultMap)
 	return result
 }

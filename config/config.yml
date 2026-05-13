@@ -246,3 +246,13 @@ ai:
     kline_count: 200                    # 输入K线数量
     max_levels_per_side: 5              # 每侧最多价位数（支撑5+阻力5）
     request_interval: 3                 # API调用间隔（秒），避免限流
+
+  # Claude API 配置（用于观察仓 AI 分析）
+  claude:
+    enabled: true
+    api_key: "${CLAUDE_API_KEY}"
+    base_url: ""                           # 留空使用官方地址，支持代理/兼容接口
+    model: "claude-sonnet-4-6"
+    max_tokens: 4096
+    conversation_dir: "ai_conversations"  # 会话文件存储目录（相对 log_dir）
+    max_rounds: 40                        # 会话最大轮数
