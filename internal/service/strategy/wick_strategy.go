@@ -187,12 +187,13 @@ func (s *WickStrategy) detectWickType(kline models.Kline) WickType {
 
 // checkReversalSignal 检查是否生成反转信号
 func (s *WickStrategy) checkReversalSignal(symbolID int, kline models.Kline, wickType WickType, trend TrendInfo, lookbackKlines []models.Kline) *models.Signal {
-	// 1. 趋势不再硬性过滤信号生成，改为在 calculateStrength 中影响强度
-	// 原逻辑：趋势不匹配时直接返回nil，导致牛市中只有做空信号
-	// 新逻辑：趋势不匹配的信号强度降低，但仍可产生
-
-	// 2. 检测假突破
+	// 1. 检测假突破。假突破自带价格位置确认，可独立于趋势方向保留。
 	fakeBreakout := s.detectFakeBreakout(kline, wickType, lookbackKlines)
+
+	// 2. 普通引线必须出现在反转背景里，否则容易把趋势延续中的小尾巴当成信号。
+	if s.config.RequireTrend && (fakeBreakout == nil || !fakeBreakout.Failed) && !s.isTrendReversalContext(wickType, trend) {
+		return nil
+	}
 
 	// 3. 获取附近关键位
 	nearLevel, _, levelDistance := s.getNearbyKeyLevels(symbolID, kline.Period, kline.ClosePrice)
@@ -246,6 +247,11 @@ func (s *WickStrategy) checkReversalSignal(symbolID int, kline models.Kline, wic
 		CreatedAt:      time.Now(),
 		KlineTime:      ptrTime(kline.OpenTime),
 	}
+}
+
+func (s *WickStrategy) isTrendReversalContext(wickType WickType, trend TrendInfo) bool {
+	return (wickType == WickTypeUpper && trend.Type == models.TrendTypeBullish) ||
+		(wickType == WickTypeLower && trend.Type == models.TrendTypeBearish)
 }
 
 // detectFakeBreakout 检测是否发生假突破

@@ -435,7 +435,6 @@ const signalNameMap = {
   volume_price_rise: '量价齐升', volume_price_fall: '量价齐跌',
   upper_wick_reversal: '上引线反转', lower_wick_reversal: '下引线反转',
   fake_breakout_upper: '假突破上引', fake_breakout_lower: '假突破下引',
-  engulfing_bullish: '阳包阴吞没', engulfing_bearish: '阴包阳吞没',
   momentum_bullish: '连阳动量', momentum_bearish: '连阴动量',
   morning_star: '早晨之星', evening_star: '黄昏之星',
   macd: 'MACD信号'

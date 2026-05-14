@@ -85,8 +85,6 @@ const getSignalTypeName = (type) => {
     lower_wick_reversal: t('signals.lowerWickReversal') || '下引线反转',
     fake_breakout_upper: t('signals.fakeBreakoutUpper') || '假突破上引',
     fake_breakout_lower: t('signals.fakeBreakoutLower') || '假突破下引',
-    engulfing_bullish: t('signals.engulfingBullish') || '阳包阴吞没',
-    engulfing_bearish: t('signals.engulfingBearish') || '阴包阳吞没',
     momentum_bullish: t('signals.momentumBullish') || '连阳动量',
     momentum_bearish: t('signals.momentumBearish') || '连阴动量',
     morning_star: t('signals.morningStar') || '早晨之星',

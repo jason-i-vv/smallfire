@@ -388,7 +388,17 @@
     "dimension": "Dimension",
     "trending": "Trending",
     "counterTrend": "Counter Trend",
-    "sideways": "Sideways"
+    "sideways": "Sideways",
+    "regimeSLTP": "Dynamic SL/TP",
+    "sidewaysSL": "Sideways SL",
+    "sidewaysTP": "Sideways TP",
+    "trendSL": "Trend SL",
+    "trendTP": "Trend TP",
+    "lowWinRateWarning": "Low Win Rate Warning",
+    "shortPenalty": "Short Penalty",
+    "singleSignalWarning": "Single Signal Risk",
+    "tradeFiltered": "Trade Filtered",
+    "filterReason": "Filter Reason"
   },
   "market": {
     "title": "Market Overview",
@@ -598,6 +608,28 @@
     "buy": "Buy",
     "sell": "Sell",
     "noData": "No K-line data"
+  },
+  "wave": {
+    "addWatch": "Add Watch",
+    "watchPool": "Wave Watch Pool",
+    "detail": "Elliott Wave Tracking",
+    "analysisRecord": "Analysis Records",
+    "analysisDetail": "Analysis Detail",
+    "waveLabel": "Wave Label",
+    "aiAnalysis": "AI Analysis",
+    "riskAlert": "Risk Alerts",
+    "time": "Time",
+    "closePrice": "Close Price",
+    "level": "Level",
+    "confidence": "Confidence",
+    "stage": "Stage",
+    "pattern": "Pattern",
+    "structure": "Structure",
+    "buyPoint": "Buy Point",
+    "entryPrice": "Entry Price",
+    "stopLoss": "Stop Loss",
+    "targetPrice": "Target Price",
+    "noRecord": "No analysis records"
   },
   "astock": {
     "marketIndices": "Market Indices",

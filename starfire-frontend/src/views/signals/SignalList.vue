@@ -211,7 +211,7 @@ const sourceSignalTypeMap = {
   'key_level': ['resistance_break', 'support_break'],
   'volume': ['volume_price_rise', 'volume_price_fall', 'price_surge', 'price_surge_up', 'price_surge_down', 'volume_surge'],
   'wick': ['upper_wick_reversal', 'lower_wick_reversal', 'fake_breakout_upper', 'fake_breakout_lower'],
-  'candlestick': ['engulfing_bullish', 'engulfing_bearish', 'momentum_bullish', 'momentum_bearish', 'morning_star', 'evening_star'],
+  'candlestick': ['momentum_bullish', 'momentum_bearish', 'morning_star', 'evening_star'],
   'macd': ['macd']
 }
 
@@ -231,8 +231,6 @@ const allSignalTypeOptions = ref([
   { label: t('signals.lowerWickReversal') || '下引线反转', value: 'lower_wick_reversal', count: 0 },
   { label: t('signals.fakeBreakoutUpper') || '假突破上引', value: 'fake_breakout_upper', count: 0 },
   { label: t('signals.fakeBreakoutLower') || '假突破下引', value: 'fake_breakout_lower', count: 0 },
-  { label: t('signals.engulfingBullish') || '阳包阴吞没', value: 'engulfing_bullish', count: 0 },
-  { label: t('signals.engulfingBearish') || '阴包阳吞没', value: 'engulfing_bearish', count: 0 },
   { label: t('signals.momentumBullish') || '连阳动量', value: 'momentum_bullish', count: 0 },
   { label: t('signals.momentumBearish') || '连阴动量', value: 'momentum_bearish', count: 0 },
   { label: t('signals.morningStar') || '早晨之星', value: 'morning_star', count: 0 },
@@ -427,8 +425,6 @@ const getSignalTypeName = (type) => {
     lower_wick_reversal: t('signals.lowerWickReversal') || '下引线反转',
     fake_breakout_upper: t('signals.fakeBreakoutUpper') || '假突破上引',
     fake_breakout_lower: t('signals.fakeBreakoutLower') || '假突破下引',
-    engulfing_bullish: t('signals.engulfingBullish') || '阳包阴吞没',
-    engulfing_bearish: t('signals.engulfingBearish') || '阴包阳吞没',
     momentum_bullish: t('signals.momentumBullish') || '连阳动量',
     momentum_bearish: t('signals.momentumBearish') || '连阴动量',
     morning_star: t('signals.morningStar') || '早晨之星',
