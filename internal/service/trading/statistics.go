@@ -151,7 +151,7 @@ func (s *StatisticsService) GetStatistics(startDate, endDate *time.Time, tradeSo
 		}
 		variance /= float64(len(returns) - 1)
 		if stdDev := math.Sqrt(variance); stdDev > 0 {
-			annualFactor := math.Sqrt(365*24 / max(stats.AvgHoldingHours, 1))
+			annualFactor := math.Sqrt(365 * 24 / max(stats.AvgHoldingHours, 1))
 			stats.SharpeRatio = (meanReturn / stdDev) * annualFactor
 		}
 	}
@@ -310,7 +310,7 @@ type SignalAnalysis struct {
 
 // EquityCurvePoint 权益曲线点
 type EquityCurvePoint struct {
-	Time   int64   `json:"time"`    // Unix timestamp (seconds)
+	Time   int64   `json:"time"` // Unix timestamp (seconds)
 	Equity float64 `json:"equity"`
 }
 
@@ -458,10 +458,10 @@ func (s *StatisticsService) GetDirectionAnalysis(startDate, endDate *time.Time, 
 	}
 	for _, st := range stats {
 		a := &DirectionAnalysis{
-			Direction:      st.Direction,
-			TotalTrades:    st.TotalTrades,
-			WinTrades:      st.WinTrades,
-			TotalPnL:       st.TotalPnL,
+			Direction:       st.Direction,
+			TotalTrades:     st.TotalTrades,
+			WinTrades:       st.WinTrades,
+			TotalPnL:        st.TotalPnL,
 			AvgHoldingHours: st.AvgHoldingHrs,
 		}
 		if a.TotalTrades > 0 {
@@ -515,13 +515,19 @@ func (s *StatisticsService) GetPnLDistribution(startDate, endDate *time.Time, tr
 
 	minPnL, maxPnL := pnls[0], pnls[0]
 	for _, p := range pnls {
-		if p < minPnL { minPnL = p }
-		if p > maxPnL { maxPnL = p }
+		if p < minPnL {
+			minPnL = p
+		}
+		if p > maxPnL {
+			maxPnL = p
+		}
 	}
 
 	bucketCount := 20
 	rangeSize := (maxPnL - minPnL) / float64(bucketCount)
-	if rangeSize == 0 { rangeSize = 1 }
+	if rangeSize == 0 {
+		rangeSize = 1
+	}
 	buckets := make([]PnLBucket, bucketCount)
 	for i := 0; i < bucketCount; i++ {
 		buckets[i] = PnLBucket{
@@ -532,8 +538,12 @@ func (s *StatisticsService) GetPnLDistribution(startDate, endDate *time.Time, tr
 	}
 	for _, p := range pnls {
 		idx := int((p - minPnL) / rangeSize)
-		if idx >= bucketCount { idx = bucketCount - 1 }
-		if idx < 0 { idx = 0 }
+		if idx >= bucketCount {
+			idx = bucketCount - 1
+		}
+		if idx < 0 {
+			idx = 0
+		}
 		buckets[idx].Count++
 	}
 	return &PnLDistribution{Buckets: buckets}, nil
@@ -573,12 +583,10 @@ func (s *StatisticsService) GetDetailedSignalAnalysis(startDate, endDate *time.T
 // signalTypeToSourceType 映射各信号类型对应的策略来源
 var signalTypeToSourceType = map[string]string{
 	// candlestick
-	"engulfing_bullish": "candlestick",
-	"engulfing_bearish": "candlestick",
-	"momentum_bullish":  "candlestick",
-	"momentum_bearish":  "candlestick",
-	"morning_star":      "candlestick",
-	"evening_star":      "candlestick",
+	"momentum_bullish": "candlestick",
+	"momentum_bearish": "candlestick",
+	"morning_star":     "candlestick",
+	"evening_star":     "candlestick",
 	// wick
 	"upper_wick_reversal": "wick",
 	"lower_wick_reversal": "wick",
@@ -589,8 +597,8 @@ var signalTypeToSourceType = map[string]string{
 	"support_break":    "key_level",
 	// volume
 	"volume_surge":      "volume",
-	"volume_price_rise":  "volume",
-	"volume_price_fall":  "volume",
+	"volume_price_rise": "volume",
+	"volume_price_fall": "volume",
 	"price_surge_up":    "volume",
 	"price_surge_down":  "volume",
 	// trend
@@ -610,42 +618,42 @@ type ScoreAnalysis struct {
 
 // StrategyAnalysis 按策略类型分析
 type StrategyAnalysis struct {
-	Strategy       string  `json:"strategy"`        // 策略名称，如 "箱体", "趋势"
-	StrategyKey    string  `json:"strategy_key"`     // 策略标识，如 "box", "trend"
-	TotalTrades    int     `json:"total_trades"`     // 交易次数
-	WinTrades      int     `json:"win_trades"`       // 盈利次数
-	WinRate        float64 `json:"win_rate"`         // 胜率
-	TotalPnL       float64 `json:"total_pnl"`        // 总盈亏
-	AvgPnL         float64 `json:"avg_pnl"`          // 平均盈亏
+	Strategy        string  `json:"strategy"`          // 策略名称，如 "箱体", "趋势"
+	StrategyKey     string  `json:"strategy_key"`      // 策略标识，如 "box", "trend"
+	TotalTrades     int     `json:"total_trades"`      // 交易次数
+	WinTrades       int     `json:"win_trades"`        // 盈利次数
+	WinRate         float64 `json:"win_rate"`          // 胜率
+	TotalPnL        float64 `json:"total_pnl"`         // 总盈亏
+	AvgPnL          float64 `json:"avg_pnl"`           // 平均盈亏
 	AvgHoldingHours float64 `json:"avg_holding_hours"` // 平均持仓时长
 }
 
 // RegimeAnalysis 市场状态分析
 type RegimeAnalysis struct {
-	Regime         string  `json:"regime"`          // 市场状态: 顺势, 逆势, 震荡
-	TotalTrades    int     `json:"total_trades"`     // 交易次数
-	WinTrades      int     `json:"win_trades"`       // 盈利次数
-	WinRate        float64 `json:"win_rate"`         // 胜率
-	TotalPnL       float64 `json:"total_pnl"`        // 总盈亏
-	AvgPnL         float64 `json:"avg_pnl"`          // 平均盈亏
+	Regime          string  `json:"regime"`            // 市场状态: 顺势, 逆势, 震荡
+	TotalTrades     int     `json:"total_trades"`      // 交易次数
+	WinTrades       int     `json:"win_trades"`        // 盈利次数
+	WinRate         float64 `json:"win_rate"`          // 胜率
+	TotalPnL        float64 `json:"total_pnl"`         // 总盈亏
+	AvgPnL          float64 `json:"avg_pnl"`           // 平均盈亏
 	AvgHoldingHours float64 `json:"avg_holding_hours"` // 平均持仓时长
 }
 
 // StrategyRegimeAnalysis 策略 × 市场状态 交叉分析
 type StrategyRegimeAnalysis struct {
-	Strategy    string                     `json:"strategy"`
-	StrategyKey string                     `json:"strategy_key"`
-	Overall     StrategyRegimeStats          `json:"overall"`
-	Regimes     map[string]RegimeStats     `json:"regimes"` // key: 顺势, 逆势, 震荡
+	Strategy    string                 `json:"strategy"`
+	StrategyKey string                 `json:"strategy_key"`
+	Overall     StrategyRegimeStats    `json:"overall"`
+	Regimes     map[string]RegimeStats `json:"regimes"` // key: 顺势, 逆势, 震荡
 }
 
 // StrategyRegimeStats 策略在某市场状态下的统计
 type StrategyRegimeStats struct {
-	TotalTrades    int     `json:"total_trades"`
-	WinTrades      int     `json:"win_trades"`
-	WinRate        float64 `json:"win_rate"`
-	TotalPnL       float64 `json:"total_pnl"`
-	AvgPnL         float64 `json:"avg_pnl"`
+	TotalTrades int     `json:"total_trades"`
+	WinTrades   int     `json:"win_trades"`
+	WinRate     float64 `json:"win_rate"`
+	TotalPnL    float64 `json:"total_pnl"`
+	AvgPnL      float64 `json:"avg_pnl"`
 }
 
 // RegimeStats 市场状态统计数据
@@ -659,9 +667,9 @@ type RegimeStats struct {
 
 // ScoreRegimeAnalysis 评分维度 × 市场状态 交叉分析
 type ScoreRegimeAnalysis struct {
-	Dimension string                     `json:"dimension"` // 维度名称
-	Weight    float64                    `json:"weight"`    // 权重
-	Ranges    map[string]RegimeStats     `json:"ranges"`    // key: 评分区间
+	Dimension string                 `json:"dimension"` // 维度名称
+	Weight    float64                `json:"weight"`    // 权重
+	Ranges    map[string]RegimeStats `json:"ranges"`    // key: 评分区间
 }
 
 // regimeLabels 市场状态标签映射
@@ -746,7 +754,7 @@ var strategyLabels = map[string]string{
 	"volume":      "量价",
 	"wick":        "引线",
 	"candlestick": "K线",
-		"macd":        "MACD",
+	"macd":        "MACD",
 	"unknown":     "未知",
 }
 
@@ -759,11 +767,11 @@ func (s *StatisticsService) GetStrategyAnalysis(startDate, endDate *time.Time, t
 	result := make([]StrategyAnalysis, 0, len(stats))
 	for _, st := range stats {
 		a := StrategyAnalysis{
-			Strategy:       strategyLabels[st.SourceType],
-			StrategyKey:    st.SourceType,
-			TotalTrades:    st.TotalTrades,
-			WinTrades:      st.WinTrades,
-			TotalPnL:       st.TotalPnL,
+			Strategy:        strategyLabels[st.SourceType],
+			StrategyKey:     st.SourceType,
+			TotalTrades:     st.TotalTrades,
+			WinTrades:       st.WinTrades,
+			TotalPnL:        st.TotalPnL,
 			AvgHoldingHours: st.AvgHoldingHrs,
 		}
 		if a.TotalTrades > 0 {
@@ -803,11 +811,11 @@ var scoreRangeDefs = []struct {
 	max   int
 	color string
 }{
-	{"80-100", 80, 100, "#00C853"},  // 绿色
-	{"70-80", 70, 79, "#4CAF50"},    // 浅绿
-	{"60-70", 60, 69, "#FFC107"},    // 黄色
-	{"50-60", 50, 59, "#FF9800"},    // 橙色
-	{"<50", 0, 49, "#F44336"},       // 红色
+	{"80-100", 80, 100, "#00C853"}, // 绿色
+	{"70-80", 70, 79, "#4CAF50"},   // 浅绿
+	{"60-70", 60, 69, "#FFC107"},   // 黄色
+	{"50-60", 50, 59, "#FF9800"},   // 橙色
+	{"<50", 0, 49, "#F44336"},      // 红色
 }
 
 // getScoreRange 获取评分所在区间名称
@@ -828,9 +836,15 @@ func (s *StatisticsService) GetScoreEquityCurves(startDate, endDate *time.Time, 
 	}
 
 	// 按 score_range 分组，按天排序，计算累计
-	rangeDailyPnL := make(map[string][]struct{ ts int64; pnl float64 })
+	rangeDailyPnL := make(map[string][]struct {
+		ts  int64
+		pnl float64
+	})
 	for _, r := range sqlResults {
-		rangeDailyPnL[r.ScoreRange] = append(rangeDailyPnL[r.ScoreRange], struct{ ts int64; pnl float64 }{r.DayTs, r.DayPnL})
+		rangeDailyPnL[r.ScoreRange] = append(rangeDailyPnL[r.ScoreRange], struct {
+			ts  int64
+			pnl float64
+		}{r.DayTs, r.DayPnL})
 	}
 
 	result := &ScoreEquityCurves{}
@@ -987,10 +1001,10 @@ func (s *StatisticsService) GetRegimeAnalysis(startDate, endDate *time.Time, tra
 	regimeMap := make(map[string]RegimeAnalysis)
 	for _, stat := range stats {
 		a := RegimeAnalysis{
-			Regime:         stat.Regime,
-			TotalTrades:    stat.TotalTrades,
-			WinTrades:      stat.WinTrades,
-			TotalPnL:       stat.TotalPnL,
+			Regime:          stat.Regime,
+			TotalTrades:     stat.TotalTrades,
+			WinTrades:       stat.WinTrades,
+			TotalPnL:        stat.TotalPnL,
 			AvgHoldingHours: stat.AvgHoldingHours,
 		}
 		if a.TotalTrades > 0 {
@@ -1158,7 +1172,7 @@ func (s *StatisticsService) GetScoreRegimeAnalysis(startDate, endDate *time.Time
 
 // ScoreGradeRegimeResult 评分区间 × 市场状态 交叉分析结果
 type ScoreGradeRegimeResult struct {
-	ScoreRange string                  `json:"score_range"` // 评分区间，如 "80-100", "60-80", "40-60", "0-40"
+	ScoreRange string                 `json:"score_range"` // 评分区间，如 "80-100", "60-80", "40-60", "0-40"
 	Regimes    map[string]RegimeStats `json:"regimes"`     // key: 顺势/逆势/震荡
 }
 

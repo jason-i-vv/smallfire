@@ -411,12 +411,48 @@ func TestWickStrategy_RequireTrend_BlockedWithoutTrend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// 新逻辑：趋势不匹配不再硬性阻止信号，改为降低强度
-	// sideways 时仍会产生信号，但强度较低
-	if len(signals) != 1 {
-		t.Errorf("expected 1 signal when trend is sideways (strength reduced), got %d", len(signals))
+	if len(signals) != 0 {
+		t.Errorf("expected 0 signals when upper wick lacks bullish reversal context, got %d", len(signals))
 	}
-	if len(signals) > 0 && signals[0].Strength > 2 {
-		t.Errorf("expected strength <= 2 when trend doesn't match, got %d", signals[0].Strength)
+}
+
+func TestWickStrategy_RequireTrend_AllowsFakeBreakoutWithoutTrendMatch(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:              true,
+		LookbackKlines:       30,
+		BodyPercentMax:       30,
+		ShadowMinRatio:       2.0,
+		RequireTrend:         true,
+		FakeBreakoutEnabled:  true,
+		BreakoutThreshold:    0.5,
+		ATRPeriod:            14,
+		ATRMultiplier:        3.0,
+		MinBreakoutThreshold: 0.5,
+		MaxBreakoutThreshold: 5.0,
+	}
+	trend := &models.Trend{
+		TrendType: models.TrendTypeBearish,
+		Strength:  2,
+		UpdatedAt: time.Now(),
+	}
+	s := NewWickStrategy(cfg, mockDepsWithTrend(trend))
+
+	klines := make([]models.Kline, 31)
+	baseTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 30; i++ {
+		klines[i] = makeKline(baseTime.Add(time.Duration(i)*15*time.Minute), 100.0, 100.5, 99.5, 100.0, 1000)
+	}
+	// 突破近期高点后收回，虽然当前趋势是 bearish，也应作为假突破保留。
+	klines[30] = makeKline(baseTime.Add(30*15*time.Minute), 100.0, 104.0, 100.0, 100.4, 1000)
+
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("expected fake breakout signal, got %d", len(signals))
+	}
+	if signals[0].SignalType != models.SignalTypeFakeBreakoutUpper {
+		t.Errorf("expected %s, got %s", models.SignalTypeFakeBreakoutUpper, signals[0].SignalType)
 	}
 }

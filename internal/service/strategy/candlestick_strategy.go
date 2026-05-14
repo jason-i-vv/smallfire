@@ -12,7 +12,7 @@ import (
 )
 
 // CandlestickStrategy K线形态识别策略
-// 包含三个检测器：吞没形态、三连K实体递增、早晨/黄昏之星
+// 包含两个检测器：三连K实体递增、早晨/黄昏之星
 type CandlestickStrategy struct {
 	config config.CandlestickStrategyConfig
 	deps   Dependency
@@ -53,17 +53,12 @@ func (s *CandlestickStrategy) Analyze(symbolID int, symbolCode, period string, k
 
 	var signals []models.Signal
 
-	// 1. 检测吞没形态
-	if sig := s.detectEngulfing(klines, atr, symbolID, symbolCode, period); sig != nil {
-		signals = append(signals, *sig)
-	}
-
-	// 2. 检测三连K实体递增
+	// 1. 检测三连K实体递增
 	if sig := s.detectMomentum(klines, atr, symbolID, symbolCode, period); sig != nil {
 		signals = append(signals, *sig)
 	}
 
-	// 3. 检测早晨/黄昏之星
+	// 2. 检测早晨/黄昏之星
 	if sig := s.detectStar(klines, atr, trendStrength, symbolID, symbolCode, period); sig != nil {
 		signals = append(signals, *sig)
 	}
@@ -78,80 +73,6 @@ func (s *CandlestickStrategy) calculateATR(klines []models.Kline) float64 {
 		period = 14
 	}
 	return helpers.CalculateATR(klines, period)
-}
-
-// ---- 吞没形态（Engulfing Pattern）----
-
-func (s *CandlestickStrategy) detectEngulfing(klines []models.Kline, atr float64, symbolID int, symbolCode, period string) *models.Signal {
-	if len(klines) < 2 {
-		return nil
-	}
-
-	n := len(klines)
-	prev := klines[n-2]
-	curr := klines[n-1]
-
-	// 两根K线方向必须相反
-	if helpers.IsBullish(prev) == helpers.IsBullish(curr) {
-		return nil
-	}
-
-	// 当前K线实体必须显著
-	bodyATRThreshold := s.config.BodyATRThreshold
-	if bodyATRThreshold <= 0 {
-		bodyATRThreshold = 0.5
-	}
-	currBody := helpers.BodySize(curr)
-	if currBody < atr*bodyATRThreshold {
-		return nil
-	}
-
-	var signalType, direction, desc string
-	prevBody := helpers.BodySize(prev)
-
-	if helpers.IsBullish(curr) && helpers.IsBearish(prev) {
-		// 阳包阴：当前 Open < prev.Close 且 当前 Close > prev.Open
-		if !(curr.OpenPrice < prev.ClosePrice && curr.ClosePrice > prev.OpenPrice) {
-			return nil
-		}
-		signalType = models.SignalTypeEngulfingBullish
-		direction = models.DirectionLong
-		desc = fmt.Sprintf("阳包阴吞没形态，实体%.2f包含前一根实体%.2f", currBody, prevBody)
-	} else {
-		// 阴包阳：当前 Open > prev.Close 且 当前 Close < prev.Open
-		if !(curr.OpenPrice > prev.ClosePrice && curr.ClosePrice < prev.OpenPrice) {
-			return nil
-		}
-		signalType = models.SignalTypeEngulfingBearish
-		direction = models.DirectionShort
-		desc = fmt.Sprintf("阴包阳吞没形态，实体%.2f包含前一根实体%.2f", currBody, prevBody)
-	}
-
-	strength := s.engulfingStrength(currBody, atr)
-	stopLoss := s.calculateStopLoss(curr, direction)
-	_, takeProfit := CalculateSLTP(curr.ClosePrice, direction, atr, s.config.ATRMultiplier, s.config.RiskRewardRatio)
-
-	data := map[string]interface{}{
-		"pattern":             signalType,
-		"prev_body_size":      prevBody,
-		"curr_body_size":      currBody,
-		"curr_body_atr_ratio": currBody / atr,
-		"atr":                 atr,
-	}
-
-	return s.newSignal(signalType, direction, desc, strength, curr, symbolID, symbolCode, period, stopLoss, takeProfit, data)
-}
-
-func (s *CandlestickStrategy) engulfingStrength(bodySize, atr float64) int {
-	ratio := bodySize / atr
-	switch {
-	case ratio >= 2.0:
-		return 3
-	case ratio >= 1.0:
-		return 2
-	default:
-		return 1
-	}
 }
 
 // ---- 三连K实体递增（Momentum Candles）----

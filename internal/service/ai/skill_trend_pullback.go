@@ -41,7 +41,6 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 
 ### 3. 触发信号 (Signal)
 - 支撑收回: 价格触及 EMA/支撑后收回
-- 阳包阴: 当前阳线完全覆盖前一根阴线
 - Pin Bar/锤子线: 下影线长于实体 2 倍以上
 - 假跌破收回: 跌破 EMA30 后 1-2 根 K 线内收回（这是经典买点信号！）
 - 突破小级别回调高点
@@ -75,7 +74,7 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 ### 不要遗漏买点
 - 如果后面的 K 线让你判断"最佳买点已过"，必须把确认买点的那根标为 ready
 - 不能全程没有 ready 却事后说买点已过
-- 如果已出现支撑收回/阳包阴/假跌破收回，且止损可放在回调低点下方，必须评估 ready
+- 如果已出现支撑收回/放量反包/假跌破收回，且止损可放在回调低点下方，必须评估 ready
 
 ## 输出格式
 

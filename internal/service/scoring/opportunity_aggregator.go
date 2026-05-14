@@ -512,9 +512,9 @@ func (a *OpportunityAggregator) updateOpportunity(opp *models.TradingOpportunity
 	scoreDetailsJSONB := models.JSONB(result.Breakdown)
 	opp.ScoreDetails = &scoreDetailsJSONB
 
-		// 更新 regime 和 strategy_type
-		opp.Regime = computeRegime(ctx.MarketRegime, opp.Direction)
-		opp.StrategyType = pickStrategyType(newSignals)
+	// 更新 regime 和 strategy_type
+	opp.Regime = computeRegime(ctx.MarketRegime, opp.Direction)
+	opp.StrategyType = pickStrategyType(newSignals)
 
 	if err := a.oppRepo.Update(opp); err != nil {
 		a.logger.Error("更新交易机会失败", zap.Error(err))
@@ -594,11 +594,11 @@ func calcTrendDirectionScore(trend, direction string, signals []*models.Signal) 
 		// 顺势信号
 		case models.SignalTypeMACD, models.SignalTypeBoxBreakout,
 			models.SignalTypePriceSurgeUp, models.SignalTypeResistanceBreak,
-			models.SignalTypeMomentumBullish, models.SignalTypeEngulfingBullish,
+			models.SignalTypeMomentumBullish,
 			models.SignalTypeMorningStar,
 			models.SignalTypeBoxBreakdown, models.SignalTypePriceSurgeDown,
 			models.SignalTypeSupportBreak, models.SignalTypeMomentumBearish,
-			models.SignalTypeEngulfingBearish, models.SignalTypeEveningStar:
+			models.SignalTypeEveningStar:
 			trendFollowing++
 
 		// 逆势信号
