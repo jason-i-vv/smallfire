@@ -159,7 +159,7 @@
           <span>{{ activeTarget?.period }} · {{ formatTime(activeResult.best?.kline_time) }}</span>
         </div>
         <el-tag :type="activeResult.found ? 'success' : 'info'" effect="dark">
-          {{ activeResult.found ? `提醒 ${activeResult.best?.confidence}` : '未触发' }}
+          {{ activeResult.found ? `买点 ${activeResult.best?.confidence}` : '未触发' }}
         </el-tag>
       </div>
       <div v-if="activeResult.best" class="best-grid">
@@ -485,6 +485,7 @@ function normalizeTarget(target) {
 
 async function loadRemoteTargets() {
   try {
+    const previousActiveId = activeTargetId.value
     // 加载所有策略的观察仓
     const allTargets = []
     for (const skill of ['trend_pullback', 'elliott_wave']) {
@@ -515,7 +516,10 @@ async function loadRemoteTargets() {
         targets.value.push(normalizeTarget(remote))
       }
     }
-    activeTargetId.value = targets.value[0]?.id || null
+    const activeStillExists = targets.value.some(item => item.id === previousActiveId)
+    if (!activeStillExists) {
+      activeTargetId.value = targets.value[0]?.id || null
+    }
   } catch (error) {
     console.warn('读取观察位失败:', error)
   }
@@ -523,8 +527,14 @@ async function loadRemoteTargets() {
 
 async function saveTargetRemote(target) {
   try {
+    const previousId = target.id
     const res = await trendApi.saveWatchTarget(serializeTarget(target))
-    if (res.data?.id) target.id = res.data.id
+    if (res.data?.id) {
+      target.id = res.data.id
+      if (activeTargetId.value === previousId) {
+        activeTargetId.value = target.id
+      }
+    }
   } catch (error) {
     console.warn('保存趋势观察位失败:', error)
   }
@@ -787,9 +797,9 @@ function buildMarkers(steps) {
       time: normalizeTimestamp(step.kline_time),
       position: step.decision === 'invalid' ? 'aboveBar' : 'belowBar',
       color: markerColor(step),
-      shape: step.decision === 'alert' ? 'arrowUp' : step.decision === 'invalid' ? 'arrowDown' : 'circle',
-      text: step.decision === 'alert'
-        ? `提醒 ${step.confidence}`
+      shape: isBuyPointStep(step) ? 'arrowUp' : step.decision === 'invalid' ? 'arrowDown' : 'circle',
+      text: isBuyPointStep(step)
+        ? `买点 ${step.confidence}`
         : step.decision === 'invalid'
           ? '失效'
           : `观察 ${step.confidence}`
@@ -797,15 +807,18 @@ function buildMarkers(steps) {
 }
 
 function markerColor(step) {
-  if (step.decision === 'alert') return '#00c853'
+  if (isBuyPointStep(step)) return '#00c853'
   if (step.decision === 'invalid') return '#ff5252'
   return '#ffd740'
 }
 
+function isBuyPointStep(step) {
+  return step?.decision === 'alert' || step?.buy_point === 'ready'
+}
+
 function isImportantStep(step) {
-  return step.decision === 'alert' ||
+  return isBuyPointStep(step) ||
     step.decision === 'invalid' ||
-    step.buy_point === 'ready' ||
     step.buy_point === 'watch' ||
     step.missed ||
     step.confidence >= 55 ||
@@ -813,21 +826,21 @@ function isImportantStep(step) {
 }
 
 function importanceKey(step) {
-  if (step.decision === 'alert') return 'alert'
+  if (isBuyPointStep(step)) return 'alert'
   if (step.decision === 'invalid') return 'risk'
   if (isImportantStep(step)) return 'watch'
   return 'quiet'
 }
 
 function importanceLabel(step) {
-  if (step.decision === 'alert') return '重点'
+  if (isBuyPointStep(step)) return '买点'
   if (step.decision === 'invalid') return '风险'
   if (isImportantStep(step)) return '观察'
   return '普通'
 }
 
 function importanceType(step) {
-  if (step.decision === 'alert') return 'success'
+  if (isBuyPointStep(step)) return 'success'
   if (step.decision === 'invalid') return 'danger'
   if (isImportantStep(step)) return 'warning'
   return 'info'
@@ -877,10 +890,10 @@ const trendLabel = value => ({ confirmed: '确认', weak: '转弱', exhaustion: 
 const trendType = value => ({ confirmed: 'success', weak: 'warning', exhaustion: 'danger', unclear: 'info' }[value] || 'info')
 const pullbackLabel = value => ({ none: '无', started: '开始', healthy: '健康', dangerous: '危险', completed: '完成' }[value] || value || '--')
 const pullbackType = value => ({ healthy: 'success', completed: 'success', started: 'warning', dangerous: 'danger', none: 'info' }[value] || 'info')
-const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '可入场' }[value] || value || '--')
+const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '买点' }[value] || value || '--')
 const buyPointType = value => ({ ready: 'success', watch: 'warning', none: 'info' }[value] || 'info')
-const decisionLabel = value => ({ wait: '等待', alert: '提醒', invalid: '失效' }[value] || value || '--')
-const decisionType = value => ({ alert: 'success', wait: 'warning', invalid: 'danger' }[value] || 'info')
+const decisionLabel = value => ({ wait: '等待', alert: '买点', cooldown: '观察', invalid: '失效' }[value] || value || '--')
+const decisionType = value => ({ alert: 'success', wait: 'warning', cooldown: 'warning', invalid: 'danger' }[value] || 'info')
 
 function alertCount(target) {
   return (target.result?.steps || []).filter(step => step.decision === 'alert').length

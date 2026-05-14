@@ -123,7 +123,7 @@
           <span>{{ activeTarget?.period }} · {{ activeResult.analyzed || 0 }} 根观察K线</span>
         </div>
         <el-tag :type="activeResult.found ? 'success' : 'info'" effect="dark">
-          {{ activeResult.found ? `提醒 ${activeResult.best?.confidence}` : '未触发' }}
+          {{ activeResult.found ? `买点 ${activeResult.best?.confidence}` : '未触发' }}
         </el-tag>
       </div>
       <div v-if="activeResult.best" class="best-grid">
@@ -153,7 +153,7 @@
         </header>
 
         <div class="detail-summary">
-          <div><span>提醒</span><strong>{{ alertCount(activeTarget) }}</strong></div>
+          <div><span>买点</span><strong>{{ alertCount(activeTarget) }}</strong></div>
           <div><span>重点观察</span><strong>{{ watchCount(activeTarget) }}</strong></div>
           <div><span>风险/失效</span><strong>{{ riskCount(activeTarget) }}</strong></div>
           <div><span>普通折叠</span><strong>{{ quietCount(activeTarget) }}</strong></div>
@@ -464,11 +464,15 @@ function persistTargets() {
 
 async function loadRemoteTargets() {
   try {
+    const previousActiveId = activeTargetId.value
     const res = await api.get('/ai-watch-targets', { params: { skill_name: AGENT_TYPE } })
     const remoteTargets = Array.isArray(res.data) ? res.data : []
     if (remoteTargets.length === 0) return
     targets.value = remoteTargets.map(normalizeTarget)
-    activeTargetId.value = targets.value[0]?.id || null
+    const activeStillExists = targets.value.some(item => item.id === previousActiveId)
+    if (!activeStillExists) {
+      activeTargetId.value = targets.value[0]?.id || null
+    }
     persistTargets()
   } catch (error) {
     console.warn('读取远程波浪观察位失败，使用本地缓存:', error)
@@ -477,8 +481,14 @@ async function loadRemoteTargets() {
 
 async function saveTargetRemote(target) {
   try {
+    const previousId = target.id
     const res = await api.post('/ai-watch-targets', serializeTarget(target))
-    if (res.data?.id) target.id = res.data.id
+    if (res.data?.id) {
+      target.id = res.data.id
+      if (activeTargetId.value === previousId) {
+        activeTargetId.value = target.id
+      }
+    }
     persistTargets()
   } catch (error) {
     console.warn('保存远程波浪观察位失败:', error)
@@ -903,7 +913,7 @@ function importanceKey(step) {
 }
 
 function importanceLabel(step) {
-  if (isAlertStep(step)) return '重点'
+  if (isAlertStep(step)) return '买点'
   if (isRiskStep(step)) return '风险'
   if (isImportantStep(step)) return '观察'
   return '普通'
@@ -917,7 +927,6 @@ function importanceType(step) {
 }
 
 function showStepDetail(step) {
-  alert('[WaveAgent] showStepDetail called! kline_time=' + (step?.kline_time || 'null'))
   selectedStep.value = step
   stepPopoverVisible.value = true
 }
@@ -1007,7 +1016,7 @@ const setupType = value => ({
   warning: 'danger',
   invalidated: 'danger'
 }[value] || 'info')
-const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '可入场' }[value] || value || '--')
+const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '买点' }[value] || value || '--')
 const buyPointType = value => ({ ready: 'success', watch: 'warning', none: 'info' }[value] || 'info')
 
 function alertCount(target) {
