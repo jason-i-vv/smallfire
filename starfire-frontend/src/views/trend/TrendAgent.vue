@@ -128,7 +128,7 @@
         <el-table-column label="信号" min-width="170">
           <template #default="{ row }">
             <div class="signal-summary">
-              <el-tag v-if="row.result?.found || alertCount(row) > 0" type="success" effect="dark">买点 {{ alertCount(row) }}</el-tag>
+              <el-tag v-if="alertCount(row) > 0" type="success" effect="dark">买点 {{ alertCount(row) }}</el-tag>
               <el-tag v-if="watchCount(row) > 0" type="warning">观察 {{ watchCount(row) }}</el-tag>
               <el-tag v-if="row.data_status === 'waiting_data'" type="info">等待数据</el-tag>
               <span v-if="!row.result" class="muted">未分析</span>
@@ -257,7 +257,7 @@
           <el-tab-pane label="列表" name="list">
             <div class="list-toolbar">
               <el-switch v-model="importantOnly" active-text="只看重点" inactive-text="显示全部" />
-              <span>普通结果会默认折叠，重点结果始终展开显示。</span>
+              <span>观察和普通K线默认折叠，买点和风险事件始终展开显示。</span>
             </div>
             <el-table :data="visibleSteps" row-key="kline_time" height="560">
               <el-table-column type="expand">
@@ -283,7 +283,7 @@
               </el-table-column>
               <el-table-column label="决策" width="108">
                 <template #default="{ row }">
-                  <el-tag :type="decisionType(row.decision)" effect="dark">{{ decisionLabel(row.decision) }}</el-tag>
+                  <el-tag :type="stepDecisionType(row)" effect="dark">{{ stepDecisionLabel(row) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="买点" width="100">
@@ -324,11 +324,11 @@
           </div>
           <div v-if="selectedStep.decision">
             <span>决策</span>
-            <el-tag :type="selectedStep.decision === 'alert' ? 'success' : selectedStep.decision === 'invalid' ? 'danger' : 'info'" effect="dark">{{ selectedStep.decision }}</el-tag>
+            <el-tag :type="stepDecisionType(selectedStep)" effect="dark">{{ stepDecisionLabel(selectedStep) }}</el-tag>
           </div>
           <div v-if="selectedStep.buy_point">
             <span>买点</span>
-            <el-tag :type="selectedStep.buy_point === 'ready' ? 'success' : 'warning'" effect="dark">{{ selectedStep.buy_point }}</el-tag>
+            <el-tag :type="buyPointType(selectedStep.buy_point)" effect="dark">{{ buyPointLabel(selectedStep.buy_point) }}</el-tag>
           </div>
           <div v-if="selectedStep.trend">
             <span>趋势</span>
@@ -419,7 +419,14 @@ const selectedStep = ref(null)
 const stepDialogVisible = ref(false)
 
 const activeTarget = computed(() => targets.value.find(item => item.id === activeTargetId.value) || null)
-const activeResult = computed(() => activeTarget.value?.result || null)
+const activeResult = computed(() => {
+  const result = activeTarget.value?.result
+  if (!result) return null
+  const steps = result.steps || []
+  const buySteps = steps.filter(isBuyPointStep)
+  const best = buySteps.length ? buySteps[buySteps.length - 1] : null
+  return { ...result, found: buySteps.length > 0, best }
+})
 const enabledCount = computed(() => targets.value.filter(item => item.enabled).length)
 const allSteps = computed(() => {
   const steps = activeResult.value?.steps || []
@@ -813,16 +820,12 @@ function markerColor(step) {
 }
 
 function isBuyPointStep(step) {
-  return step?.decision === 'alert' || step?.buy_point === 'ready'
+  return step?.buy_point === 'ready' && step?.decision !== 'invalid'
 }
 
 function isImportantStep(step) {
   return isBuyPointStep(step) ||
-    step.decision === 'invalid' ||
-    step.buy_point === 'watch' ||
-    step.missed ||
-    step.confidence >= 55 ||
-    step.pullback_state === 'dangerous'
+    step.decision === 'invalid'
 }
 
 function importanceKey(step) {
@@ -894,9 +897,19 @@ const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '买点' 
 const buyPointType = value => ({ ready: 'success', watch: 'warning', none: 'info' }[value] || 'info')
 const decisionLabel = value => ({ wait: '等待', alert: '买点', cooldown: '观察', invalid: '失效' }[value] || value || '--')
 const decisionType = value => ({ alert: 'success', wait: 'warning', cooldown: 'warning', invalid: 'danger' }[value] || 'info')
+function stepDecisionLabel(step) {
+  if (isBuyPointStep(step)) return '买点'
+  if (step?.decision === 'alert') return '观察'
+  return decisionLabel(step?.decision)
+}
+function stepDecisionType(step) {
+  if (isBuyPointStep(step)) return 'success'
+  if (step?.decision === 'alert') return 'warning'
+  return decisionType(step?.decision)
+}
 
 function alertCount(target) {
-  return (target.result?.steps || []).filter(step => step.decision === 'alert').length
+  return (target.result?.steps || []).filter(isBuyPointStep).length
 }
 
 function invalidCount(target) {
@@ -916,7 +929,7 @@ function statusLabel(target) {
   if (target.error) return '异常'
   if (target.data_status === 'waiting_data') return '等待数据'
   if (!target.result) return target.enabled ? '待分析' : '已关闭'
-  if (target.result.found || alertCount(target) > 0) return '发现买点'
+  if (alertCount(target) > 0) return '发现买点'
   if (invalidCount(target) > 0) return '趋势失效'
   return '跟踪中'
 }
@@ -925,7 +938,7 @@ function statusType(target) {
   if (target.loading || target.data_status === 'analyzing') return 'warning'
   if (target.error) return 'danger'
   if (target.data_status === 'waiting_data') return 'info'
-  if (target.result?.found) return 'success'
+  if (alertCount(target) > 0) return 'success'
   if (invalidCount(target) > 0) return 'danger'
   if (target.enabled) return '' // 默认色
   return 'info'

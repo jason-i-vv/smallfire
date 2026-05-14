@@ -15,12 +15,12 @@ import (
 // AIWatchScheduler AI 观察仓调度器
 // 实现 market.SyncHook，K 线同步完成后自动分析匹配的观察仓标的
 type AIWatchScheduler struct {
-	watchRepo   repository.AIWatchTargetRepo
-	symbolRepo  repository.SymbolRepo
-	engine      *WatchEngine // 优先使用 Claude + WatchEngine
-	pullback    *TrendPullbackAnalyzer
-	wave        *ElliottWaveAnalyzer
-	logger      *zap.Logger
+	watchRepo  repository.AIWatchTargetRepo
+	symbolRepo repository.SymbolRepo
+	engine     *WatchEngine // 优先使用 Claude + WatchEngine
+	pullback   *TrendPullbackAnalyzer
+	wave       *ElliottWaveAnalyzer
+	logger     *zap.Logger
 	// per-symbol 锁，避免一个标的卡住影响其他所有标的
 	analyzing sync.Map // key: symbolCode+period, value: struct{}
 }
@@ -259,16 +259,12 @@ func mergeStepsJSON(prevJSON, newStepsJSON json.RawMessage) json.RawMessage {
 		if json.Unmarshal(raw, &step) != nil {
 			continue
 		}
-		if decision, _ := step["decision"].(string); decision == "alert" {
+		decision, _ := step["decision"].(string)
+		buyPoint, _ := step["buy_point"].(string)
+		confidence, _ := step["confidence"].(float64)
+		if decision == "alert" && buyPoint == "ready" && confidence >= 70 {
 			found = true
-			confidence, _ := step["confidence"].(float64)
-			buyPoint, _ := step["buy_point"].(string)
-			if buyPoint == "ready" && confidence >= 70 {
-				bestStep = step
-			} else if bestStep == nil {
-				// 没有高置信度的，至少取第一个 alert
-				bestStep = step
-			}
+			bestStep = step
 		}
 	}
 

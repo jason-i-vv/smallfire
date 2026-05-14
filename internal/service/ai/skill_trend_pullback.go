@@ -254,6 +254,9 @@ func (s *TrendPullbackSkill) normalizeDecision(decision, buyPoint, trendState, p
 	if trendState == "exhaustion" {
 		return "invalid"
 	}
+	if decision == "alert" {
+		return "wait"
+	}
 	// dangerous 回调 → cooldown（而非直接 invalid）
 	if pullbackState == "dangerous" {
 		switch decision {

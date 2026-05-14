@@ -157,6 +157,19 @@ func TestNormalizeTrendPullbackDecision(t *testing.T) {
 	}
 }
 
+func TestSkillDecisionDoesNotPromoteAlertWithoutReadyBuyPoint(t *testing.T) {
+	trend := &TrendPullbackSkill{}
+	if got := trend.normalizeDecision("alert", "none", "confirmed", "healthy"); got != "wait" {
+		t.Fatalf("trend normalizeDecision() = %s, want wait", got)
+	}
+	if got := normalizeWaveDecision("alert", "none", "tracking"); got != "wait" {
+		t.Fatalf("normalizeWaveDecision() = %s, want wait", got)
+	}
+	if got := normalizeWaveDecision("alert", "ready", "confirmed"); got != "alert" {
+		t.Fatalf("normalizeWaveDecision() = %s, want alert for ready buy point", got)
+	}
+}
+
 func TestNormalizeMissedKlineIndex(t *testing.T) {
 	valid := 42
 	if got := normalizeMissedKlineIndex(true, &valid, 40, 50); got == nil || *got != valid {

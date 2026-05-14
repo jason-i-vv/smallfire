@@ -250,8 +250,11 @@ func normalizeWaveDecision(decision, buyPoint, setupStatus string) string {
 	if setupStatus == "invalidated" {
 		return "invalid"
 	}
+	if decision == "alert" {
+		return "wait"
+	}
 	switch decision {
-	case "alert", "wait", "invalid", "cooldown":
+	case "wait", "invalid", "cooldown":
 		return decision
 	}
 	return "wait"

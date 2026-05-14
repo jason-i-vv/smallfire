@@ -90,6 +90,7 @@ docker-dev-logs:
 # 构建后端镜像 (AMD64)
 docker-build-amd64:
 	@echo "Building backend Docker image (amd64)..."
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o main ./cmd/server/main.go
 	@docker build --platform linux/amd64 \
 		-t starfire-backend:latest \
 		-t $(REGISTRY)/starfire-backend:$(IMAGE_TAG) .
