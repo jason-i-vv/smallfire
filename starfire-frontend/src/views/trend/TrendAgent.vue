@@ -179,6 +179,10 @@
             <span>{{ activeTarget.market_code }} · {{ activeTarget.period }} · {{ activeTarget.result?.analyzed || 0 }} 根观察K线</span>
           </div>
           <div class="detail-actions">
+            <el-button size="small" :disabled="targets.length <= 1" @click="openNextTarget">
+              <el-icon><ArrowRight /></el-icon>
+              下一个
+            </el-button>
             <el-button type="primary" size="small" @click="triggerAnalysis(activeTarget)" :loading="activeTarget.loading">
               <el-icon><Cpu /></el-icon>
               手动分析
@@ -365,7 +369,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Delete, Plus, View, Grid, Coin, Timer, Calendar, Bell, Position, Cpu } from '@element-plus/icons-vue'
+import { Delete, Plus, View, Grid, Coin, Timer, Calendar, Bell, Position, Cpu, ArrowRight } from '@element-plus/icons-vue'
 import { createChart, CrosshairMode } from 'lightweight-charts'
 import api from '@/api'
 import { symbolApi } from '@/api/symbols'
@@ -666,6 +670,18 @@ async function ensureSymbolID(target) {
 async function openDetail(target) {
   activeTargetId.value = target.id
   detailVisible.value = true
+  detailTab.value = 'chart'
+  await nextTick()
+  await renderChart()
+}
+
+async function openNextTarget() {
+  if (targets.value.length <= 1) return
+  const currentIndex = targets.value.findIndex(item => item.id === activeTargetId.value)
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % targets.value.length : 0
+  selectedStep.value = null
+  stepDialogVisible.value = false
+  activeTargetId.value = targets.value[nextIndex].id
   detailTab.value = 'chart'
   await nextTick()
   await renderChart()
