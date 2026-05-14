@@ -200,7 +200,14 @@
         <el-tabs v-model="detailTab" @tab-change="onDetailTabChange">
           <el-tab-pane label="图表" name="chart">
             <div class="chart-layout">
-              <div ref="chartRef" class="chart-box" v-loading="chartLoading" />
+              <div style="position: relative;">
+                <div ref="chartRef" class="chart-box" v-loading="chartLoading" />
+                <div class="ema-legend">
+                  <span class="ema-item"><span class="ema-dot" style="background: #FFD740; border-top: 1px dashed #FFD740;"></span>EMA30</span>
+                  <span class="ema-item"><span class="ema-dot" style="background: #42A5F5; border-top: 1px dashed #42A5F5;"></span>EMA60</span>
+                  <span class="ema-item"><span class="ema-dot" style="background: #AB47BC;"></span>EMA90</span>
+                </div>
+              </div>
               <aside class="focus-panel">
                 <div class="panel-title">分析记录</div>
                 <el-empty v-if="allSteps.length === 0" description="暂无分析记录" :image-size="64" />
@@ -211,7 +218,7 @@
                       v-if="row.type === 'important'"
                       class="tl-card"
                       :class="`tl-${importanceKey(row.step)}`"
-                      @click="scrollToStep(row.step)"
+                      @click="showStepDetail(row.step)"
                     >
                       <div class="tl-card-head">
                         <span class="tl-time">{{ formatTime(row.step.kline_time) }}</span>
@@ -232,7 +239,7 @@
                         <span class="tl-quiet-text">{{ expandedQuietKeys.has(row.key) ? '收起' : `··· ${row.steps.length} 条普通记录 ···` }}</span>
                       </button>
                       <template v-if="expandedQuietKeys.has(row.key)">
-                        <button v-for="step in row.steps" :key="step.kline_time" class="tl-card tl-quiet" @click="scrollToStep(step)">
+                        <button v-for="step in row.steps" :key="step.kline_time" class="tl-card tl-quiet" @click="showStepDetail(step)">
                           <div class="tl-card-head">
                             <span class="tl-time">{{ formatTime(step.kline_time) }}</span>
                             <span class="tl-conf">{{ step.confidence }}</span>
@@ -299,6 +306,59 @@
         </el-tabs>
       </div>
     </el-drawer>
+
+    <!-- 分析记录浮窗 -->
+    <el-dialog
+      v-model="stepDialogVisible"
+      :title="selectedStep ? formatTime(selectedStep.kline_time) + ' 分析详情' : ''"
+      width="540px"
+      @close="closeStepDialog"
+    >
+      <div v-if="selectedStep" class="step-detail">
+        <div class="step-detail-grid">
+          <div><span>时间</span><strong>{{ formatTime(selectedStep.kline_time) }}</strong></div>
+          <div><span>收盘价</span><strong>{{ formatMaybe(selectedStep.close_price) }}</strong></div>
+          <div>
+            <span>置信度</span>
+            <strong>{{ selectedStep.confidence }}</strong>
+          </div>
+          <div v-if="selectedStep.decision">
+            <span>决策</span>
+            <el-tag :type="selectedStep.decision === 'alert' ? 'success' : selectedStep.decision === 'invalid' ? 'danger' : 'info'" effect="dark">{{ selectedStep.decision }}</el-tag>
+          </div>
+          <div v-if="selectedStep.buy_point">
+            <span>买点</span>
+            <el-tag :type="selectedStep.buy_point === 'ready' ? 'success' : 'warning'" effect="dark">{{ selectedStep.buy_point }}</el-tag>
+          </div>
+          <div v-if="selectedStep.trend">
+            <span>趋势</span>
+            <el-tag :type="selectedStep.trend === 'bullish' ? 'success' : selectedStep.trend === 'bearish' ? 'danger' : 'info'">{{ selectedStep.trend }}</el-tag>
+          </div>
+          <div v-if="selectedStep.entry_price != null">
+            <span>入场价</span><strong>{{ formatMaybe(selectedStep.entry_price) }}</strong>
+          </div>
+          <div v-if="selectedStep.stop_loss != null">
+            <span>止损价</span><strong>{{ formatMaybe(selectedStep.stop_loss) }}</strong>
+          </div>
+          <div v-if="selectedStep.take_profit != null">
+            <span>止盈价</span><strong>{{ formatMaybe(selectedStep.take_profit) }}</strong>
+          </div>
+        </div>
+        <div v-if="selectedStep.reasoning" class="step-section">
+          <h4>AI 分析</h4>
+          <p class="step-reasoning">{{ selectedStep.reasoning }}</p>
+        </div>
+        <div v-if="selectedStep.risk_notes?.length" class="step-section">
+          <h4>风险提示</h4>
+          <div class="step-risk-list">
+            <el-tag v-for="note in selectedStep.risk_notes" :key="note" type="warning">{{ note }}</el-tag>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="stepDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -349,8 +409,14 @@ const symbolLoading = ref(false)
 let chart = null
 let candleSeries = null
 let volumeSeries = null
+let emaShortSeries = null
+let emaMediumSeries = null
+let emaLongSeries = null
 let resizeObserver = null
 let pollTimer = null
+
+const selectedStep = ref(null)
+const stepDialogVisible = ref(false)
 
 const activeTarget = computed(() => targets.value.find(item => item.id === activeTargetId.value) || null)
 const activeResult = computed(() => activeTarget.value?.result || null)
@@ -657,6 +723,18 @@ function initChart() {
   })
   volumeSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' })
   volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+  emaShortSeries = chart.addLineSeries({
+    color: '#FFD740', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
+  emaMediumSeries = chart.addLineSeries({
+    color: '#42A5F5', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
+  emaLongSeries = chart.addLineSeries({
+    color: '#AB47BC', lineWidth: 2, lineStyle: 0,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
   resizeObserver = new ResizeObserver(() => {
     if (chart && chartRef.value) chart.applyOptions({ width: chartRef.value.clientWidth || 900 })
   })
@@ -682,6 +760,22 @@ function setChartData(klines, steps) {
   })
   candleSeries.setData(candleData)
   volumeSeries.setData(volumeData)
+  // EMA 均线数据
+  const emaShortData = []
+  const emaMediumData = []
+  const emaLongData = []
+  for (const k of klines) {
+    const time = k._time
+    const es = parseFloat(k.ema_short)
+    const em = parseFloat(k.ema_medium)
+    const el = parseFloat(k.ema_long)
+    if (!isNaN(es) && es > 0) emaShortData.push({ time, value: es })
+    if (!isNaN(em) && em > 0) emaMediumData.push({ time, value: em })
+    if (!isNaN(el) && el > 0) emaLongData.push({ time, value: el })
+  }
+  if (emaShortSeries) emaShortSeries.setData(emaShortData)
+  if (emaMediumSeries) emaMediumSeries.setData(emaMediumData)
+  if (emaLongSeries) emaLongSeries.setData(emaLongData)
   candleSeries.setMarkers(buildMarkers(steps))
   chart.timeScale().fitContent()
 }
@@ -739,13 +833,13 @@ function importanceType(step) {
   return 'info'
 }
 
-function scrollToStep(step) {
-  detailTab.value = 'list'
-  importantOnly.value = false
-  nextTick(() => {
-    const row = document.querySelector(`[data-row-key="${step.kline_time}"]`)
-    row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  })
+function showStepDetail(step) {
+  selectedStep.value = step
+  stepDialogVisible.value = true
+}
+
+function closeStepDialog() {
+  stepDialogVisible.value = false
 }
 
 function normalizeTimestamp(time) {
@@ -840,7 +934,12 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (pollTimer) { window.clearInterval(pollTimer); pollTimer = null }
   if (resizeObserver) resizeObserver.disconnect()
-  if (chart) chart.remove()
+  if (chart) {
+    emaShortSeries = null
+    emaMediumSeries = null
+    emaLongSeries = null
+    chart.remove()
+  }
 })
 </script>
 
@@ -1391,6 +1490,82 @@ onBeforeUnmount(() => {
   .chart-box,
   .focus-panel {
     grid-column: 1 / -1;
+  }
+}
+
+// ---- EMA 图例 ----
+.ema-legend {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  display: flex;
+  gap: 14px;
+  z-index: 10;
+
+  .ema-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #8B949E;
+
+    .ema-dot {
+      width: 16px;
+      height: 2px;
+      border-radius: 1px;
+    }
+  }
+}
+
+// ---- 分析详情浮窗 ----
+.step-detail {
+  .step-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+
+    > div {
+      padding: 10px;
+      border: 1px solid $border;
+      border-radius: 6px;
+      background: rgba($primary, 0.04);
+
+      span {
+        display: block;
+        color: $text-secondary;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+
+      strong {
+        color: $text-primary;
+        font-family: 'Monaco', 'Menlo', monospace;
+      }
+    }
+  }
+
+  .step-section {
+    margin-bottom: 14px;
+
+    h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: $text-secondary;
+    }
+  }
+
+  .step-reasoning {
+    color: $text-primary;
+    line-height: 1.7;
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .step-risk-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 </style>

@@ -609,6 +609,28 @@
     "sell": "Sell",
     "noData": "No K-line data"
   },
+  "wave": {
+    "addWatch": "Add Watch",
+    "watchPool": "Wave Watch Pool",
+    "detail": "Elliott Wave Tracking",
+    "analysisRecord": "Analysis Records",
+    "analysisDetail": "Analysis Detail",
+    "waveLabel": "Wave Label",
+    "aiAnalysis": "AI Analysis",
+    "riskAlert": "Risk Alerts",
+    "time": "Time",
+    "closePrice": "Close Price",
+    "level": "Level",
+    "confidence": "Confidence",
+    "stage": "Stage",
+    "pattern": "Pattern",
+    "structure": "Structure",
+    "buyPoint": "Buy Point",
+    "entryPrice": "Entry Price",
+    "stopLoss": "Stop Loss",
+    "targetPrice": "Target Price",
+    "noRecord": "No analysis records"
+  },
   "astock": {
     "marketIndices": "Market Indices",
     "upSectors": "Rising Sectors",

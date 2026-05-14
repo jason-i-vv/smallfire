@@ -606,6 +606,28 @@
     "sell": "卖出",
     "noData": "暂无K线数据"
   },
+  "wave": {
+    "addWatch": "新增观察",
+    "watchPool": "波浪观察仓",
+    "detail": "艾略特跟踪详情",
+    "analysisRecord": "分析记录",
+    "analysisDetail": "分析详情",
+    "waveLabel": "波浪标注",
+    "aiAnalysis": "AI 分析",
+    "riskAlert": "风险提示",
+    "time": "时间",
+    "closePrice": "收盘价",
+    "level": "级别",
+    "confidence": "置信度",
+    "stage": "阶段",
+    "pattern": "形态",
+    "structure": "结构",
+    "buyPoint": "买点",
+    "entryPrice": "入场价",
+    "stopLoss": "止损价",
+    "targetPrice": "目标价",
+    "noRecord": "暂无分析记录"
+  },
   "astock": {
     "marketIndices": "大盘指数",
     "upSectors": "涨幅板块",
