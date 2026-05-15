@@ -135,7 +135,7 @@ func (s *AIWatchScheduler) analyzeAndSave(ctx context.Context, target *models.AI
 			SymbolCode: target.SymbolCode,
 			MarketCode: target.MarketCode,
 			Period:     target.Period,
-			Direction:  "long",
+			Direction:  target.Direction,
 			Limit:      target.Limit,
 			StepLimit:  1,
 			SendFeishu: target.SendFeishu,

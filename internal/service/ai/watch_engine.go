@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	minWatchContext  = 40
+	minWatchContext   = 40
 	defaultWatchLimit = 120
-	maxWatchLimit    = 200
+	maxWatchLimit     = 200
 )
 
 // WatchEngine 统一分析引擎
@@ -260,7 +260,8 @@ func (e *WatchEngine) fillKlineData(steps []AnalysisStep, klines []models.Kline)
 
 // buildHeader 构建消息头（标的元信息）
 func (e *WatchEngine) buildHeader(target *models.AIWatchTarget) string {
-	return fmt.Sprintf("标的: %s\n市场: %s\n周期: %s\n方向: 做多\n\n", target.SymbolCode, target.MarketCode, target.Period)
+	return fmt.Sprintf("标的: %s\n市场: %s\n周期: %s\n方向: %s\n\n",
+		target.SymbolCode, target.MarketCode, target.Period, watchDirectionLabel(target.Direction))
 }
 
 // shouldDisableTracking 检查最近的 steps 是否连续 3 根 invalid
@@ -297,8 +298,12 @@ func shouldDisableTracking(resultJSON json.RawMessage) bool {
 }
 
 func (e *WatchEngine) buildNotification(target *models.AIWatchTarget, step *AnalysisStep) *notification.NotifyContent {
-	message := fmt.Sprintf("标的: %s\n周期: %s\n策略: %s\n置信度: %d\n理由: %s",
-		target.SymbolCode, target.Period, target.SkillName, step.Confidence, step.Reasoning)
+	actionLabel := "买点"
+	if target.Direction == models.DirectionShort {
+		actionLabel = "空点"
+	}
+	message := fmt.Sprintf("标的: %s\n周期: %s\n方向: %s\n策略: %s\n置信度: %d\n理由: %s",
+		target.SymbolCode, target.Period, watchDirectionLabel(target.Direction), target.SkillName, step.Confidence, step.Reasoning)
 	if step.EntryPrice != nil {
 		message += fmt.Sprintf("\n建议入场: %.6g", *step.EntryPrice)
 	}
@@ -313,16 +318,24 @@ func (e *WatchEngine) buildNotification(target *models.AIWatchTarget, step *Anal
 	}
 
 	return &notification.NotifyContent{
-		Title:   fmt.Sprintf("AI 买点提醒 %s (%s)", target.SymbolCode, target.SkillName),
+		Title:   fmt.Sprintf("AI %s提醒 %s (%s)", actionLabel, target.SymbolCode, target.SkillName),
 		Type:    "opportunity",
 		Message: message,
 		Data: map[string]interface{}{
 			"skill":      target.SkillName,
 			"period":     target.Period,
+			"direction":  target.Direction,
 			"confidence": step.Confidence,
 			"kline_time": time.UnixMilli(step.KlineTime).In(time.FixedZone("UTC+8", 8*60*60)).Format("2006-01-02 15:04:05"),
 		},
 	}
+}
+
+func watchDirectionLabel(direction string) string {
+	if direction == models.DirectionShort {
+		return "做空"
+	}
+	return "做多"
 }
 
 func formatRiskNotes(notes []string) string {

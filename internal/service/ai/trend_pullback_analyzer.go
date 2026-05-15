@@ -117,8 +117,8 @@ func (a *TrendPullbackAnalyzer) Analyze(ctx context.Context, req TrendPullbackRe
 	if req.Direction == "" {
 		req.Direction = models.DirectionLong
 	}
-	if req.Direction != models.DirectionLong {
-		return nil, fmt.Errorf("MVP 仅支持多头趋势回调分析")
+	if req.Direction != models.DirectionLong && req.Direction != models.DirectionShort {
+		req.Direction = models.DirectionLong
 	}
 
 	limit := normalizeLimit(req.Limit, defaultTrendPullbackLimit, maxTrendPullbackLimit)
@@ -258,23 +258,25 @@ func trendPullbackSystemPrompt() string {
 - 不允许只输出思考过程后停止
 
 交易系统：
-- 只做已经确立的多头趋势，不预测底部，不抢反转
-- 核心目标是在强趋势后的第一次健康回调里找买点
-- 顺大：EMA30/EMA60/EMA90 多头排列、价格结构高低点抬高、上涨不是单根孤立暴拉
-- 逆小：等待趋势内回调到 EMA30/EMA60/前高突破位附近，不追高
-- 回调健康：回调幅度约为上一段上涨的 0.236-0.618，没有跌破关键结构低点，成交量缩小或波动收敛
-- 回调危险：跌破前低、放量长阴、连续失守 EMA30/EMA60、回调超过 0.618
-- 入场触发：支撑收回、Pin Bar/锤子线、假跌破后收回、突破小级别回调高点、放量反包
+- 先读取用户消息里的 direction：long/做多 寻找回调买点；short/做空 寻找反弹空点
+- 只做已经确立的趋势，不预测底部/顶部，不抢反转
+- 做多顺大：EMA30/EMA60/EMA90 多头排列、价格结构高低点抬高、上涨不是单根孤立暴拉
+- 做空顺大：EMA30/EMA60/EMA90 空头排列、价格结构高低点下移、下跌不是单根孤立暴跌
+- 做多逆小：等待趋势内回调到 EMA30/EMA60/前高突破位附近，不追高
+- 做空逆小：等待趋势内反弹到 EMA30/EMA60/前低跌破位附近，不追空
+- 做多健康回调：回调幅度约为上一段上涨的 0.236-0.618，没有跌破关键结构低点，成交量缩小或波动收敛
+- 做空健康反弹：反弹幅度约为上一段下跌的 0.236-0.618，没有突破关键结构高点，成交量缩小或波动收敛
+- 做多入场触发：支撑收回、下影Pin Bar/锤子线、假跌破后收回、突破小级别回调高点、放量阳线反包
+- 做空入场触发：压力回落、上影Pin Bar/倒锤线、假突破后跌回、跌破小级别反弹低点、放量阴线反包
 - 风控要求：必须能给出清楚止损位，风险收益比至少约 1.8，止损空间不能过大
-- 回调买点不是突破前高后的追高确认；如果已经在 EMA30/EMA60/结构位附近出现支撑收回或反包，且止损和收益比成立，可以给 ready
-- 不要把“突破前高才安全”作为 ready 的必要条件；突破前高更多用于止盈目标或加仓确认
+- 回调/反弹点不是突破前高/跌破前低后的追价确认；如果已经在 EMA30/EMA60/结构位附近出现触发，且止损和收益比成立，可以给 ready
 - 如果后面的K线让你判断“最佳买点已过”，则必须把刚确认买点的那一根K线标为 ready；不能全程没有 ready 却事后说买点已过
 
 你的任务：
-用户手动选择一个可能有多头趋势的币对。输入包含一段历史上下文K线，以及最后若干根 observation=true 的观察K线。你要按时间顺序回放观察K线，对每根 observation=true 的K线判断：
-1. 多头趋势是否仍然成立
-2. 当前是否进入健康回调
-3. 当前是否出现可执行的回调买点
+用户手动选择一个可能有趋势的币对。输入包含一段历史上下文K线，以及最后若干根 observation=true 的观察K线。你要按 direction 按时间顺序回放观察K线，对每根 observation=true 的K线判断：
+1. 趋势方向是否仍然成立
+2. 当前是否进入健康回调/反弹
+3. 当前是否出现可执行的回调买点/反弹空点
 
 严格禁止：
 - 不要因为价格上涨就追高
@@ -355,8 +357,14 @@ func buildTrendPullbackUserPrompt(req TrendPullbackRequest, klines []models.Klin
 }
 
 func (a *TrendPullbackAnalyzer) buildNotification(req TrendPullbackRequest, step *TrendPullbackStepResult) *notification.NotifyContent {
-	message := fmt.Sprintf("币对: %s\n周期: %s\n方向: 做多\n状态: %s / %s\n置信度: %d\n理由: %s",
-		req.SymbolCode, req.Period, step.TrendState, step.PullbackState, step.Confidence, step.Reasoning)
+	directionLabel := "做多"
+	actionLabel := "买点"
+	if req.Direction == models.DirectionShort {
+		directionLabel = "做空"
+		actionLabel = "空点"
+	}
+	message := fmt.Sprintf("币对: %s\n周期: %s\n方向: %s\n状态: %s / %s\n置信度: %d\n理由: %s",
+		req.SymbolCode, req.Period, directionLabel, step.TrendState, step.PullbackState, step.Confidence, step.Reasoning)
 	if step.EntryPrice != nil {
 		message += fmt.Sprintf("\n建议入场: %.6g", *step.EntryPrice)
 	}
@@ -371,7 +379,7 @@ func (a *TrendPullbackAnalyzer) buildNotification(req TrendPullbackRequest, step
 	}
 
 	return &notification.NotifyContent{
-		Title:   fmt.Sprintf("趋势回调买点提醒 %s", req.SymbolCode),
+		Title:   fmt.Sprintf("趋势回调%s提醒 %s", actionLabel, req.SymbolCode),
 		Type:    "opportunity",
 		Message: message,
 		Data: map[string]interface{}{

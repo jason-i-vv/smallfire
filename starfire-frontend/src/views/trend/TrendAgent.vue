@@ -27,6 +27,14 @@
             </div>
           </div>
 
+          <div class="form-row" v-if="draft.skill_name === 'trend_pullback'">
+            <div class="form-label">
+              <span class="label-icon"><el-icon><Position /></el-icon></span>
+              <span>方向</span>
+            </div>
+            <el-segmented v-model="draft.direction" :options="directionOptions" class="form-control form-segmented" />
+          </div>
+
           <div class="form-row">
             <div class="form-label">
               <span class="label-icon"><el-icon><Coin /></el-icon></span>
@@ -107,7 +115,7 @@
         />
       </div>
 
-      <el-table :data="targets" row-key="id" height="360" empty-text="暂无观察标的">
+      <el-table :data="targets" row-key="id" height="calc(100vh - 300px)" empty-text="暂无观察标的">
         <el-table-column label="AI跟踪" width="92">
           <template #default="{ row }">
             <el-switch v-model="row.enabled" @change="onTargetToggle(row)" />
@@ -118,6 +126,7 @@
             <strong class="symbol">{{ row.symbol_code }}</strong>
             <span class="muted">{{ row.market_code }} · {{ row.period }}</span>
             <el-tag size="small" type="info" style="margin-left: 4px">{{ skillLabel(row.skill_name) }}</el-tag>
+            <el-tag v-if="row.skill_name === 'trend_pullback'" size="small" :type="directionType(row.direction)" style="margin-left: 4px">{{ directionLabel(row.direction) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="状态" min-width="135">
@@ -128,7 +137,7 @@
         <el-table-column label="信号" min-width="170">
           <template #default="{ row }">
             <div class="signal-summary">
-              <el-tag v-if="alertCount(row) > 0" type="success" effect="dark">买点 {{ alertCount(row) }}</el-tag>
+              <el-tag v-if="alertCount(row) > 0" :type="directionSignalType(row.direction)" effect="dark">{{ actionLabel(row.direction) }} {{ alertCount(row) }}</el-tag>
               <el-tag v-if="watchCount(row) > 0" type="warning">观察 {{ watchCount(row) }}</el-tag>
               <el-tag v-if="row.data_status === 'waiting_data'" type="info">等待数据</el-tag>
               <span v-if="!row.result" class="muted">未分析</span>
@@ -155,11 +164,11 @@
     <section v-if="activeResult" class="best-band">
       <div class="best-header">
         <div>
-          <h2>{{ activeTarget?.symbol_code }} 回调买点</h2>
-          <span>{{ activeTarget?.period }} · {{ formatTime(activeResult.best?.kline_time) }}</span>
+          <h2>{{ activeTarget?.symbol_code }} 回调{{ actionLabel(activeTarget?.direction) }}</h2>
+          <span>{{ directionLabel(activeTarget?.direction) }} · {{ activeTarget?.period }} · {{ formatTime(activeResult.best?.kline_time) }}</span>
         </div>
-        <el-tag :type="activeResult.found ? 'success' : 'info'" effect="dark">
-          {{ activeResult.found ? `买点 ${activeResult.best?.confidence}` : '未触发' }}
+        <el-tag :type="activeResult.found ? directionSignalType(activeTarget?.direction) : 'info'" effect="dark">
+          {{ activeResult.found ? `${actionLabel(activeTarget?.direction)} ${activeResult.best?.confidence}` : '未触发' }}
         </el-tag>
       </div>
       <div v-if="activeResult.best" class="best-grid">
@@ -176,7 +185,7 @@
         <header class="detail-head">
           <div>
             <h2>{{ activeTarget.symbol_code }} AI 跟踪详情</h2>
-            <span>{{ activeTarget.market_code }} · {{ activeTarget.period }} · {{ activeTarget.result?.analyzed || 0 }} 根观察K线</span>
+            <span>{{ activeTarget.market_code }} · {{ activeTarget.period }} · {{ directionLabel(activeTarget.direction) }} · {{ activeTarget.result?.analyzed || 0 }} 根观察K线</span>
           </div>
           <div class="detail-actions">
             <el-button size="small" :disabled="targets.length <= 1" @click="openNextTarget">
@@ -195,7 +204,7 @@
         </header>
 
         <div class="detail-summary">
-          <div><span>买点</span><strong>{{ alertCount(activeTarget) }}</strong></div>
+          <div><span>{{ actionLabel(activeTarget.direction) }}</span><strong>{{ alertCount(activeTarget) }}</strong></div>
           <div><span>观察</span><strong>{{ watchCount(activeTarget) }}</strong></div>
           <div><span>趋势失效</span><strong>{{ invalidCount(activeTarget) }}</strong></div>
           <div><span>普通</span><strong>{{ quietCount(activeTarget) }}</strong></div>
@@ -290,7 +299,7 @@
                   <el-tag :type="stepDecisionType(row)" effect="dark">{{ stepDecisionLabel(row) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="买点" width="100">
+              <el-table-column :label="actionLabel(activeTarget?.direction)" width="100">
                 <template #default="{ row }">
                   <el-tag :type="buyPointType(row.buy_point)">{{ buyPointLabel(row.buy_point) }}</el-tag>
                 </template>
@@ -331,7 +340,7 @@
             <el-tag :type="stepDecisionType(selectedStep)" effect="dark">{{ stepDecisionLabel(selectedStep) }}</el-tag>
           </div>
           <div v-if="selectedStep.buy_point">
-            <span>买点</span>
+            <span>{{ actionLabel(activeTarget?.direction) }}</span>
             <el-tag :type="buyPointType(selectedStep.buy_point)" effect="dark">{{ buyPointLabel(selectedStep.buy_point) }}</el-tag>
           </div>
           <div v-if="selectedStep.trend">
@@ -384,6 +393,10 @@ const periodOptions = [
   { label: '1h', value: '1h' },
   { label: '4h', value: '4h' }
 ]
+const directionOptions = [
+  { label: '做多', value: 'long' },
+  { label: '做空', value: 'short' }
+]
 const skillOptions = SKILLS
 function skillLabel(name) {
   return SKILLS.find(s => s.name === name)?.label || name
@@ -395,6 +408,7 @@ const draft = reactive({
   market_code: 'bybit',
   symbol_code: 'BTCUSDT',
   period: '1h',
+  direction: 'long',
   limit: 120,
   send_feishu: true
 })
@@ -483,6 +497,7 @@ function normalizeTarget(target) {
     symbol_code: (target.symbol_code || '').toUpperCase(),
     market_code: target.market_code || 'bybit',
     period: target.period || '1h',
+    direction: normalizeDirection(target.direction),
     limit: target.limit || 120,
     send_feishu: Boolean(target.send_feishu),
     enabled: target.enabled !== false,
@@ -561,12 +576,14 @@ async function deleteTargetRemote(target) {
 }
 
 function serializeTarget(target) {
+  const direction = target.skill_name === 'trend_pullback' ? normalizeDirection(target.direction) : 'long'
   return {
     skill_name: target.skill_name || AGENT_TYPE,
     market_code: target.market_code,
     symbol_code: target.symbol_code,
     symbol_id: target.symbol_id || null,
     period: target.period,
+    direction,
     limit: target.limit,
     send_feishu: target.send_feishu,
     enabled: target.enabled,
@@ -578,7 +595,8 @@ function serializeTarget(target) {
 }
 
 function newTargetId(symbol, period) {
-  return `${Date.now()}-${symbol || 'SYMBOL'}-${period || '1h'}`
+  const direction = draft.skill_name === 'trend_pullback' ? draft.direction || 'long' : 'long'
+  return `${Date.now()}-${symbol || 'SYMBOL'}-${period || '1h'}-${direction}`
 }
 
 async function addTarget() {
@@ -588,10 +606,14 @@ async function addTarget() {
     return
   }
   const exists = targets.value.some(item =>
-    item.symbol_code === symbol && item.market_code === draft.market_code && item.period === draft.period
+    item.symbol_code === symbol &&
+    item.market_code === draft.market_code &&
+    item.period === draft.period &&
+    item.skill_name === draft.skill_name &&
+    (draft.skill_name !== 'trend_pullback' || normalizeDirection(item.direction) === normalizeDirection(draft.direction))
   )
   if (exists) {
-    ElMessage.warning('观察仓里已有这个标的和周期')
+    ElMessage.warning('观察仓里已有这个标的、周期和方向')
     return
   }
   const target = normalizeTarget({
@@ -814,15 +836,16 @@ function setChartData(klines, steps) {
 }
 
 function buildMarkers(steps) {
+  const direction = normalizeDirection(activeTarget.value?.direction)
   return steps
     .filter(isImportantStep)
     .map(step => ({
       time: normalizeTimestamp(step.kline_time),
-      position: step.decision === 'invalid' ? 'aboveBar' : 'belowBar',
+      position: markerPosition(step, direction),
       color: markerColor(step),
-      shape: isBuyPointStep(step) ? 'arrowUp' : step.decision === 'invalid' ? 'arrowDown' : 'circle',
+      shape: markerShape(step, direction),
       text: isBuyPointStep(step)
-        ? `买点 ${step.confidence}`
+        ? `${actionLabel(direction)} ${step.confidence}`
         : step.decision === 'invalid'
           ? '失效'
           : `观察 ${step.confidence}`
@@ -830,9 +853,20 @@ function buildMarkers(steps) {
 }
 
 function markerColor(step) {
-  if (isBuyPointStep(step)) return '#00c853'
+  if (isBuyPointStep(step)) return directionSignalColor(activeTarget.value?.direction)
   if (step.decision === 'invalid') return '#ff5252'
   return '#ffd740'
+}
+
+function markerPosition(step, direction) {
+  if (isBuyPointStep(step)) return normalizeDirection(direction) === 'short' ? 'aboveBar' : 'belowBar'
+  return step.decision === 'invalid' ? 'aboveBar' : 'belowBar'
+}
+
+function markerShape(step, direction) {
+  if (isBuyPointStep(step)) return normalizeDirection(direction) === 'short' ? 'arrowDown' : 'arrowUp'
+  if (step.decision === 'invalid') return 'arrowDown'
+  return 'circle'
 }
 
 function isBuyPointStep(step) {
@@ -852,14 +886,14 @@ function importanceKey(step) {
 }
 
 function importanceLabel(step) {
-  if (isBuyPointStep(step)) return '买点'
+  if (isBuyPointStep(step)) return actionLabel(activeTarget.value?.direction)
   if (step.decision === 'invalid') return '风险'
   if (isImportantStep(step)) return '观察'
   return '普通'
 }
 
 function importanceType(step) {
-  if (isBuyPointStep(step)) return 'success'
+  if (isBuyPointStep(step)) return directionSignalType(activeTarget.value?.direction)
   if (step.decision === 'invalid') return 'danger'
   if (isImportantStep(step)) return 'warning'
   return 'info'
@@ -905,21 +939,27 @@ function formatTime(ms) {
 
 const formatMaybe = value => value == null ? '--' : formatPrice(value)
 
+const normalizeDirection = value => value === 'short' ? 'short' : 'long'
+const directionLabel = value => normalizeDirection(value) === 'short' ? '做空' : '做多'
+const directionType = value => normalizeDirection(value) === 'short' ? 'danger' : 'success'
+const actionLabel = value => normalizeDirection(value) === 'short' ? '空点' : '买点'
+const directionSignalType = value => normalizeDirection(value) === 'short' ? 'danger' : 'success'
+const directionSignalColor = value => normalizeDirection(value) === 'short' ? '#ff5252' : '#00c853'
 const trendLabel = value => ({ confirmed: '确认', weak: '转弱', exhaustion: '衰竭', unclear: '不明' }[value] || value || '--')
 const trendType = value => ({ confirmed: 'success', weak: 'warning', exhaustion: 'danger', unclear: 'info' }[value] || 'info')
 const pullbackLabel = value => ({ none: '无', started: '开始', healthy: '健康', dangerous: '危险', completed: '完成' }[value] || value || '--')
 const pullbackType = value => ({ healthy: 'success', completed: 'success', started: 'warning', dangerous: 'danger', none: 'info' }[value] || 'info')
-const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '买点' }[value] || value || '--')
-const buyPointType = value => ({ ready: 'success', watch: 'warning', none: 'info' }[value] || 'info')
-const decisionLabel = value => ({ wait: '等待', alert: '买点', cooldown: '观察', invalid: '失效' }[value] || value || '--')
+const buyPointLabel = value => ({ none: '无', watch: '观察', ready: actionLabel(activeTarget.value?.direction) }[value] || value || '--')
+const buyPointType = value => value === 'ready' ? directionSignalType(activeTarget.value?.direction) : ({ watch: 'warning', none: 'info' }[value] || 'info')
+const decisionLabel = value => ({ wait: '等待', alert: actionLabel(activeTarget.value?.direction), cooldown: '观察', invalid: '失效' }[value] || value || '--')
 const decisionType = value => ({ alert: 'success', wait: 'warning', cooldown: 'warning', invalid: 'danger' }[value] || 'info')
 function stepDecisionLabel(step) {
-  if (isBuyPointStep(step)) return '买点'
+  if (isBuyPointStep(step)) return actionLabel(activeTarget.value?.direction)
   if (step?.decision === 'alert') return '观察'
   return decisionLabel(step?.decision)
 }
 function stepDecisionType(step) {
-  if (isBuyPointStep(step)) return 'success'
+  if (isBuyPointStep(step)) return directionSignalType(activeTarget.value?.direction)
   if (step?.decision === 'alert') return 'warning'
   return decisionType(step?.decision)
 }
@@ -945,7 +985,7 @@ function statusLabel(target) {
   if (target.error) return '异常'
   if (target.data_status === 'waiting_data') return '等待数据'
   if (!target.result) return target.enabled ? '待分析' : '已关闭'
-  if (alertCount(target) > 0) return '发现买点'
+  if (alertCount(target) > 0) return `发现${actionLabel(target.direction)}`
   if (invalidCount(target) > 0) return '趋势失效'
   return '跟踪中'
 }
@@ -954,7 +994,7 @@ function statusType(target) {
   if (target.loading || target.data_status === 'analyzing') return 'warning'
   if (target.error) return 'danger'
   if (target.data_status === 'waiting_data') return 'info'
-  if (alertCount(target) > 0) return 'success'
+  if (alertCount(target) > 0) return directionSignalType(target.direction)
   if (invalidCount(target) > 0) return 'danger'
   if (target.enabled) return '' // 默认色
   return 'info'

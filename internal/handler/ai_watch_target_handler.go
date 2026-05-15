@@ -22,9 +22,9 @@ type WatchScheduler interface {
 }
 
 type AIWatchTargetHandler struct {
-	repo         repository.AIWatchTargetRepo
-	scheduler    WatchScheduler
-	syncService  interface {
+	repo        repository.AIWatchTargetRepo
+	scheduler   WatchScheduler
+	syncService interface {
 		EnsureSymbolKlines(marketCode, symbolCode, period string) (*models.Symbol, error)
 	}
 	logger *zap.Logger
@@ -42,6 +42,7 @@ type aiWatchTargetRequest struct {
 	SymbolCode string          `json:"symbol_code"`
 	SymbolID   *int            `json:"symbol_id"`
 	Period     string          `json:"period"`
+	Direction  string          `json:"direction"`
 	Limit      int             `json:"limit"`
 	SendFeishu bool            `json:"send_feishu"`
 	Enabled    bool            `json:"enabled"`
@@ -76,6 +77,7 @@ func (h *AIWatchTargetHandler) Upsert(c *gin.Context) {
 	req.MarketCode = strings.TrimSpace(req.MarketCode)
 	req.SymbolCode = normalizeAIWatchSymbolCode(req.MarketCode, req.SymbolCode)
 	req.Period = strings.TrimSpace(req.Period)
+	req.Direction = normalizeAIWatchDirection(req.Direction)
 	if req.SkillName == "" || req.MarketCode == "" || req.SymbolCode == "" || req.Period == "" {
 		HandleError(c, http.StatusBadRequest, errors.New("skill_name、market_code、symbol_code、period 必填"))
 		return
@@ -94,6 +96,7 @@ func (h *AIWatchTargetHandler) Upsert(c *gin.Context) {
 		SymbolCode:   req.SymbolCode,
 		SymbolID:     req.SymbolID,
 		Period:       req.Period,
+		Direction:    req.Direction,
 		Limit:        req.Limit,
 		SendFeishu:   req.SendFeishu,
 		Enabled:      req.Enabled,
@@ -219,4 +222,11 @@ func normalizeAIWatchSymbolCode(marketCode, symbolCode string) string {
 		return "sz" + code
 	}
 	return strings.ToUpper(code)
+}
+
+func normalizeAIWatchDirection(direction string) string {
+	if strings.ToLower(strings.TrimSpace(direction)) == models.DirectionShort {
+		return models.DirectionShort
+	}
+	return models.DirectionLong
 }

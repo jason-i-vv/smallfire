@@ -22,7 +22,7 @@ func scanAIWatchTarget(scanner interface{ Scan(...interface{}) error }, target *
 	var resultBytes []byte
 	if err := scanner.Scan(
 		&target.ID, &target.UserID, &target.SkillName, &target.MarketCode, &target.SymbolCode,
-		&target.SymbolID, &target.Period, &target.Limit, &target.SendFeishu, &target.Enabled,
+		&target.SymbolID, &target.Period, &target.Direction, &target.Limit, &target.SendFeishu, &target.Enabled,
 		&target.DataStatus, &target.ErrorMessage, &target.LastRunAt, &resultBytes,
 		&target.CreatedAt, &target.UpdatedAt,
 	); err != nil {
@@ -37,7 +37,7 @@ func scanAIWatchTarget(scanner interface{ Scan(...interface{}) error }, target *
 func (r *AIWatchTargetRepoPG) List(userID *int, skillName string) ([]*models.AIWatchTarget, error) {
 	query := `
 		SELECT id, user_id, skill_name, market_code, symbol_code, symbol_id,
-			       period, limit_count, send_feishu, enabled, data_status, error_message,
+			       period, direction, limit_count, send_feishu, enabled, data_status, error_message,
 			       last_run_at, result_json, created_at, updated_at
 			FROM ai_watch_targets
 			WHERE skill_name = $1 AND (($2::integer IS NULL AND user_id IS NULL) OR user_id = $2)
@@ -66,7 +66,7 @@ func (r *AIWatchTargetRepoPG) List(userID *int, skillName string) ([]*models.AIW
 func (r *AIWatchTargetRepoPG) GetByID(id int, userID *int) (*models.AIWatchTarget, error) {
 	query := `
 		SELECT id, user_id, skill_name, market_code, symbol_code, symbol_id,
-		       period, limit_count, send_feishu, enabled, data_status, error_message,
+		       period, direction, limit_count, send_feishu, enabled, data_status, error_message,
 		       last_run_at, result_json, created_at, updated_at
 		FROM ai_watch_targets
 		WHERE id = $1 AND (($2::integer IS NULL AND user_id IS NULL) OR user_id = $2)
@@ -74,7 +74,7 @@ func (r *AIWatchTargetRepoPG) GetByID(id int, userID *int) (*models.AIWatchTarge
 	var target models.AIWatchTarget
 	err := r.db.QueryRow(context.Background(), query, id, userID).Scan(
 		&target.ID, &target.UserID, &target.SkillName, &target.MarketCode, &target.SymbolCode,
-		&target.SymbolID, &target.Period, &target.Limit, &target.SendFeishu, &target.Enabled,
+		&target.SymbolID, &target.Period, &target.Direction, &target.Limit, &target.SendFeishu, &target.Enabled,
 		&target.DataStatus, &target.ErrorMessage, &target.LastRunAt, &target.Result,
 		&target.CreatedAt, &target.UpdatedAt,
 	)
@@ -87,11 +87,10 @@ func (r *AIWatchTargetRepoPG) GetByID(id int, userID *int) (*models.AIWatchTarge
 	return &target, nil
 }
 
-
 func (r *AIWatchTargetRepoPG) GetByIDPublic(id int) (*models.AIWatchTarget, error) {
 	query := `
 		SELECT id, user_id, skill_name, market_code, symbol_code, symbol_id,
-		       period, limit_count, send_feishu, enabled, data_status, error_message,
+		       period, direction, limit_count, send_feishu, enabled, data_status, error_message,
 		       last_run_at, result_json, created_at, updated_at
 		FROM ai_watch_targets
 		WHERE id = $1
@@ -99,7 +98,7 @@ func (r *AIWatchTargetRepoPG) GetByIDPublic(id int) (*models.AIWatchTarget, erro
 	var target models.AIWatchTarget
 	err := r.db.QueryRow(context.Background(), query, id).Scan(
 		&target.ID, &target.UserID, &target.SkillName, &target.MarketCode, &target.SymbolCode,
-		&target.SymbolID, &target.Period, &target.Limit, &target.SendFeishu, &target.Enabled,
+		&target.SymbolID, &target.Period, &target.Direction, &target.Limit, &target.SendFeishu, &target.Enabled,
 		&target.DataStatus, &target.ErrorMessage, &target.LastRunAt, &target.Result,
 		&target.CreatedAt, &target.UpdatedAt,
 	)
@@ -113,14 +112,15 @@ func (r *AIWatchTargetRepoPG) GetByIDPublic(id int) (*models.AIWatchTarget, erro
 }
 
 func (r *AIWatchTargetRepoPG) Upsert(target *models.AIWatchTarget) error {
+	target.Direction = normalizeAIWatchDirection(target.Direction)
 	query := `
 		INSERT INTO ai_watch_targets (
-			user_id, skill_name, market_code, symbol_code, symbol_id, period,
+			user_id, skill_name, market_code, symbol_code, symbol_id, period, direction,
 			limit_count, send_feishu, enabled, data_status, error_message,
 			last_run_at, result_json, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
-		ON CONFLICT (user_id, skill_name, market_code, symbol_code, period)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+		ON CONFLICT (user_id, skill_name, market_code, symbol_code, period, direction)
 		DO UPDATE SET
 			symbol_id = EXCLUDED.symbol_id,
 			limit_count = EXCLUDED.limit_count,
@@ -139,7 +139,7 @@ func (r *AIWatchTargetRepoPG) Upsert(target *models.AIWatchTarget) error {
 	}
 	if err := r.db.QueryRow(context.Background(), query,
 		target.UserID, target.SkillName, target.MarketCode, target.SymbolCode, target.SymbolID,
-		target.Period, target.Limit, target.SendFeishu, target.Enabled, target.DataStatus,
+		target.Period, normalizeAIWatchDirection(target.Direction), target.Limit, target.SendFeishu, target.Enabled, target.DataStatus,
 		target.ErrorMessage, target.LastRunAt, result,
 	).Scan(&target.ID, &target.CreatedAt, &target.UpdatedAt); err != nil {
 		return fmt.Errorf("保存AI观察位失败: %w", err)
@@ -161,7 +161,7 @@ func (r *AIWatchTargetRepoPG) Delete(userID *int, id int) error {
 func (r *AIWatchTargetRepoPG) ListEnabled(marketCode, symbolCode, period string) ([]*models.AIWatchTarget, error) {
 	query := `
 		SELECT id, user_id, skill_name, market_code, symbol_code, symbol_id,
-			       period, limit_count, send_feishu, enabled, data_status, error_message,
+			       period, direction, limit_count, send_feishu, enabled, data_status, error_message,
 			       last_run_at, result_json, created_at, updated_at
 			FROM ai_watch_targets
 			WHERE enabled = true AND market_code = $1 AND symbol_code = $2 AND period = $3
@@ -182,4 +182,11 @@ func (r *AIWatchTargetRepoPG) ListEnabled(marketCode, symbolCode, period string)
 		targets = append(targets, &target)
 	}
 	return targets, rows.Err()
+}
+
+func normalizeAIWatchDirection(direction string) string {
+	if strings.ToLower(strings.TrimSpace(direction)) == models.DirectionShort {
+		return models.DirectionShort
+	}
+	return models.DirectionLong
 }
