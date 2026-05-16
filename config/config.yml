@@ -25,7 +25,7 @@ log:
 
 # 飞书通知配置
 feishu:
-  enabled: false
+  enabled: true
   webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/c585be48-9114-4f71-bf3d-0f82f98ba4d6"
   send_summary: false
   summary_interval: 6
@@ -121,17 +121,23 @@ strategies:
   wick:
     enabled: true
     lookback_klines: 100
-    body_percent_max: 30        # 实体占比上限（%）
-    shadow_min_ratio: 2.0      # 引线最小倍数
-    require_trend: true        # 是否要求趋势确认
+    body_percent_max: 25        # 实体占比上限（%）——从30%收紧
+    shadow_min_ratio: 2.5       # 引线最小倍数——从2.0提高
+    min_wick_length_percent: 40 # 最小引线长度（占K线总长%）
+    require_trend: true         # 是否要求趋势确认
     fake_breakout_enabled: true # 是否识别假突破
     breakout_threshold: 0.5     # 固定突破阈值（%）回退值
     atr_period: 14              # ATR 计算周期
     atr_multiplier: 3.0         # 突破阈值 = ATR%/price * 3.0
     min_breakout_threshold: 0.5 # 最小突破阈值（%）
     max_breakout_threshold: 5.0 # 最大突破阈值（%）
-    strength_lookback: 20      # 历史引线回溯数
-    signal_cooldown: 30        # 信号冷却期（分钟）
+    volume_confirm_enabled: true  # 是否要求量能确认
+    volume_min_ratio: 1.5       # 引线K线成交量 >= 前N根均量的倍数
+    volume_lookback: 20         # 量能计算回溯K线数（不含当前K线）
+    volatility_filter_enabled: true # 是否启用波动率过滤
+    min_atr_percent: 0.3        # 最小ATR%（低于此值视为低波动不交易）
+    strength_lookback: 20       # 历史引线回溯数
+    signal_cooldown: 30         # 信号冷却期（分钟）
     check_interval: 60
   candlestick:
     enabled: true

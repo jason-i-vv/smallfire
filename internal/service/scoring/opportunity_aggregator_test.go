@@ -146,6 +146,8 @@ func (m *mockTrackRepoForAgg) GetOpenByOpportunityID(opportunityID int) (*models
 func (m *mockTrackRepoForAgg) GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error) {
 	return nil, nil
 }
+func (m *mockTrackRepoForAgg) CountByStatus(status string) (int, error) { return 0, nil }
+func (m *mockTrackRepoForAgg) GetAnomalous() ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForAgg) GetOpenBySource(source string) ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForAgg) GetRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.RegimeStatsResult, error) {
 	return nil, nil

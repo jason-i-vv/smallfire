@@ -274,6 +274,8 @@ func (m *mockTrackRepoForStats) GetEquityCurveSQL(startDate, endDate *time.Time,
 func (m *mockTrackRepoForStats) GetScoreEquitySQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreEquitySQLResult, error) {
 	return nil, nil
 }
+func (m *mockTrackRepoForStats) CountByStatus(status string) (int, error) { return 0, nil }
+func (m *mockTrackRepoForStats) GetAnomalous() ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForStats) GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreRegimeSQLResult, error) {
 	return nil, nil
 }

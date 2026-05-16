@@ -12,9 +12,16 @@ import (
 )
 
 // CalcSLTP 计算止盈止损价格
-// 优先级：1. opportunity 建议值 → 2. ATR 动态计算 → 3. 固定百分比兜底
-// 优化：震荡市放宽止损、收窄止盈；量比异常收紧止损
+// 优先级：1. wick 场景专用 → 2. opportunity 建议值 → 3. ATR 动态计算 → 4. 固定百分比兜底
 func CalcSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.TradingConfig, klineRepo repository.KlineRepo, logger *zap.Logger) (float64, float64) {
+	// 0. wick 策略场景专用止盈止损
+	if opp.StrategyType == "wick" {
+		wickSL, wickTP := CalcWickSLTP(entryPrice, opp, cfg, klineRepo, logger)
+		if wickSL > 0 && wickTP > 0 {
+			return wickSL, wickTP
+		}
+	}
+
 	sl, tp := 0.0, 0.0
 
 	// 根据市场状态动态调整止盈止损比例
@@ -64,6 +71,109 @@ func CalcSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.Tr
 			tp = entryPrice * (1 - tpPct)
 		}
 	}
+
+	return sl, tp
+}
+
+// wickSceneMultipliers 引线场景止盈止损 ATR 倍数
+var wickSceneMultipliers = map[string]struct {
+	SLMult float64
+	TPMult float64
+}{
+	"fake_breakout_key_level": {0.8, 2.0}, // 高确信，宽止盈，RR=2.5
+	"fake_breakout":           {1.0, 1.5}, // 中等确信，RR=1.5
+	"reversal_key_level":      {1.0, 1.5}, // 中等确信，RR=1.5
+	"plain":                   {1.2, 1.2}, // 低确信，严格风控，RR=1.0
+}
+
+// CalcWickSLTP 根据引线场景计算场景专用止盈止损
+func CalcWickSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.TradingConfig, klineRepo repository.KlineRepo, logger *zap.Logger) (float64, float64) {
+	// 获取 wick_scene
+	scene := "plain"
+	if opp.ScoreDetails != nil {
+		if s, ok := (*opp.ScoreDetails)["wick_scene"].(string); ok && s != "" {
+			scene = s
+		}
+	}
+
+	// 获取场景对应的 ATR 倍数
+	mult, ok := wickSceneMultipliers[scene]
+	if !ok {
+		mult = wickSceneMultipliers["plain"]
+	}
+
+	// 计算 ATR
+	atrPeriod := cfg.ATRPeriod
+	if atrPeriod <= 0 {
+		atrPeriod = 14
+	}
+
+	periods := []string{opp.Period, "15m", "1h"}
+	var klines []models.Kline
+	for _, p := range periods {
+		if p == "" {
+			continue
+		}
+		ks, err := klineRepo.GetLatestN(opp.SymbolID, p, atrPeriod+1)
+		if err != nil || len(ks) < 2 {
+			continue
+		}
+		klines = ks
+		break
+	}
+
+	if len(klines) < 2 {
+		logger.Debug("CalcWickSLTP: K线数据不足，回退到 CalcSLTP 通用逻辑",
+			zap.String("symbol_code", opp.SymbolCode),
+			zap.String("scene", scene))
+		return 0, 0
+	}
+
+	atr := helpers.CalculateATR(klines, atrPeriod)
+	if atr <= 0 {
+		return 0, 0
+	}
+
+	slDist := atr * mult.SLMult
+	tpDist := atr * mult.TPMult
+
+	// 最小/最大距离限制
+	minSLDist := entryPrice * 0.005  // 0.5%
+	maxSLDist := entryPrice * 0.05   // 5%
+	minTPDist := entryPrice * 0.008  // 0.8%
+	maxTPDist := entryPrice * 0.15   // 15%
+
+	if slDist < minSLDist {
+		slDist = minSLDist
+	}
+	if slDist > maxSLDist {
+		slDist = maxSLDist
+	}
+	if tpDist < minTPDist {
+		tpDist = minTPDist
+	}
+	if tpDist > maxTPDist {
+		tpDist = maxTPDist
+	}
+
+	var sl, tp float64
+	if opp.Direction == models.DirectionLong {
+		sl = entryPrice - slDist
+		tp = entryPrice + tpDist
+	} else {
+		sl = entryPrice + slDist
+		tp = entryPrice - tpDist
+	}
+
+	logger.Info("引线场景止盈止损",
+		zap.String("symbol_code", opp.SymbolCode),
+		zap.String("scene", scene),
+		zap.Float64("entry_price", entryPrice),
+		zap.Float64("atr", atr),
+		zap.Float64("sl_mult", mult.SLMult),
+		zap.Float64("tp_mult", mult.TPMult),
+		zap.Float64("stop_loss", sl),
+		zap.Float64("take_profit", tp))
 
 	return sl, tp
 }
