@@ -170,6 +170,22 @@ func TestSkillDecisionDoesNotPromoteAlertWithoutReadyBuyPoint(t *testing.T) {
 	}
 }
 
+func TestInvalidStepTerminatesTrackingImmediately(t *testing.T) {
+	steps := []AnalysisStep{
+		{Decision: "wait"},
+		{Decision: "invalid"},
+		{Decision: "wait"},
+	}
+	if got := firstInvalidStep(steps); got == nil || got.Decision != "invalid" {
+		t.Fatalf("firstInvalidStep() = %v, want invalid step", got)
+	}
+
+	raw := json.RawMessage(`[{"decision":"wait"},{"decision":"invalid"}]`)
+	if !hasInvalidStepJSON(raw) {
+		t.Fatal("hasInvalidStepJSON() = false, want true")
+	}
+}
+
 func TestNormalizeMissedKlineIndex(t *testing.T) {
 	valid := 42
 	if got := normalizeMissedKlineIndex(true, &valid, 40, 50); got == nil || *got != valid {

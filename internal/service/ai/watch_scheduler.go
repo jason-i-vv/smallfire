@@ -171,10 +171,10 @@ func (s *AIWatchScheduler) analyzeAndSave(ctx context.Context, target *models.AI
 	now := time.Now().UnixMilli()
 	target.LastRunAt = &now
 
-	// 最新 step 判定失效则自动关闭跟踪（改为连续 3 根才关闭）
-	if shouldDisableTracking(target.Result) {
+	// 本轮出现 invalid 立即关闭跟踪
+	if hasInvalidStepJSON(newSteps) {
 		target.Enabled = false
-		s.logger.Info("趋势连续失效，自动关闭AI跟踪",
+		s.logger.Info("趋势失效，自动关闭AI跟踪",
 			zap.String("agent", target.SkillName),
 			zap.String("symbol", target.SymbolCode),
 			zap.String("period", target.Period))
@@ -183,26 +183,21 @@ func (s *AIWatchScheduler) analyzeAndSave(ctx context.Context, target *models.AI
 	return s.watchRepo.Upsert(target)
 }
 
-// hasLatestInvalid 检查最新一条 step 是否为 decision=invalid
-func hasLatestInvalid(resultJSON json.RawMessage) bool {
-	if len(resultJSON) == 0 {
+// hasInvalidStepJSON 检查本轮新 step 是否包含 decision=invalid
+func hasInvalidStepJSON(stepsJSON json.RawMessage) bool {
+	var steps []json.RawMessage
+	if json.Unmarshal(stepsJSON, &steps) != nil {
 		return false
 	}
-	var result struct {
-		Steps []json.RawMessage `json:"steps"`
+	for _, raw := range steps {
+		var step struct {
+			Decision string `json:"decision"`
+		}
+		if json.Unmarshal(raw, &step) == nil && step.Decision == "invalid" {
+			return true
+		}
 	}
-	if json.Unmarshal(resultJSON, &result) != nil || len(result.Steps) == 0 {
-		return false
-	}
-	// steps 按时间升序，取最后一条
-	latest := result.Steps[len(result.Steps)-1]
-	var step struct {
-		Decision string `json:"decision"`
-	}
-	if json.Unmarshal(latest, &step) != nil {
-		return false
-	}
-	return step.Decision == "invalid"
+	return false
 }
 
 // mergeStepsJSON 合并已有 steps 和新 steps，按 kline_time 去重

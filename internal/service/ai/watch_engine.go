@@ -172,21 +172,27 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 	now := time.Now().UnixMilli()
 	target.LastRunAt = &now
 
-	// 10. 判断是否关闭（连续 3 根 invalid 才关闭）
-	if shouldDisableTracking(target.Result) {
+	invalidStep := firstInvalidStep(steps)
+
+	// 10. 本轮出现 invalid 立即关闭，避免失效观察仓继续自动巡检
+	if invalidStep != nil {
 		target.Enabled = false
-		e.logger.Info("趋势连续失效，自动关闭 AI 跟踪",
+		e.logger.Info("趋势失效，自动关闭 AI 跟踪",
 			zap.String("symbol", target.SymbolCode),
 			zap.String("skill", target.SkillName))
 	}
 
-	// 11. 检查是否有可操作买点，发送通知
+	// 11. 失效通知优先于买点通知；失效后不会再继续跟踪
 	if target.SendFeishu && e.notifier != nil {
-		for i := range steps {
-			step := &steps[i]
-			if step.Decision == "alert" && step.BuyPoint == "ready" && step.Confidence >= 70 {
-				e.notifier.SendToAll(e.buildNotification(target, step))
-				break
+		if invalidStep != nil {
+			e.notifier.SendToAll(e.buildNotification(target, invalidStep))
+		} else {
+			for i := range steps {
+				step := &steps[i]
+				if step.Decision == "alert" && step.BuyPoint == "ready" && step.Confidence >= 70 {
+					e.notifier.SendToAll(e.buildNotification(target, step))
+					break
+				}
 			}
 		}
 	}
@@ -264,43 +270,26 @@ func (e *WatchEngine) buildHeader(target *models.AIWatchTarget) string {
 		target.SymbolCode, target.MarketCode, target.Period, watchDirectionLabel(target.Direction))
 }
 
-// shouldDisableTracking 检查最近的 steps 是否连续 3 根 invalid
-func shouldDisableTracking(resultJSON json.RawMessage) bool {
-	if len(resultJSON) == 0 {
-		return false
-	}
-
-	var result struct {
-		Steps []json.RawMessage `json:"steps"`
-	}
-	if json.Unmarshal(resultJSON, &result) != nil || len(result.Steps) == 0 {
-		return false
-	}
-
-	// 检查最后 3 根
-	latest := result.Steps
-	if len(latest) > 3 {
-		latest = latest[len(latest)-3:]
-	}
-
-	for _, raw := range latest {
-		var step struct {
-			Decision string `json:"decision"`
-		}
-		if json.Unmarshal(raw, &step) != nil {
-			return false
-		}
-		if step.Decision != "invalid" {
-			return false
+func firstInvalidStep(steps []AnalysisStep) *AnalysisStep {
+	for i := range steps {
+		if steps[i].Decision == "invalid" {
+			return &steps[i]
 		}
 	}
-	return len(latest) >= 3
+	return nil
 }
 
 func (e *WatchEngine) buildNotification(target *models.AIWatchTarget, step *AnalysisStep) *notification.NotifyContent {
 	actionLabel := "买点"
 	if target.Direction == models.DirectionShort {
 		actionLabel = "空点"
+	}
+	title := fmt.Sprintf("AI %s提醒 %s (%s)", actionLabel, target.SymbolCode, target.SkillName)
+	notifyType := "opportunity"
+	if step.Decision == "invalid" {
+		actionLabel = "趋势失效"
+		title = fmt.Sprintf("AI 趋势失效提醒 %s (%s)", target.SymbolCode, target.SkillName)
+		notifyType = "alert"
 	}
 	message := fmt.Sprintf("标的: %s\n周期: %s\n方向: %s\n策略: %s\n置信度: %d\n理由: %s",
 		target.SymbolCode, target.Period, watchDirectionLabel(target.Direction), target.SkillName, step.Confidence, step.Reasoning)
@@ -318,13 +307,14 @@ func (e *WatchEngine) buildNotification(target *models.AIWatchTarget, step *Anal
 	}
 
 	return &notification.NotifyContent{
-		Title:   fmt.Sprintf("AI %s提醒 %s (%s)", actionLabel, target.SymbolCode, target.SkillName),
-		Type:    "opportunity",
+		Title:   title,
+		Type:    notifyType,
 		Message: message,
 		Data: map[string]interface{}{
 			"skill":      target.SkillName,
 			"period":     target.Period,
 			"direction":  target.Direction,
+			"event":      actionLabel,
 			"confidence": step.Confidence,
 			"kline_time": time.UnixMilli(step.KlineTime).In(time.FixedZone("UTC+8", 8*60*60)).Format("2006-01-02 15:04:05"),
 		},

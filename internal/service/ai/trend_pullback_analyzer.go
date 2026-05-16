@@ -156,18 +156,26 @@ func (a *TrendPullbackAnalyzer) Analyze(ctx context.Context, req TrendPullbackRe
 	resp.Steps = steps
 	resp.Analyzed = len(steps)
 
-	for i := range resp.Steps {
-		step := &resp.Steps[i]
-		if isActionableBuyPoint(step) {
-			resp.Found = true
-			resp.Best = step
-			break
+	invalidStep := firstInvalidTrendPullbackStep(resp.Steps)
+	if invalidStep == nil {
+		for i := range resp.Steps {
+			step := &resp.Steps[i]
+			if isActionableBuyPoint(step) {
+				resp.Found = true
+				resp.Best = step
+				break
+			}
 		}
 	}
 
-	if resp.Found && req.SendFeishu && a.notifier != nil {
-		a.notifier.SendToAll(a.buildNotification(req, resp.Best))
-		resp.Notified = true
+	if req.SendFeishu && a.notifier != nil {
+		if invalidStep != nil {
+			a.notifier.SendToAll(a.buildNotification(req, invalidStep))
+			resp.Notified = true
+		} else if resp.Found {
+			a.notifier.SendToAll(a.buildNotification(req, resp.Best))
+			resp.Notified = true
+		}
 	}
 
 	return resp, nil
@@ -363,6 +371,13 @@ func (a *TrendPullbackAnalyzer) buildNotification(req TrendPullbackRequest, step
 		directionLabel = "做空"
 		actionLabel = "空点"
 	}
+	title := fmt.Sprintf("趋势回调%s提醒 %s", actionLabel, req.SymbolCode)
+	notifyType := "opportunity"
+	if step.Decision == "invalid" {
+		actionLabel = "趋势失效"
+		title = fmt.Sprintf("趋势失效提醒 %s", req.SymbolCode)
+		notifyType = "alert"
+	}
 	message := fmt.Sprintf("币对: %s\n周期: %s\n方向: %s\n状态: %s / %s\n置信度: %d\n理由: %s",
 		req.SymbolCode, req.Period, directionLabel, step.TrendState, step.PullbackState, step.Confidence, step.Reasoning)
 	if step.EntryPrice != nil {
@@ -379,11 +394,13 @@ func (a *TrendPullbackAnalyzer) buildNotification(req TrendPullbackRequest, step
 	}
 
 	return &notification.NotifyContent{
-		Title:   fmt.Sprintf("趋势回调%s提醒 %s", actionLabel, req.SymbolCode),
-		Type:    "opportunity",
+		Title:   title,
+		Type:    notifyType,
 		Message: message,
 		Data: map[string]interface{}{
 			"period":     req.Period,
+			"direction":  req.Direction,
+			"event":      actionLabel,
 			"confidence": step.Confidence,
 			"kline_time": time.UnixMilli(step.KlineTime).In(time.FixedZone("UTC+8", 8*60*60)).Format("2006-01-02 15:04:05"),
 		},
@@ -399,6 +416,15 @@ func isActionableBuyPoint(step *TrendPullbackStepResult) bool {
 		step.Confidence >= 70 &&
 		step.EntryPrice != nil &&
 		step.StopLoss != nil
+}
+
+func firstInvalidTrendPullbackStep(steps []TrendPullbackStepResult) *TrendPullbackStepResult {
+	for i := range steps {
+		if steps[i].Decision == "invalid" {
+			return &steps[i]
+		}
+	}
+	return nil
 }
 
 func parseTrendPullbackBatchResponse(raw string) (*trendPullbackBatchAIResult, error) {
