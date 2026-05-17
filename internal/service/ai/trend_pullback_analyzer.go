@@ -202,6 +202,7 @@ func (a *TrendPullbackAnalyzer) analyzeBatch(ctx context.Context, req TrendPullb
 	}
 
 	results := make([]TrendPullbackStepResult, 0, len(parsed.Steps))
+	alertOpen := false
 	for _, step := range parsed.Steps {
 		if step.KlineIndex < start || step.KlineIndex >= len(klines) {
 			continue
@@ -212,6 +213,7 @@ func (a *TrendPullbackAnalyzer) analyzeBatch(ctx context.Context, req TrendPullb
 		stopLoss := normalizeOptionalPrice(step.StopLoss)
 		takeProfit := normalizeOptionalPrice(step.TakeProfit)
 		invalidationLevel := normalizeOptionalPrice(step.InvalidationLevel)
+		riskNotes := append([]string(nil), step.RiskNotes...)
 		if buyPoint != "ready" {
 			entryPrice = nil
 			stopLoss = nil
@@ -224,6 +226,28 @@ func (a *TrendPullbackAnalyzer) analyzeBatch(ctx context.Context, req TrendPullb
 			stopLoss = nil
 			takeProfit = nil
 			invalidationLevel = nil
+		}
+		if buyPoint == "ready" {
+			switch {
+			case !isStrictTrendPullbackReady(step.TrendState, step.PullbackState, entryPrice, stopLoss, takeProfit):
+				buyPoint = "watch"
+				entryPrice = nil
+				stopLoss = nil
+				takeProfit = nil
+				invalidationLevel = nil
+				riskNotes = appendTrendPullbackGateNote(riskNotes, "未通过系统买点硬校验：需确认趋势、健康回调、止损止盈和风险收益比>=1.8")
+			case alertOpen:
+				buyPoint = "watch"
+				entryPrice = nil
+				stopLoss = nil
+				takeProfit = nil
+				invalidationLevel = nil
+				riskNotes = appendTrendPullbackGateNote(riskNotes, "同一段回调已出现买点，避免连续追价重复提醒")
+			default:
+				alertOpen = true
+			}
+		} else if shouldResetTrendPullbackAlert(step.PullbackState) {
+			alertOpen = false
 		}
 		decision := normalizeTrendPullbackDecision(step.Decision, buyPoint, step.TrendState, step.PullbackState)
 		if decision == "alert" && buyPoint != "ready" {
@@ -245,7 +269,7 @@ func (a *TrendPullbackAnalyzer) analyzeBatch(ctx context.Context, req TrendPullb
 			Missed:            missedKlineIndex != nil,
 			MissedKlineIndex:  missedKlineIndex,
 			Reasoning:         step.Reasoning,
-			RiskNotes:         step.RiskNotes,
+			RiskNotes:         riskNotes,
 		})
 	}
 
@@ -316,7 +340,8 @@ func trendPullbackSystemPrompt() string {
 }
 
 判定规则：
-- buy_point=ready 只有在趋势确认、回调健康、出现支撑收回/反包/小结构突破、且止损位清楚时才允许
+- buy_point=ready 只有在趋势确认、回调健康、出现支撑收回/反包/小结构突破、止损止盈清楚、且风险收益比>=1.8时才允许
+- 同一段回调/反弹只允许第一次触发 ready，后续续涨/续跌确认不要重复标 ready
 - 如果已出现支撑收回/放量反包/假跌破收回，且止损可放在回调低点或关键 EMA 下方，必须评估 ready，不要只给 watch
 - 如果只是接近回调区但没有触发，buy_point=watch
 - 如果价格离EMA太远或放量加速，trend_state=exhaustion 或 buy_point=none
@@ -415,7 +440,9 @@ func isActionableBuyPoint(step *TrendPullbackStepResult) bool {
 		step.BuyPoint == "ready" &&
 		step.Confidence >= 70 &&
 		step.EntryPrice != nil &&
-		step.StopLoss != nil
+		step.StopLoss != nil &&
+		step.TakeProfit != nil &&
+		isStrictTrendPullbackReady(step.TrendState, step.PullbackState, step.EntryPrice, step.StopLoss, step.TakeProfit)
 }
 
 func firstInvalidTrendPullbackStep(steps []TrendPullbackStepResult) *TrendPullbackStepResult {

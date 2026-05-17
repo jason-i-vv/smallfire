@@ -115,7 +115,8 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 
 ## 判定规则
 
-- buy_point=ready: 趋势确认 + 回调/反弹健康 + 出现入场触发信号 + 止损位清楚 + confidence>=70
+- buy_point=ready: 趋势确认 + 回调/反弹健康 + 出现入场触发信号 + 止损止盈清楚 + 风险收益比>=1.8 + confidence>=70
+- 同一段回调/反弹只允许第一次触发 ready，后续续涨/续跌确认不要重复标 ready
 - buy_point=watch: 只是接近回调区但没有触发
 - buy_point=none: 价格离 EMA 太远或放量加速
 - decision=alert: 等价于 buy_point=ready，必须有 entry_price、stop_loss、take_profit
@@ -198,6 +199,8 @@ type skillPullbackAIResult struct {
 	Steps []skillPullbackAIStep `json:"steps"`
 }
 
+const minTrendPullbackRiskReward = 1.8
+
 func (s *TrendPullbackSkill) ParseResponse(raw string) ([]AnalysisStep, error) {
 	candidates := extractJSONCandidates(raw)
 	if len(candidates) == 0 {
@@ -217,11 +220,13 @@ func (s *TrendPullbackSkill) ParseResponse(raw string) ([]AnalysisStep, error) {
 		}
 
 		steps := make([]AnalysisStep, 0, len(result.Steps))
+		alertOpen := false
 		for _, step := range result.Steps {
 			buyPoint := normalizeTrendPullbackBuyPoint(step.BuyPoint)
 			entryPrice := normalizeOptionalPrice(step.EntryPrice)
 			stopLoss := normalizeOptionalPrice(step.StopLoss)
 			takeProfit := normalizeOptionalPrice(step.TakeProfit)
+			riskNotes := append([]string(nil), step.RiskNotes...)
 
 			if buyPoint != "ready" {
 				entryPrice = nil
@@ -233,6 +238,26 @@ func (s *TrendPullbackSkill) ParseResponse(raw string) ([]AnalysisStep, error) {
 				entryPrice = nil
 				stopLoss = nil
 				takeProfit = nil
+			}
+			if buyPoint == "ready" {
+				switch {
+				case !isStrictTrendPullbackReady(step.TrendState, step.PullbackState, entryPrice, stopLoss, takeProfit):
+					buyPoint = "watch"
+					entryPrice = nil
+					stopLoss = nil
+					takeProfit = nil
+					riskNotes = appendTrendPullbackGateNote(riskNotes, "未通过系统买点硬校验：需确认趋势、健康回调、止损止盈和风险收益比>=1.8")
+				case alertOpen:
+					buyPoint = "watch"
+					entryPrice = nil
+					stopLoss = nil
+					takeProfit = nil
+					riskNotes = appendTrendPullbackGateNote(riskNotes, "同一段回调已出现买点，避免连续追价重复提醒")
+				default:
+					alertOpen = true
+				}
+			} else if shouldResetTrendPullbackAlert(step.PullbackState) {
+				alertOpen = false
 			}
 
 			decision := s.normalizeDecision(step.Decision, buyPoint, step.TrendState, step.PullbackState)
@@ -247,7 +272,7 @@ func (s *TrendPullbackSkill) ParseResponse(raw string) ([]AnalysisStep, error) {
 				TakeProfit:    takeProfit,
 				Confidence:    normalizeTrendPullbackConfidence(buyPoint, step.Confidence),
 				Reasoning:     step.Reasoning,
-				RiskNotes:     step.RiskNotes,
+				RiskNotes:     riskNotes,
 			})
 		}
 		return steps, nil
@@ -285,4 +310,54 @@ func (s *TrendPullbackSkill) normalizeDecision(decision, buyPoint, trendState, p
 		return decision
 	}
 	return "wait"
+}
+
+func isStrictTrendPullbackReady(trendState, pullbackState string, entryPrice, stopLoss, takeProfit *float64) bool {
+	if trendState != "confirmed" {
+		return false
+	}
+	if pullbackState != "healthy" && pullbackState != "completed" {
+		return false
+	}
+	if entryPrice == nil || stopLoss == nil || takeProfit == nil {
+		return false
+	}
+	riskReward, ok := trendPullbackRiskReward(*entryPrice, *stopLoss, *takeProfit)
+	return ok && riskReward >= minTrendPullbackRiskReward
+}
+
+func trendPullbackRiskReward(entryPrice, stopLoss, takeProfit float64) (float64, bool) {
+	if stopLoss < entryPrice && takeProfit > entryPrice {
+		risk := entryPrice - stopLoss
+		reward := takeProfit - entryPrice
+		if risk > 0 && reward > 0 {
+			return reward / risk, true
+		}
+	}
+	if stopLoss > entryPrice && takeProfit < entryPrice {
+		risk := stopLoss - entryPrice
+		reward := entryPrice - takeProfit
+		if risk > 0 && reward > 0 {
+			return reward / risk, true
+		}
+	}
+	return 0, false
+}
+
+func shouldResetTrendPullbackAlert(pullbackState string) bool {
+	switch pullbackState {
+	case "started", "dangerous":
+		return true
+	default:
+		return false
+	}
+}
+
+func appendTrendPullbackGateNote(notes []string, note string) []string {
+	for _, existing := range notes {
+		if existing == note {
+			return notes
+		}
+	}
+	return append(notes, note)
 }

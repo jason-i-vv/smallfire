@@ -170,6 +170,86 @@ func TestSkillDecisionDoesNotPromoteAlertWithoutReadyBuyPoint(t *testing.T) {
 	}
 }
 
+func TestTrendPullbackReadyRequiresValidRiskReward(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 1,
+			"trend_state": "confirmed",
+			"pullback_state": "completed",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 0.09112,
+			"stop_loss": 0.0835,
+			"take_profit": 0.095,
+			"confidence": 85,
+			"reasoning": "续涨接近前高"
+		}
+	]}`
+
+	steps, err := (&TrendPullbackSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].BuyPoint != "watch" {
+		t.Fatalf("BuyPoint = %s, want watch", steps[0].BuyPoint)
+	}
+	if steps[0].Decision != "wait" {
+		t.Fatalf("Decision = %s, want wait", steps[0].Decision)
+	}
+	if steps[0].EntryPrice != nil || steps[0].StopLoss != nil || steps[0].TakeProfit != nil {
+		t.Fatalf("expected downgraded step to clear prices: %+v", steps[0])
+	}
+	if steps[0].Confidence > 69 {
+		t.Fatalf("Confidence = %d, want <= 69", steps[0].Confidence)
+	}
+}
+
+func TestTrendPullbackReadyKeepsValidRiskRewardAndDedupesSamePullback(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 1,
+			"trend_state": "confirmed",
+			"pullback_state": "completed",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 10,
+			"stop_loss": 9,
+			"take_profit": 12,
+			"confidence": 75,
+			"reasoning": "回踩EMA30后反包"
+		},
+		{
+			"kline_index": 2,
+			"trend_state": "confirmed",
+			"pullback_state": "completed",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 10.2,
+			"stop_loss": 9.2,
+			"take_profit": 12.3,
+			"confidence": 80,
+			"reasoning": "继续上涨"
+		}
+	]}`
+
+	steps, err := (&TrendPullbackSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].BuyPoint != "ready" || steps[0].Decision != "alert" {
+		t.Fatalf("first step = %s/%s, want ready/alert", steps[0].BuyPoint, steps[0].Decision)
+	}
+	if steps[1].BuyPoint != "watch" || steps[1].Decision != "wait" {
+		t.Fatalf("second step = %s/%s, want watch/wait", steps[1].BuyPoint, steps[1].Decision)
+	}
+}
+
 func TestInvalidStepTerminatesTrackingImmediately(t *testing.T) {
 	steps := []AnalysisStep{
 		{Decision: "wait"},

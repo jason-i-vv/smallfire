@@ -301,7 +301,7 @@
               </el-table-column>
               <el-table-column :label="actionLabel(activeTarget?.direction)" width="100">
                 <template #default="{ row }">
-                  <el-tag :type="buyPointType(row.buy_point)">{{ buyPointLabel(row.buy_point) }}</el-tag>
+                  <el-tag :type="stepBuyPointType(row)">{{ stepBuyPointLabel(row) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="趋势/回调" min-width="150">
@@ -341,7 +341,7 @@
           </div>
           <div v-if="selectedStep.buy_point">
             <span>{{ actionLabel(activeTarget?.direction) }}</span>
-            <el-tag :type="buyPointType(selectedStep.buy_point)" effect="dark">{{ buyPointLabel(selectedStep.buy_point) }}</el-tag>
+            <el-tag :type="stepBuyPointType(selectedStep)" effect="dark">{{ stepBuyPointLabel(selectedStep) }}</el-tag>
           </div>
           <div v-if="selectedStep.trend">
             <span>趋势</span>
@@ -441,7 +441,7 @@ const activeResult = computed(() => {
   const result = activeTarget.value?.result
   if (!result) return null
   const steps = result.steps || []
-  const buySteps = steps.filter(isBuyPointStep)
+  const buySteps = steps.filter(step => isBuyPointStep(step, activeTarget.value?.direction))
   const best = buySteps.length ? buySteps[buySteps.length - 1] : null
   return { ...result, found: buySteps.length > 0, best }
 })
@@ -450,7 +450,7 @@ const allSteps = computed(() => {
   const steps = activeResult.value?.steps || []
   return [...steps].reverse()
 })
-const importantSteps = computed(() => allSteps.value.filter(isImportantStep))
+const importantSteps = computed(() => allSteps.value.filter(step => isImportantStep(step)))
 const expandedQuietKeys = ref(new Set())
 function toggleQuietItem(key) {
   const s = new Set(expandedQuietKeys.value)
@@ -838,13 +838,13 @@ function setChartData(klines, steps) {
 function buildMarkers(steps) {
   const direction = normalizeDirection(activeTarget.value?.direction)
   return steps
-    .filter(isImportantStep)
+    .filter(step => isImportantStep(step, direction))
     .map(step => ({
       time: normalizeTimestamp(step.kline_time),
       position: markerPosition(step, direction),
-      color: markerColor(step),
+      color: markerColor(step, direction),
       shape: markerShape(step, direction),
-      text: isBuyPointStep(step)
+      text: isBuyPointStep(step, direction)
         ? `${actionLabel(direction)} ${step.confidence}`
         : step.decision === 'invalid'
           ? '失效'
@@ -852,29 +852,33 @@ function buildMarkers(steps) {
     }))
 }
 
-function markerColor(step) {
-  if (isBuyPointStep(step)) return directionSignalColor(activeTarget.value?.direction)
+function markerColor(step, direction) {
+  if (isBuyPointStep(step, direction)) return directionSignalColor(direction)
   if (step.decision === 'invalid') return '#ff5252'
   return '#ffd740'
 }
 
 function markerPosition(step, direction) {
-  if (isBuyPointStep(step)) return normalizeDirection(direction) === 'short' ? 'aboveBar' : 'belowBar'
+  if (isBuyPointStep(step, direction)) return normalizeDirection(direction) === 'short' ? 'aboveBar' : 'belowBar'
   return step.decision === 'invalid' ? 'aboveBar' : 'belowBar'
 }
 
 function markerShape(step, direction) {
-  if (isBuyPointStep(step)) return normalizeDirection(direction) === 'short' ? 'arrowDown' : 'arrowUp'
+  if (isBuyPointStep(step, direction)) return normalizeDirection(direction) === 'short' ? 'arrowDown' : 'arrowUp'
   if (step.decision === 'invalid') return 'arrowDown'
   return 'circle'
 }
 
-function isBuyPointStep(step) {
-  return step?.buy_point === 'ready' && step?.decision !== 'invalid'
+function isBuyPointStep(step, direction = activeTarget.value?.direction) {
+  return step?.buy_point === 'ready' &&
+    step?.decision !== 'invalid' &&
+    step?.trend_state === 'confirmed' &&
+    ['healthy', 'completed'].includes(step?.pullback_state) &&
+    hasValidTrendPullbackRisk(step, direction)
 }
 
-function isImportantStep(step) {
-  return isBuyPointStep(step) ||
+function isImportantStep(step, direction = activeTarget.value?.direction) {
+  return isBuyPointStep(step, direction) ||
     step.decision === 'invalid'
 }
 
@@ -897,6 +901,23 @@ function importanceType(step) {
   if (step.decision === 'invalid') return 'danger'
   if (isImportantStep(step)) return 'warning'
   return 'info'
+}
+
+function numberValue(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function hasValidTrendPullbackRisk(step, direction = activeTarget.value?.direction) {
+  const entry = numberValue(step?.entry_price)
+  const stop = numberValue(step?.stop_loss)
+  const take = numberValue(step?.take_profit)
+  if (entry == null || stop == null || take == null) return false
+  const dir = normalizeDirection(direction)
+  const risk = dir === 'short' ? stop - entry : entry - stop
+  const reward = dir === 'short' ? entry - take : take - entry
+  if (risk <= 0 || reward <= 0) return false
+  return reward / risk >= 1.8
 }
 
 function showStepDetail(step) {
@@ -951,6 +972,16 @@ const pullbackLabel = value => ({ none: '无', started: '开始', healthy: '健�
 const pullbackType = value => ({ healthy: 'success', completed: 'success', started: 'warning', dangerous: 'danger', none: 'info' }[value] || 'info')
 const buyPointLabel = value => ({ none: '无', watch: '观察', ready: actionLabel(activeTarget.value?.direction) }[value] || value || '--')
 const buyPointType = value => value === 'ready' ? directionSignalType(activeTarget.value?.direction) : ({ watch: 'warning', none: 'info' }[value] || 'info')
+function stepBuyPointLabel(step) {
+  if (isBuyPointStep(step)) return actionLabel(activeTarget.value?.direction)
+  if (step?.buy_point === 'ready') return '观察'
+  return buyPointLabel(step?.buy_point)
+}
+function stepBuyPointType(step) {
+  if (isBuyPointStep(step)) return directionSignalType(activeTarget.value?.direction)
+  if (step?.buy_point === 'ready') return 'warning'
+  return buyPointType(step?.buy_point)
+}
 const decisionLabel = value => ({ wait: '等待', alert: actionLabel(activeTarget.value?.direction), cooldown: '观察', invalid: '失效' }[value] || value || '--')
 const decisionType = value => ({ alert: 'success', wait: 'warning', cooldown: 'warning', invalid: 'danger' }[value] || 'info')
 function stepDecisionLabel(step) {
@@ -965,7 +996,7 @@ function stepDecisionType(step) {
 }
 
 function alertCount(target) {
-  return (target.result?.steps || []).filter(isBuyPointStep).length
+  return (target.result?.steps || []).filter(step => isBuyPointStep(step, target.direction)).length
 }
 
 function invalidCount(target) {
@@ -977,7 +1008,7 @@ function watchCount(target) {
 }
 
 function quietCount(target) {
-  return (target.result?.steps || []).filter(step => !isImportantStep(step)).length
+  return (target.result?.steps || []).filter(step => !isImportantStep(step, target.direction)).length
 }
 
 function statusLabel(target) {
