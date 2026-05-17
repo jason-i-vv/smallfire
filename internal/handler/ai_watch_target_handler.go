@@ -116,21 +116,97 @@ func (h *AIWatchTargetHandler) Upsert(c *gin.Context) {
 		zap.String("period", req.Period),
 		zap.Bool("sync_service_ready", h.syncService != nil))
 
+	var ensuredSymbol *models.Symbol
 	// 立即触发标的 K 线同步，确保观察仓能尽快被分析
 	if h.syncService != nil {
-		if _, err := h.syncService.EnsureSymbolKlines(req.MarketCode, req.SymbolCode, req.Period); err != nil {
+		symbol, err := h.syncService.EnsureSymbolKlines(req.MarketCode, req.SymbolCode, req.Period)
+		if err != nil {
 			h.logger.Warn("触发K线同步失败，观察仓将在下次同步时被处理",
 				zap.String("symbol", req.SymbolCode),
 				zap.String("period", req.Period),
 				zap.Error(err))
 		} else {
+			ensuredSymbol = symbol
 			h.logger.Info("K线同步触发成功",
 				zap.String("symbol", req.SymbolCode),
 				zap.String("period", req.Period))
 		}
 	}
 
+	target = h.maybeStartInitialAnalysis(target, ensuredSymbol)
+
 	HandleSuccess(c, target)
+}
+
+func (h *AIWatchTargetHandler) maybeStartInitialAnalysis(target *models.AIWatchTarget, symbol *models.Symbol) *models.AIWatchTarget {
+	if h.scheduler == nil || target == nil || !target.Enabled {
+		return target
+	}
+
+	current, err := h.repo.GetByIDPublic(target.ID)
+	if err != nil {
+		h.logger.Warn("读取观察仓当前状态失败，跳过首次自动分析",
+			zap.Int("id", target.ID),
+			zap.Error(err))
+		return target
+	}
+	if current == nil {
+		current = target
+	}
+	if symbol != nil && (current.SymbolID == nil || *current.SymbolID <= 0) {
+		symbolID := symbol.ID
+		current.SymbolID = &symbolID
+	}
+	if !needsInitialAIWatchAnalysis(current) {
+		return current
+	}
+
+	current.DataStatus = "analyzing"
+	current.ErrorMessage = ""
+	if err := h.repo.Upsert(current); err != nil {
+		h.logger.Warn("标记观察仓首次分析状态失败",
+			zap.Int("id", current.ID),
+			zap.String("symbol", current.SymbolCode),
+			zap.Error(err))
+		return current
+	}
+
+	analysisTarget := *current
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		if err := h.scheduler.AnalyzeTarget(ctx, &analysisTarget); err != nil {
+			h.logger.Error("首次自动分析失败",
+				zap.Int("id", analysisTarget.ID),
+				zap.String("symbol", analysisTarget.SymbolCode),
+				zap.Error(err))
+			analysisTarget.DataStatus = "error"
+			analysisTarget.ErrorMessage = err.Error()
+			_ = h.repo.Upsert(&analysisTarget)
+		}
+	}()
+
+	h.logger.Info("观察仓首次自动分析已提交",
+		zap.Int("id", current.ID),
+		zap.String("symbol", current.SymbolCode),
+		zap.String("period", current.Period))
+	return current
+}
+
+func needsInitialAIWatchAnalysis(target *models.AIWatchTarget) bool {
+	if target == nil || !target.Enabled || target.LastRunAt != nil {
+		return false
+	}
+	if len(target.Result) > 0 && string(target.Result) != "null" {
+		return false
+	}
+	switch target.DataStatus {
+	case "", "pending", "waiting_data":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *AIWatchTargetHandler) Delete(c *gin.Context) {
