@@ -15,7 +15,7 @@ type TrendPullbackSkill struct{}
 func (s *TrendPullbackSkill) Name() string { return "trend_pullback" }
 
 func (s *TrendPullbackSkill) Description() string {
-	return "趋势回调买点分析 — 顺大逆小策略，在强趋势后的健康回调中寻找买点"
+	return "趋势回调买点/空点分析 — 顺大逆小策略，在强趋势后的健康回调/反弹中寻找可执行信号"
 }
 
 func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
@@ -31,16 +31,16 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 
 ### 1. 趋势判断 (Trend)
 - confirmed:
-  - 做多: EMA30/EMA60/EMA90 多头排列、价格结构高低点抬高、上涨不是单根孤立暴拉
-  - 做空: EMA30/EMA60/EMA90 空头排列、价格结构高低点下移、下跌不是单根孤立暴跌
+  - 做多: EMA30/EMA60/EMA90 多头排列并有斜率，价格结构高低点抬高，价格主要运行在 EMA30/EMA60 上方，上涨不是单根孤立暴拉
+  - 做空: EMA30/EMA60/EMA90 空头排列并有斜率，价格结构高低点下移，价格主要运行在 EMA30/EMA60 下方，下跌不是单根孤立暴跌
 - exhaustion: 末端加速、抛物线
 - weak: 趋势转弱但仍未完全破坏
 - unclear: 无明确趋势
 
 ### 2. 回调形态 (Formation)
 - healthy:
-  - 做多: 回调幅度约上一段上涨的 0.236-0.618，未跌破关键结构低点，成交量缩小
-  - 做空: 反弹幅度约上一段下跌的 0.236-0.618，未突破关键结构高点，成交量缩小
+  - 做多: 已从近期高点明显回落，回调幅度约上一段上涨的 0.236-0.618，靠近 EMA30/EMA60/前高突破位，未跌破关键结构低点，成交量缩小或波动收敛
+  - 做空: 已从近期低点明显反弹，反弹幅度约上一段下跌的 0.236-0.618，靠近 EMA30/EMA60/前低跌破位，未突破关键结构高点，成交量缩小或波动收敛
 - dangerous:
   - 做多: 跌破前低、放量长阴、连续失守 EMA30/EMA60
   - 做空: 突破前高、放量长阳、连续收回 EMA30/EMA60 上方
@@ -52,10 +52,26 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 
 ### 4. 风控 (Risk)
 - 止损位必须清楚；做多放在回调低点或关键 EMA 下方，做空放在反弹高点或关键 EMA 上方
-- 风险收益比至少 1.8
+- 止盈位必须清楚；做多止盈要高于入场，做空止盈要低于入场
+- 风险收益比至少 1.8。做多按 (take_profit-entry_price)/(entry_price-stop_loss) 计算；做空按 (entry_price-take_profit)/(stop_loss-entry_price) 计算
 - 止损空间不能过大
 
+### 5. ready 硬检查清单
+只有全部满足时才允许 buy_point=ready / decision=alert：
+1. trend_state 必须是 confirmed
+2. pullback_state 必须是 healthy 或 completed
+3. 当前 K 线必须是回调/反弹后的第一类触发信号，而不是已经续涨/续跌后的追价确认
+4. 做多必须满足 stop_loss < entry_price < take_profit；做空必须满足 take_profit < entry_price < stop_loss
+5. 风险收益比必须 >= 1.8
+6. 同一段回调/反弹只能标记第一次可执行触发，后续 K 线即使继续走强/走弱，也只能 watch 或 none
+
 ## 关键规则（基于实战教训）
+
+### 不是买点/空点的情况
+- 做多时，价格已接近前高、刚突破前高、或离 EMA30/EMA60 很远，只能 watch/none，不能 ready
+- 做空时，价格已接近前低、刚跌破前低、或离 EMA30/EMA60 很远，只能 watch/none，不能 ready
+- 只有趋势延续、阳线续涨、阴线续跌、高位/低位横盘，没有回调完成触发，不能 ready
+- 如果 take_profit 离 entry_price 很近、stop_loss 很远导致收益风险比不足，不能 ready
 
 ### 假突破/假跌破处理（最重要！）
 - EMA30 下方出现深 wick 但随后 1-2 根 K 线内收回 = **假跌破**，这是经典买点，不是失效
@@ -85,6 +101,7 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 - 如果后面的 K 线让你判断"最佳买点已过"，必须把确认买点的那根标为 ready
 - 不能全程没有 ready 却事后说买点已过
 - 如果已出现支撑收回/放量反包/假跌破收回，且止损可放在回调低点下方，必须评估 ready
+- 但如果那根 K 线的风险收益比不足 1.8，仍然不能 ready，只能 watch 并在 risk_notes 说明原因
 
 ## 输出格式
 
@@ -117,6 +134,7 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 
 - buy_point=ready: 趋势确认 + 回调/反弹健康 + 出现入场触发信号 + 止损止盈清楚 + 风险收益比>=1.8 + confidence>=70
 - 同一段回调/反弹只允许第一次触发 ready，后续续涨/续跌确认不要重复标 ready
+- ready 不是趋势延续标签；如果当前 K 线只是继续上涨/下跌、突破前高/前低、或远离 EMA，不要给 ready
 - buy_point=watch: 只是接近回调区但没有触发
 - buy_point=none: 价格离 EMA 太远或放量加速
 - decision=alert: 等价于 buy_point=ready，必须有 entry_price、stop_loss、take_profit
