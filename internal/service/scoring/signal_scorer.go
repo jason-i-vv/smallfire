@@ -15,13 +15,14 @@ type ScoringWeights struct {
 	MarketRegime    float64 `mapstructure:"market_regime" json:"market_regime"`         // 市场状态匹配 10%
 }
 
-// DefaultWeights 默认权重（优化后：胜率权重提升到40%，信号强度降到10%）
+// DefaultWeights 默认权重（优化后：胜率50%，量比降到10%，regime提升到15%）
+// 数据分析：量比是噪音（高量比≠方向正确），regime有更强否决权
 var DefaultWeights = ScoringWeights{
-	StrategyWinRate: 0.40,
-	MultiConfluence: 0.25,
-	SignalStrength:  0.10,
-	VolumeConfirm:   0.15,
-	MarketRegime:    0.10,
+	StrategyWinRate: 0.50,
+	MultiConfluence: 0.20,
+	SignalStrength:  0.05,
+	VolumeConfirm:   0.10,
+	MarketRegime:    0.15,
 }
 
 // ScoringContext 评分上下文（外部传入的原始数据）

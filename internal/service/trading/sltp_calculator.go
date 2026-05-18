@@ -179,12 +179,12 @@ func CalcWickSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *confi
 }
 
 // GetRegimeSLTP 根据市场状态返回止盈止损比例
-// 震荡市：SL=3%, TP=3%, RR=1:1（价格来回波动，止损太紧容易被扫，止盈太远到不了）
-// 趋势市：SL=2%, TP=5%, RR=2.5:1（趋势明确，可以给更大止盈空间）
-// 量比异常(>10x)：SL=1.5%, TP=3%（高波动期收紧止损）
+// 震荡市：SL=3%, TP=6%, RR=2:1（震荡被过滤，此为兜底参数）
+// 趋势市：SL=2.5%, TP=6%, RR=2.4:1（从SL=2%放宽，减少快速止损被扫）
+// 量比异常(>10x)：SL=2%, TP=4%（高波动期适度收紧）
 func GetRegimeSLTP(opp *models.TradingOpportunity, cfg *config.TradingConfig) (float64, float64) {
-	slPct := cfg.StopLossPercent   // 默认 0.02
-	tpPct := cfg.TakeProfitPercent // 默认 0.05
+	slPct := 0.025 // 趋势市默认止损 2.5%（从2%放宽）
+	tpPct := 0.06  // 趋势市默认止盈 6%（从5%提高，保持RR=2.4）
 
 	// 检查量比是否异常
 	volumeRatio := 0.0
@@ -197,15 +197,14 @@ func GetRegimeSLTP(opp *models.TradingOpportunity, cfg *config.TradingConfig) (f
 	}
 
 	if volumeRatio > 10.0 {
-		// 异常放量：收紧止损和止盈
-		slPct = 0.015
-		tpPct = 0.03
+		// 异常放量：适度收紧止损和止盈
+		slPct = 0.02
+		tpPct = 0.04
 	} else if opp.Regime == "震荡" {
-		// 震荡市：放宽止损到3%，收窄止盈到3%
+		// 震荡市：放宽止损到3%，止盈到6%
 		slPct = 0.03
-		tpPct = 0.03
+		tpPct = 0.06
 	}
-	// 趋势市（顺势/逆势）使用默认值
 
 	return slPct, tpPct
 }

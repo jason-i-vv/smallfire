@@ -5,7 +5,7 @@ import (
 )
 
 // ShouldTrade 交易质量过滤
-// 基于80分以上交易的历史数据分析，过滤掉低胜率的交易机会
+// 基于历史交易数据分析，过滤掉低胜率的交易机会
 func ShouldTrade(opp *models.TradingOpportunity) bool {
 	// 1. 策略历史胜率 < 50% 的信号不自动交易
 	// 数据显示：42.5%和46.9%胜率的信号拿到了80+分却亏损
@@ -20,9 +20,15 @@ func ShouldTrade(opp *models.TradingOpportunity) bool {
 		return false
 	}
 
-	// 3. 震荡市做空需要更高阈值
-	// 数据显示：做空整体胜率仅23%，震荡市做空更差
-	if opp.Regime == "震荡" && opp.Direction == models.DirectionShort && opp.Score < 90 {
+	// 3. 震荡市不交易（含做多和做空）
+	// 数据显示：震荡市80+分交易0%胜率，10笔全亏，净亏-48.83
+	if opp.Regime == "震荡" && opp.Score < 90 {
+		return false
+	}
+
+	// 4. key_level 策略需要更高评分
+	// 数据显示：key_level 占77%交易但胜率仅27.3%，净亏-73.30
+	if opp.StrategyType == "key_level" && opp.Score < 85 {
 		return false
 	}
 
