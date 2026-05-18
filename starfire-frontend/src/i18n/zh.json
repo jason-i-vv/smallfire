@@ -110,7 +110,14 @@
     "run": "运行",
     "symbolCode": "币对",
     "symbolPlaceholder": "搜索币对...",
-    "noActiveOpportunities": "暂无活跃交易机会"
+    "noActiveOpportunities": "暂无活跃交易机会",
+    "startDate": "开始日期",
+    "endDate": "结束日期"
+  },
+  "timeFilter": {
+    "last3d": "近3天",
+    "last7d": "近7天",
+    "allTime": "历史以来"
   },
   "menu": {
     "dashboard": "Bybit 模拟概览",
@@ -303,6 +310,7 @@
   },
   "trades": {
     "title": "历史交易",
+    "timeRange": "时间范围",
     "symbol": "交易对",
     "direction": "方向",
     "entryPrice": "入场价",

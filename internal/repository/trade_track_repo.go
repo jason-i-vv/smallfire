@@ -461,7 +461,7 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 	var count int
 
 	// 构建动态 WHERE 条件
-	whereClauses := []string{"t.status = 'closed'", "t.created_at BETWEEN $1 AND $2"}
+	whereClauses := []string{"t.status = 'closed'", "t.exit_time BETWEEN $1 AND $2"}
 	args := []interface{}{startDate, endDate}
 	argIdx := 3
 
@@ -561,6 +561,63 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 	}
 
 	return tracks, count, nil
+}
+
+// GetHistorySummary 获取筛选条件下的汇总统计（不分页）
+func (r *TradeTrackRepoPG) GetHistorySummary(startDate, endDate time.Time, filters map[string]string) (totalPnl float64, winCount int, totalCount int, grossProfit float64, grossLoss float64, err error) {
+	whereClauses := []string{"t.status = 'closed'", "t.exit_time BETWEEN $1 AND $2"}
+	args := []interface{}{startDate, endDate}
+	argIdx := 3
+
+	if v, ok := filters["market"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("s2.market_code = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+	if v, ok := filters["symbol_id"]; ok && v != "" {
+		sid, _ := strconv.Atoi(v)
+		if sid > 0 {
+			whereClauses = append(whereClauses, fmt.Sprintf("t.symbol_id = $%d", argIdx))
+			args = append(args, sid)
+			argIdx++
+		}
+	}
+	if v, ok := filters["direction"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("t.direction = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+	if v, ok := filters["exit_reason"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("t.exit_reason = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+	needOppJoin := false
+	if v, ok := filters["min_score"]; ok && v != "" {
+		minScore, _ := strconv.Atoi(v)
+		if minScore > 0 {
+			whereClauses = append(whereClauses, fmt.Sprintf("opp.score >= $%d", argIdx))
+			args = append(args, minScore)
+			argIdx++
+			needOppJoin = true
+		}
+	}
+	if v, ok := filters["trade_source"]; ok && v != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("COALESCE(t.trade_source, 'paper') = $%d", argIdx))
+		args = append(args, v)
+		argIdx++
+	}
+
+	oppJoin := ""
+	if needOppJoin {
+		oppJoin = " LEFT JOIN trading_opportunities opp ON t.opportunity_id = opp.id"
+	}
+
+	whereStr := strings.Join(whereClauses, " AND ")
+	query := fmt.Sprintf(`SELECT COALESCE(SUM(t.pnl), 0), COUNT(*), COUNT(*) FILTER (WHERE t.pnl > 0), COALESCE(SUM(t.pnl) FILTER (WHERE t.pnl > 0), 0), COALESCE(ABS(SUM(t.pnl) FILTER (WHERE t.pnl < 0)), 0) FROM trade_tracks t LEFT JOIN symbols s2 ON t.symbol_id = s2.id%s WHERE %s`, oppJoin, whereStr)
+
+	err = r.db.QueryRow(context.Background(), query, args...).Scan(&totalPnl, &totalCount, &winCount, &grossProfit, &grossLoss)
+	return
 }
 
 func (r *TradeTrackRepoPG) GetByID(id int) (*models.TradeTrack, error) {

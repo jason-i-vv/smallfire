@@ -130,24 +130,34 @@ func (h *TradeHandler) GetTradeHistory(c *gin.Context) {
 		size = 20
 	}
 
-	// 解析日期参数
+	// 解析时间参数（优先使用毫秒时间戳）
+	startTsStr := c.Query("start_ts")
+	endTsStr := c.Query("end_ts")
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
 	var startDate, endDate time.Time
 	now := time.Now()
 
-	if startDateStr != "" {
+	if startTsStr != "" {
+		if ms, err := strconv.ParseInt(startTsStr, 10, 64); err == nil {
+			startDate = time.UnixMilli(ms)
+		}
+	} else if startDateStr != "" {
 		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
 			startDate = t
 		} else {
-			startDate = now.AddDate(0, -1, 0) // 默认一个月前
+			startDate = now.AddDate(0, -1, 0)
 		}
 	} else {
 		startDate = now.AddDate(0, -1, 0)
 	}
 
-	if endDateStr != "" {
+	if endTsStr != "" {
+		if ms, err := strconv.ParseInt(endTsStr, 10, 64); err == nil {
+			endDate = time.UnixMilli(ms)
+		}
+	} else if endDateStr != "" {
 		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
 			endDate = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
 		} else {
@@ -180,29 +190,59 @@ func (h *TradeHandler) GetTradeHistory(c *gin.Context) {
 		items[i] = track.ToResponse()
 	}
 
+	// 获取汇总统计（覆盖所有匹配记录，不受分页影响）
+	summary := gin.H{}
+	totalPnl, winCount, totalCount, grossProfit, grossLoss, summaryErr := h.trackRepo.GetHistorySummary(startDate, endDate, filters)
+	if summaryErr == nil && totalCount > 0 {
+		winRate := float64(winCount) / float64(totalCount)
+		profitFactor := 0.0
+		if grossLoss > 0 {
+			profitFactor = grossProfit / grossLoss
+		}
+		summary = gin.H{
+			"total_pnl":     totalPnl,
+			"win_rate":      winRate,
+			"total_trades":  totalCount,
+			"profit_factor": profitFactor,
+		}
+	}
+
 	HandleSuccess(c, gin.H{
-		"list":  items,
-		"total": total,
-		"page":  page,
-		"size":  size,
+		"list":    items,
+		"total":   total,
+		"page":    page,
+		"size":    size,
+		"summary": summary,
 	})
 }
 
 // GetTradeStats 获取交易统计
 func (h *TradeHandler) GetTradeStats(c *gin.Context) {
-	// 解析日期参数
+	// 解析时间参数（优先使用毫秒时间戳）
+	startTsStr := c.Query("start_ts")
+	endTsStr := c.Query("end_ts")
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
 	var startDate, endDate *time.Time
 
-	if startDateStr != "" {
+	if startTsStr != "" {
+		if ms, err := strconv.ParseInt(startTsStr, 10, 64); err == nil {
+			t := time.UnixMilli(ms)
+			startDate = &t
+		}
+	} else if startDateStr != "" {
 		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
 			startDate = &t
 		}
 	}
 
-	if endDateStr != "" {
+	if endTsStr != "" {
+		if ms, err := strconv.ParseInt(endTsStr, 10, 64); err == nil {
+			t := time.UnixMilli(ms)
+			endDate = &t
+		}
+	} else if endDateStr != "" {
 		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
 			t = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
 			endDate = &t
@@ -346,18 +386,30 @@ func (h *TradeHandler) ClosePosition(c *gin.Context) {
 	}
 }
 
-// parseDateRange 解析日期范围参数
+// parseDateRange 解析日期范围参数（优先使用毫秒时间戳）
 func (h *TradeHandler) parseDateRange(c *gin.Context) (startDate, endDate *time.Time) {
+	startTsStr := c.Query("start_ts")
+	endTsStr := c.Query("end_ts")
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
-	if startDateStr != "" {
+	if startTsStr != "" {
+		if ms, err := strconv.ParseInt(startTsStr, 10, 64); err == nil {
+			t := time.UnixMilli(ms)
+			startDate = &t
+		}
+	} else if startDateStr != "" {
 		if t, err := time.Parse("2006-01-02", startDateStr); err == nil {
 			startDate = &t
 		}
 	}
 
-	if endDateStr != "" {
+	if endTsStr != "" {
+		if ms, err := strconv.ParseInt(endTsStr, 10, 64); err == nil {
+			t := time.UnixMilli(ms)
+			endDate = &t
+		}
+	} else if endDateStr != "" {
 		if t, err := time.Parse("2006-01-02", endDateStr); err == nil {
 			t = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
 			endDate = &t

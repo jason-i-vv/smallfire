@@ -2,14 +2,10 @@
   <div class="statistics">
     <!-- 筛选栏 -->
     <div class="filter-bar">
-      <el-date-picker
-        v-model="dateRange"
-        type="daterange"
-        range-separator="至"
-        start-placeholder="开始日期"
-        end-placeholder="结束日期"
-        value-format="YYYY-MM-DD"
-        @change="fetchData"
+      <QuickTimeFilter
+        ref="quickTimeFilterRef"
+        v-model="selectedTimeRange"
+        @change="onTimeFilterChange"
       />
       <el-button @click="resetFilter">{{ t('common.reset') }}</el-button>
     </div>
@@ -151,10 +147,12 @@ import ScoreDimensionTable from '@/components/trades/ScoreDimensionTable.vue'
 import ScoreGradeRegimeTable from '@/components/trades/ScoreGradeRegimeTable.vue'
 import { tradeApi } from '@/api/trades'
 import { formatPnL, formatPercent } from '@/utils/formatters'
+import QuickTimeFilter from '@/components/common/QuickTimeFilter.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
-const dateRange = ref(null)
+const selectedTimeRange = ref('24h')
+const quickTimeFilterRef = ref(null)
 const selectedPeriod = ref('daily')
 // 固定为 testnet（Bybit 模拟盘）
 const tradeSource = 'testnet'
@@ -196,9 +194,31 @@ const summaryStats = computed(() => {
 
 const getDateParams = () => {
   const params = { trade_source: tradeSource }
-  if (dateRange.value && dateRange.value.length === 2) {
-    params.start_date = dateRange.value[0]
-    params.end_date = dateRange.value[1]
+  const range = selectedTimeRange.value
+  if (range === '24h') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    params.start_date = start.toISOString().slice(0, 10)
+    params.end_date = now.toISOString().slice(0, 10)
+  } else if (range === '3d') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
+    params.start_date = start.toISOString().slice(0, 10)
+    params.end_date = now.toISOString().slice(0, 10)
+  } else if (range === '7d') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    params.start_date = start.toISOString().slice(0, 10)
+    params.end_date = now.toISOString().slice(0, 10)
+  } else if (range === 'all') {
+    // 不传时间参数
+  } else {
+    // 自定义日期范围
+    const customRange = quickTimeFilterRef.value?.getCustomRange()
+    if (customRange && customRange.length === 2) {
+      params.start_date = customRange[0]
+      params.end_date = customRange[1]
+    }
   }
   return params
 }
@@ -245,7 +265,11 @@ const fetchData = async () => {
 }
 
 const resetFilter = () => {
-  dateRange.value = null
+  selectedTimeRange.value = ''
+  fetchData()
+}
+
+const onTimeFilterChange = () => {
   fetchData()
 }
 

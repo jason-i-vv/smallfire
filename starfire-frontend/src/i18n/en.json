@@ -110,7 +110,14 @@
     "run": "Run",
     "symbolCode": "Symbol",
     "symbolPlaceholder": "Search symbol...",
-    "noActiveOpportunities": "No active opportunities"
+    "noActiveOpportunities": "No active opportunities",
+    "startDate": "Start date",
+    "endDate": "End date"
+  },
+  "timeFilter": {
+    "last3d": "3D",
+    "last7d": "7D",
+    "allTime": "All Time"
   },
   "menu": {
     "dashboard": "Bybit Testnet Overview",
@@ -302,6 +309,7 @@
   },
   "trades": {
     "title": "Trade History",
+    "timeRange": "Time Range",
     "symbol": "Symbol",
     "direction": "Direction",
     "entryPrice": "Entry Price",

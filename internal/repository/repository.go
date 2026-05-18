@@ -85,6 +85,7 @@ type TradeTrackRepo interface {
 	GetEquityCurveSQL(startDate, endDate *time.Time, tradeSource string) ([]EquitySQLResult, error)
 	GetScoreEquitySQL(startDate, endDate *time.Time, tradeSource string) ([]ScoreEquitySQLResult, error)
 	GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSource string) ([]ScoreRegimeSQLResult, error)
+	GetHistorySummary(startDate, endDate time.Time, filters map[string]string) (totalPnl float64, winCount int, totalCount int, grossProfit float64, grossLoss float64, err error)
 }
 
 // SignalBasicInfo 信号基本信息（批量查询用）
