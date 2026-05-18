@@ -353,12 +353,13 @@ func trendPullbackSystemPrompt() string {
 - 如果那根 K 线的风险收益比不足 1.8，仍然不能 ready，只能 watch 并在 risk_notes 说明原因
 - 如果只是接近回调区但没有触发，buy_point=watch
 - 如果价格离EMA太远或放量加速，trend_state=exhaustion 或 buy_point=none
+- trend_state=exhaustion 只表示趋势过热、不追价、等待新回调；如果结构没有明确破坏，不要 decision=invalid
 - confidence 表示“当前K线作为可执行买点”的置信度；buy_point=none 时为0，watch 通常为30-69，ready 必须为70-100
 - confidence低于70时不要给 ready
 - entry_price、stop_loss、take_profit、invalidation_level 只有 buy_point=ready 时才填写非0值；none/watch 一律填0
 - 如果 pullback_state=completed 但 buy_point=none，表示这次回调没有有效买点，不要在 reasoning 中写“买点已过”
 - decision=alert 必须等价于 buy_point=ready，并且必须有 entry_price、stop_loss、take_profit
-- decision=wait 表示继续观察；decision=invalid 表示趋势衰竭、结构破坏或回调危险，当前跟踪失效
+- decision=wait 表示继续观察；decision=invalid 只表示趋势结构明确破坏，当前跟踪失效
 - 每根K线只能基于“本根收盘以及之前的数据”做当下决策，不要用后续K线回头改写前面判断
 - missed=true 只允许表达复盘上的错过；如果 missed=true，missed_kline_index 必须填写这组 observation=true 中本应 alert 的 index
 - 如果你无法指出 missed_kline_index，就不要写 missed=true，也不要在 reasoning 里说“已错过/买点已过”
@@ -551,11 +552,8 @@ func normalizeTrendPullbackDecision(decision, buyPoint, trendState, pullbackStat
 	if buyPoint == "ready" {
 		return "alert"
 	}
-	if trendState == "exhaustion" || pullbackState == "dangerous" {
-		return "invalid"
-	}
 	switch decision {
-	case "alert", "wait", "invalid":
+	case "alert", "wait", "invalid", "cooldown":
 	default:
 		decision = ""
 	}

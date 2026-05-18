@@ -141,9 +141,10 @@ func TestNormalizeTrendPullbackDecision(t *testing.T) {
 	}{
 		{name: "ready always alerts", decision: "wait", buyPoint: "ready", trendState: "confirmed", pullbackState: "healthy", want: "alert"},
 		{name: "keeps explicit wait", decision: "wait", buyPoint: "watch", trendState: "confirmed", pullbackState: "healthy", want: "wait"},
-		{name: "dangerous overrides explicit wait", decision: "wait", buyPoint: "watch", trendState: "weak", pullbackState: "dangerous", want: "invalid"},
-		{name: "dangerous derives invalid", decision: "", buyPoint: "none", trendState: "weak", pullbackState: "dangerous", want: "invalid"},
-		{name: "exhaustion derives invalid", decision: "", buyPoint: "none", trendState: "exhaustion", pullbackState: "none", want: "invalid"},
+		{name: "dangerous keeps explicit wait", decision: "wait", buyPoint: "watch", trendState: "weak", pullbackState: "dangerous", want: "wait"},
+		{name: "dangerous without explicit invalid derives wait", decision: "", buyPoint: "none", trendState: "weak", pullbackState: "dangerous", want: "wait"},
+		{name: "exhaustion without structure break derives wait", decision: "", buyPoint: "none", trendState: "exhaustion", pullbackState: "none", want: "wait"},
+		{name: "explicit invalid is preserved", decision: "invalid", buyPoint: "none", trendState: "exhaustion", pullbackState: "dangerous", want: "invalid"},
 		{name: "default derives wait", decision: "", buyPoint: "watch", trendState: "confirmed", pullbackState: "started", want: "wait"},
 	}
 
@@ -162,11 +163,48 @@ func TestSkillDecisionDoesNotPromoteAlertWithoutReadyBuyPoint(t *testing.T) {
 	if got := trend.normalizeDecision("alert", "none", "confirmed", "healthy"); got != "wait" {
 		t.Fatalf("trend normalizeDecision() = %s, want wait", got)
 	}
+	if got := trend.normalizeDecision("wait", "none", "exhaustion", "completed"); got != "wait" {
+		t.Fatalf("trend normalizeDecision() = %s, want wait for exhaustion without structure break", got)
+	}
+	if got := trend.normalizeDecision("invalid", "none", "exhaustion", "completed"); got != "invalid" {
+		t.Fatalf("trend normalizeDecision() = %s, want explicit invalid to be preserved", got)
+	}
 	if got := normalizeWaveDecision("alert", "none", "tracking"); got != "wait" {
 		t.Fatalf("normalizeWaveDecision() = %s, want wait", got)
 	}
 	if got := normalizeWaveDecision("alert", "ready", "confirmed"); got != "alert" {
 		t.Fatalf("normalizeWaveDecision() = %s, want alert for ready buy point", got)
+	}
+}
+
+func TestTrendPullbackExhaustionDoesNotInvalidateWithoutStructureBreak(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 114,
+			"trend_state": "exhaustion",
+			"pullback_state": "completed",
+			"buy_point": "none",
+			"decision": "wait",
+			"entry_price": 0,
+			"stop_loss": 0,
+			"take_profit": 0,
+			"confidence": 0,
+			"reasoning": "单根暴涨抛物线加速，过热不追"
+		}
+	]}`
+
+	steps, err := (&TrendPullbackSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].Decision != "wait" {
+		t.Fatalf("Decision = %s, want wait", steps[0].Decision)
+	}
+	if steps[0].BuyPoint != "none" {
+		t.Fatalf("BuyPoint = %s, want none", steps[0].BuyPoint)
 	}
 }
 

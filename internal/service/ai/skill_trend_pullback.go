@@ -33,7 +33,7 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 - confirmed:
   - 做多: EMA30/EMA60/EMA90 多头排列并有斜率，价格结构高低点抬高，价格主要运行在 EMA30/EMA60 上方，上涨不是单根孤立暴拉
   - 做空: EMA30/EMA60/EMA90 空头排列并有斜率，价格结构高低点下移，价格主要运行在 EMA30/EMA60 下方，下跌不是单根孤立暴跌
-- exhaustion: 末端加速、抛物线
+- exhaustion: 末端加速、抛物线、过热；表示不追价，继续等待新回调，不等于趋势失效
 - weak: 趋势转弱但仍未完全破坏
 - unclear: 无明确趋势
 
@@ -140,7 +140,7 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 - decision=alert: 等价于 buy_point=ready，必须有 entry_price、stop_loss、take_profit
 - decision=wait: 继续观察
 - decision=cooldown: 暂时不确定（如单根深 wick），等待确认
-- decision=invalid: 趋势结构明确破坏
+- decision=invalid: 只有趋势结构明确破坏才使用；trend_state=exhaustion 但结构未破坏时不能 invalid
 - confidence: buy_point=none 时为 0，watch 为 30-69，ready 必须为 70-100
 - entry_price、stop_loss、take_profit 只有 buy_point=ready 时填写，其他填 0
 - 每根 K 线只基于"本根收盘以及之前的数据"做当下决策
@@ -303,9 +303,6 @@ func (s *TrendPullbackSkill) ParseResponse(raw string) ([]AnalysisStep, error) {
 func (s *TrendPullbackSkill) normalizeDecision(decision, buyPoint, trendState, pullbackState string) string {
 	if buyPoint == "ready" {
 		return "alert"
-	}
-	if trendState == "exhaustion" {
-		return "invalid"
 	}
 	if decision == "alert" {
 		return "wait"
