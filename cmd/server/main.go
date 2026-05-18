@@ -266,7 +266,7 @@ func main() {
 			skillRegistry := aiservice.NewSkillRegistry()
 			skillRegistry.Register(&aiservice.TrendPullbackSkill{})
 			skillRegistry.Register(&aiservice.ElliottWaveSkill{})
-			watchEngine = aiservice.NewWatchEngine(claudeClient, skillRegistry, klineRepo, notifyManager, utils.Logger)
+			watchEngine = aiservice.NewWatchEngine(claudeClient, skillRegistry, klineRepo, notifyManager, utils.Logger, cfg.AI.LogDir)
 			utils.Info("Claude AI 分析引擎初始化成功",
 				zap.String("model", cfg.AI.Claude.Model),
 				zap.Int("registered_skills", len(skillRegistry.List())))

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -27,6 +29,7 @@ type WatchEngine struct {
 	klineRepo repository.KlineRepo
 	notifier  *notification.Manager
 	logger    *zap.Logger
+	logDir    string // AI 分析日志目录
 }
 
 // NewWatchEngine 创建统一分析引擎
@@ -36,6 +39,7 @@ func NewWatchEngine(
 	klineRepo repository.KlineRepo,
 	notifier *notification.Manager,
 	logger *zap.Logger,
+	logDir string,
 ) *WatchEngine {
 	return &WatchEngine{
 		claude:    claude,
@@ -43,6 +47,7 @@ func NewWatchEngine(
 		klineRepo: klineRepo,
 		notifier:  notifier,
 		logger:    logger,
+		logDir:    logDir,
 	}
 }
 
@@ -134,6 +139,11 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 	raw, err = e.claude.Chat(ctx, conv.SystemPrompt, conv.Messages)
 	if err != nil {
 		return fmt.Errorf("Claude 分析失败: %w", err)
+	}
+
+	// 4.1 保存 AI 调用日志
+	if e.logDir != "" {
+		e.saveAILog(target, conv, raw)
 	}
 
 	// 5. 解析结果
@@ -337,4 +347,42 @@ func formatRiskNotes(notes []string) string {
 		result += n
 	}
 	return result
+}
+
+// saveAILog 保存 AI 调用日志到文件
+func (e *WatchEngine) saveAILog(target *models.AIWatchTarget, conv *ClaudeConversation, response string) {
+	if err := os.MkdirAll(e.logDir, 0755); err != nil {
+		e.logger.Warn("创建 AI 日志目录失败", zap.String("dir", e.logDir), zap.Error(err))
+		return
+	}
+
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("%s_%s_%s_%s.json", target.SymbolCode, target.SkillName, target.Period, timestamp)
+	filePath := filepath.Join(e.logDir, filename)
+
+	logData := map[string]interface{}{
+		"target_id":    target.ID,
+		"symbol":       target.SymbolCode,
+		"market_code":  target.MarketCode,
+		"skill":        target.SkillName,
+		"period":       target.Period,
+		"direction":    target.Direction,
+		"system_prompt": conv.SystemPrompt,
+		"messages":     conv.Messages,
+		"response":     response,
+		"logged_at":    time.Now().Format(time.RFC3339),
+	}
+
+	jsonData, err := json.MarshalIndent(logData, "", "  ")
+	if err != nil {
+		e.logger.Warn("序列化 AI 日志失败", zap.Error(err))
+		return
+	}
+
+	if err := os.WriteFile(filePath, jsonData, 0644); err != nil {
+		e.logger.Warn("写入 AI 日志文件失败", zap.String("file", filePath), zap.Error(err))
+		return
+	}
+
+	e.logger.Info("AI 调用日志已保存", zap.String("file", filePath))
 }
