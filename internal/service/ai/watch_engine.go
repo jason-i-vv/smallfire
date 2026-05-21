@@ -158,6 +158,9 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 
 	// 6. 填充 K 线数据到 steps
 	steps = e.fillKlineData(steps, klines)
+	if target.SkillName == "trend_pullback" {
+		steps = guardTrendPullbackInvalidSteps(target.Direction, steps, klines)
+	}
 
 	// 7. 保存 AI 回复到会话
 	conv.Messages = append(conv.Messages, ClaudeMessage{Role: "assistant", Content: raw})
@@ -361,16 +364,16 @@ func (e *WatchEngine) saveAILog(target *models.AIWatchTarget, conv *ClaudeConver
 	filePath := filepath.Join(e.logDir, filename)
 
 	logData := map[string]interface{}{
-		"target_id":    target.ID,
-		"symbol":       target.SymbolCode,
-		"market_code":  target.MarketCode,
-		"skill":        target.SkillName,
-		"period":       target.Period,
-		"direction":    target.Direction,
+		"target_id":     target.ID,
+		"symbol":        target.SymbolCode,
+		"market_code":   target.MarketCode,
+		"skill":         target.SkillName,
+		"period":        target.Period,
+		"direction":     target.Direction,
 		"system_prompt": conv.SystemPrompt,
-		"messages":     conv.Messages,
-		"response":     response,
-		"logged_at":    time.Now().Format(time.RFC3339),
+		"messages":      conv.Messages,
+		"response":      response,
+		"logged_at":     time.Now().Format(time.RFC3339),
 	}
 
 	jsonData, err := json.MarshalIndent(logData, "", "  ")

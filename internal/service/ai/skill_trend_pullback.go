@@ -81,15 +81,15 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 - 必须观察收盘价是否回到趋势方向一侧
 
 ### 失效判断
-- decision=invalid 需要谨慎：必须看到**明确的趋势结构破坏**
-- 做多以下情况才判定 invalid:
-  - 连续 2 根以上 K 线收盘价低于 EMA30，且无反弹迹象
-  - 跌破关键结构低点（前一波上涨的起点）
-  - 放量长阴跌破 EMA60
-- 做空以下情况才判定 invalid:
-  - 连续 2 根以上 K 线收盘价高于 EMA30，且无回落迹象
-  - 突破关键结构高点（前一波下跌的起点）
-  - 放量长阳突破 EMA60
+- decision=invalid 需要非常谨慎：必须看到**明确的趋势结构破坏**
+- 做多的趋势失效边界：前一段上涨从波段低点到波段高点的 0.618 回撤位，以及该波段低点
+  - 只要收盘价没有跌破 0.618 回撤位，也没有跌破前方波段低点，就认为趋势仍在，不能 invalid
+  - 仅跌破 EMA30、仅跌破 EMA60、单根放量长阴、单根深 wick，都只能 cooldown/watch，不能 invalid
+  - 只有收盘价明确跌破 0.618 回撤位或前方波段低点，才允许 invalid
+- 做空的趋势失效边界：前一段下跌从波段高点到波段低点的 0.618 反弹位，以及该波段高点
+  - 只要收盘价没有突破 0.618 反弹位，也没有突破前方波段高点，就认为空头趋势仍在，不能 invalid
+  - 仅站上 EMA30、仅站上 EMA60、单根放量长阳、单根长上影，都只能 cooldown/watch，不能 invalid
+  - 只有收盘价明确突破 0.618 反弹位或前方波段高点，才允许 invalid
 - 单根深 wick 后的收盘价仍在 EMA30 附近 = **cooldown**（观察），不是 invalid
 
 ### cooldown 状态
@@ -140,7 +140,7 @@ func (s *TrendPullbackSkill) SystemPrompt(marketCode string) string {
 - decision=alert: 等价于 buy_point=ready，必须有 entry_price、stop_loss、take_profit
 - decision=wait: 继续观察
 - decision=cooldown: 暂时不确定（如单根深 wick），等待确认
-- decision=invalid: 只有趋势结构明确破坏才使用；trend_state=exhaustion 但结构未破坏时不能 invalid
+- decision=invalid: 只有趋势结构明确破坏才使用；做多必须收盘跌破 0.618 回撤位或前波段低点，做空必须收盘突破 0.618 反弹位或前波段高点；trend_state=exhaustion 但结构未破坏时不能 invalid
 - confidence: buy_point=none 时为 0，watch 为 30-69，ready 必须为 70-100
 - entry_price、stop_loss、take_profit 只有 buy_point=ready 时填写，其他填 0
 - 每根 K 线只基于"本根收盘以及之前的数据"做当下决策

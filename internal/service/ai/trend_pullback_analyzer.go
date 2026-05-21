@@ -253,6 +253,15 @@ func (a *TrendPullbackAnalyzer) analyzeBatch(ctx context.Context, req TrendPullb
 		if decision == "alert" && buyPoint != "ready" {
 			decision = "wait"
 		}
+		if decision == "invalid" {
+			invalidated, note := trendPullbackStructureInvalidated(klines, step.KlineIndex, req.Direction, current.ClosePrice)
+			if invalidated {
+				riskNotes = appendTrendPullbackGateNote(riskNotes, note)
+			} else {
+				decision = "cooldown"
+				riskNotes = appendTrendPullbackGateNote(riskNotes, note)
+			}
+		}
 		missedKlineIndex := normalizeMissedKlineIndex(step.Missed, step.MissedKlineIndex, start, len(klines))
 		results = append(results, TrendPullbackStepResult{
 			KlineTime:         current.OpenTime.UnixMilli(),
@@ -298,6 +307,9 @@ func trendPullbackSystemPrompt() string {
 - 做空逆小：等待趋势内反弹到 EMA30/EMA60/前低跌破位附近，不追空
 - 做多健康回调：已从近期高点明显回落，回调幅度约为上一段上涨的 0.236-0.618，靠近 EMA30/EMA60/前高突破位，没有跌破关键结构低点，成交量缩小或波动收敛
 - 做空健康反弹：已从近期低点明显反弹，反弹幅度约为上一段下跌的 0.236-0.618，靠近 EMA30/EMA60/前低跌破位，没有突破关键结构高点，成交量缩小或波动收敛
+- 做多趋势失效：只有收盘价明确跌破上一段上涨的 0.618 回撤位，或跌破该段上涨的前方波段低点，才允许 decision=invalid
+- 做空趋势失效：只有收盘价明确突破上一段下跌的 0.618 反弹位，或突破该段下跌的前方波段高点，才允许 decision=invalid
+- 仅跌破/站上 EMA30、EMA60、单根放量、单根长影线、末端衰竭，都不是趋势失效；结构位未破时必须 wait/cooldown
 - 做多入场触发：支撑收回、下影Pin Bar/锤子线、假跌破后收回、突破小级别回调高点、放量阳线反包
 - 做空入场触发：压力回落、上影Pin Bar/倒锤线、假突破后跌回、跌破小级别反弹低点、放量阴线反包
 - 风控要求：必须能给出清楚止损位和止盈位，风险收益比至少 1.8，止损空间不能过大
@@ -354,6 +366,7 @@ func trendPullbackSystemPrompt() string {
 - 如果只是接近回调区但没有触发，buy_point=watch
 - 如果价格离EMA太远或放量加速，trend_state=exhaustion 或 buy_point=none
 - trend_state=exhaustion 只表示趋势过热、不追价、等待新回调；如果结构没有明确破坏，不要 decision=invalid
+- decision=invalid 必须基于 0.618 结构位或前方波段低/高点；做多未收盘跌破这些边界、做空未收盘突破这些边界时，不能 invalid
 - confidence 表示“当前K线作为可执行买点”的置信度；buy_point=none 时为0，watch 通常为30-69，ready 必须为70-100
 - confidence低于70时不要给 ready
 - entry_price、stop_loss、take_profit、invalidation_level 只有 buy_point=ready 时才填写非0值；none/watch 一律填0

@@ -3,6 +3,9 @@ package ai
 import (
 	"encoding/json"
 	"testing"
+	"time"
+
+	"github.com/smallfire/starfire/internal/models"
 )
 
 func TestExtractJSONFromThinkResponse(t *testing.T) {
@@ -205,6 +208,51 @@ func TestTrendPullbackExhaustionDoesNotInvalidateWithoutStructureBreak(t *testin
 	}
 	if steps[0].BuyPoint != "none" {
 		t.Fatalf("BuyPoint = %s, want none", steps[0].BuyPoint)
+	}
+}
+
+func TestTrendPullbackInvalidGuardKeepsLongTrendAboveStructure(t *testing.T) {
+	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	klines := []models.Kline{
+		{OpenTime: base, HighPrice: 0.0075, LowPrice: 0.00736, ClosePrice: 0.0074},
+		{OpenTime: base.Add(time.Hour), HighPrice: 0.0082, LowPrice: 0.0078, ClosePrice: 0.0081},
+		{OpenTime: base.Add(2 * time.Hour), HighPrice: 0.0091, LowPrice: 0.008, ClosePrice: 0.009},
+		{OpenTime: base.Add(3 * time.Hour), HighPrice: 0.0098, LowPrice: 0.0089, ClosePrice: 0.0097},
+		{OpenTime: base.Add(4 * time.Hour), HighPrice: 0.01043, LowPrice: 0.0095, ClosePrice: 0.0102},
+		{OpenTime: base.Add(5 * time.Hour), HighPrice: 0.0099, LowPrice: 0.009165, ClosePrice: 0.009442},
+	}
+	steps := []AnalysisStep{{
+		KlineTime:  klines[5].OpenTime.UnixMilli(),
+		ClosePrice: klines[5].ClosePrice,
+		Decision:   "invalid",
+		RiskNotes:  []string{"跌破EMA30"},
+	}}
+
+	guarded := guardTrendPullbackInvalidSteps(models.DirectionLong, steps, klines)
+	if guarded[0].Decision != "cooldown" {
+		t.Fatalf("Decision = %s, want cooldown", guarded[0].Decision)
+	}
+}
+
+func TestTrendPullbackInvalidGuardKeepsShortTrendBelowStructure(t *testing.T) {
+	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	klines := []models.Kline{
+		{OpenTime: base, HighPrice: 10, LowPrice: 9.8, ClosePrice: 9.9},
+		{OpenTime: base.Add(time.Hour), HighPrice: 9.7, LowPrice: 9.1, ClosePrice: 9.2},
+		{OpenTime: base.Add(2 * time.Hour), HighPrice: 9.3, LowPrice: 8.4, ClosePrice: 8.5},
+		{OpenTime: base.Add(3 * time.Hour), HighPrice: 8.7, LowPrice: 8, ClosePrice: 8.1},
+		{OpenTime: base.Add(4 * time.Hour), HighPrice: 8.9, LowPrice: 8.2, ClosePrice: 8.7},
+	}
+	steps := []AnalysisStep{{
+		KlineTime:  klines[4].OpenTime.UnixMilli(),
+		ClosePrice: klines[4].ClosePrice,
+		Decision:   "invalid",
+		RiskNotes:  []string{"站上EMA30"},
+	}}
+
+	guarded := guardTrendPullbackInvalidSteps(models.DirectionShort, steps, klines)
+	if guarded[0].Decision != "cooldown" {
+		t.Fatalf("Decision = %s, want cooldown", guarded[0].Decision)
 	}
 }
 
