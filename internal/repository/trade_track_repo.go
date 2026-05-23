@@ -434,9 +434,9 @@ func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 				exit_price = $14, exit_time = $15, exit_reason = $16, pnl = $17,
 				pnl_percent = $18, fees = $19, status = $20, current_price = $21,
 				unrealized_pnl = $22, unrealized_pnl_pct = $23, subscriber_count = $24,
-				trade_source = $25, exchange_order_id = $26,
+				trade_source = $25, exchange_order_id = $26, anomalous_reason = $27,
 				updated_at = NOW()
-			WHERE id = $27
+			WHERE id = $28
 		`
 
 	_, err := r.db.Exec(context.Background(), query,
@@ -447,7 +447,7 @@ func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 		track.ExitPrice, track.ExitTime, track.ExitReason, track.PnL,
 		track.PnLPercent, track.Fees, track.Status, track.CurrentPrice,
 		track.UnrealizedPnL, track.UnrealizedPnLPct, track.SubscriberCount,
-		track.TradeSource, track.ExchangeOrderID,
+		track.TradeSource, track.ExchangeOrderID, track.AnomalousReason,
 		track.ID,
 	)
 	if err != nil {

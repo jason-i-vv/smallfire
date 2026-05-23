@@ -157,12 +157,32 @@ func (m *TestnetPositionMonitor) checkAllPositions() {
 			// 该 symbol 已在上面处理过，跳过
 			continue
 		}
-		if closedInfo, ok := closedPnlMap[symbolCode]; ok {
+		if closedInfo, ok := closedPnlMap[symbolCode]; ok && m.matchClosedPnl(track, closedInfo) {
 			m.logger.Info("[Testnet] 匹配到已平仓记录", zap.Int("track_id", track.ID), zap.String("symbol", symbolCode))
 			matchedSymbols[symbolCode] = true
 			m.handleClosedPositionFromPnl(track, symbolCode, closedInfo)
 			delete(m.missCount, track.ID)
 			continue
+		}
+
+		// 预取记录不匹配（可能属于旧交易），单独查询该 symbol 的更多记录
+		symbolClosedPnls, cpErr := m.client.GetClosedPnlBySymbol(symbolCode, 10)
+		if cpErr == nil {
+			matched := false
+			for i := range symbolClosedPnls {
+				c := &symbolClosedPnls[i]
+				if m.matchClosedPnl(track, c) {
+					m.logger.Info("[Testnet] 单独查询匹配到已平仓记录", zap.Int("track_id", track.ID), zap.String("symbol", symbolCode))
+					matchedSymbols[symbolCode] = true
+					m.handleClosedPositionFromPnl(track, symbolCode, c)
+					delete(m.missCount, track.ID)
+					matched = true
+					break
+				}
+			}
+			if matched {
+				continue
+			}
 		}
 
 		// 未匹配到：累加未匹配计数，达到阈值才执行兜底平仓
@@ -361,68 +381,80 @@ func (m *TestnetPositionMonitor) handleClosedPosition(track *models.TradeTrack, 
 	if err != nil {
 		m.logger.Warn("[Testnet] 查询已平仓盈亏失败，使用兜底方案", zap.Error(err))
 	} else if len(closedPnls) > 0 {
-		// 取最新一条记录（Bybit 按时间倒序）
-		pnlInfo := closedPnls[0]
-		qty, _ := strconv.ParseFloat(pnlInfo.Qty, 64)
-		closedPnlVal, _ := strconv.ParseFloat(pnlInfo.ClosedPnl, 64)
-		if qty > 0 || closedPnlVal != 0 {
-			entryPrice, _ := strconv.ParseFloat(pnlInfo.EntryPrice, 64)
-			exitPrice, _ := strconv.ParseFloat(pnlInfo.ExitPrice, 64)
-			fee, _ := strconv.ParseFloat(pnlInfo.Fee, 64)
-
-			// 使用 Bybit 真实数据
-			if entryPrice > 0 {
-				track.EntryPrice = &entryPrice
+		// 遍历找到属于当前交易的记录（验证 OccuringTime > EntryTime）
+		var pnlInfo *ClosedPnlInfo
+		for i := range closedPnls {
+			if m.matchClosedPnl(track, &closedPnls[i]) {
+				pnlInfo = &closedPnls[i]
+				break
 			}
-			if exitPrice > 0 {
-				track.ExitPrice = &exitPrice
-			}
-			track.PnL = &closedPnlVal
-			track.Fees = fee
+		}
+		if pnlInfo != nil {
+			qty, _ := strconv.ParseFloat(pnlInfo.Qty, 64)
+			closedPnlVal, _ := strconv.ParseFloat(pnlInfo.ClosedPnl, 64)
+			if qty > 0 || closedPnlVal != 0 {
+				entryPrice, _ := strconv.ParseFloat(pnlInfo.EntryPrice, 64)
+				exitPrice, _ := strconv.ParseFloat(pnlInfo.ExitPrice, 64)
+				fee, _ := strconv.ParseFloat(pnlInfo.Fee, 64)
 
-			// 计算盈亏百分比
-			if track.PositionValue != nil && *track.PositionValue != 0 {
-				pnlPercent := closedPnlVal / *track.PositionValue
-				track.PnLPercent = &pnlPercent
-			}
+				// 使用 Bybit 真实数据
+				if entryPrice > 0 {
+					track.EntryPrice = &entryPrice
+				}
+				if exitPrice > 0 {
+					track.ExitPrice = &exitPrice
+				}
+				track.PnL = &closedPnlVal
+				track.Fees = fee
 
-			// Bybit 的 closedPnl 已包含费用，直接使用
-			exitReason := m.inferExitReason(track)
-			track.ExitReason = ptrString(exitReason)
+				// 计算盈亏百分比
+				if track.PositionValue != nil && *track.PositionValue != 0 {
+					pnlPercent := closedPnlVal / *track.PositionValue
+					track.PnLPercent = &pnlPercent
+				}
 
-			// 平仓时间使用 Bybit 记录的时间
-			if pnlInfo.OccuringTime > 0 {
-				exitTime := time.UnixMilli(pnlInfo.OccuringTime)
-				track.ExitTime = &exitTime
-			} else {
-				track.ExitTime = &now
-			}
+				// Bybit 的 closedPnl 已包含费用，直接使用
+				exitReason := m.inferExitReason(track)
+				track.ExitReason = ptrString(exitReason)
 
-			track.Status = models.TrackStatusClosed
-			track.UpdatedAt = now
+				// 平仓时间使用 Bybit 记录的时间
+				if pnlInfo.OccuringTime > 0 {
+					exitTime := time.UnixMilli(pnlInfo.OccuringTime)
+					track.ExitTime = &exitTime
+				} else {
+					track.ExitTime = &now
+				}
 
-			m.logger.Info("[Testnet] 准备更新平仓记录",
-				zap.Int("track_id", track.ID),
-				zap.String("status_before", track.Status),
-				zap.String("symbol", symbolCode))
+				track.Status = models.TrackStatusClosed
+				track.UpdatedAt = now
 
-			if err := m.trackRepo.Update(track); err != nil {
-				m.logger.Error("[Testnet] 更新平仓记录失败", zap.Error(err))
+				m.logger.Info("[Testnet] 准备更新平仓记录",
+					zap.Int("track_id", track.ID),
+					zap.String("status_before", track.Status),
+					zap.String("symbol", symbolCode))
+
+				if err := m.trackRepo.Update(track); err != nil {
+					m.logger.Error("[Testnet] 更新平仓记录失败", zap.Error(err))
+					return
+				}
+
+				m.logger.Info("[Testnet] 更新平仓记录完成，验证DB",
+					zap.Int("track_id", track.ID))
+
+				m.logger.Info("[Testnet] 仓位已平仓（Bybit 数据）",
+					zap.Int("track_id", track.ID),
+					zap.String("symbol", symbolCode),
+					zap.Float64("entry_price", entryPrice),
+					zap.Float64("exit_price", exitPrice),
+					zap.Float64("closed_pnl", closedPnlVal),
+					zap.Float64("fees", fee),
+					zap.String("exit_reason", *track.ExitReason))
 				return
 			}
-
-			m.logger.Info("[Testnet] 更新平仓记录完成，验证DB",
-				zap.Int("track_id", track.ID))
-
-			m.logger.Info("[Testnet] 仓位已平仓（Bybit 数据）",
+		} else {
+			m.logger.Warn("[Testnet] closed PnL 记录均不属于当前交易，使用兜底方案",
 				zap.Int("track_id", track.ID),
-				zap.String("symbol", symbolCode),
-				zap.Float64("entry_price", entryPrice),
-				zap.Float64("exit_price", exitPrice),
-				zap.Float64("closed_pnl", closedPnlVal),
-				zap.Float64("fees", fee),
-				zap.String("exit_reason", *track.ExitReason))
-			return
+				zap.String("symbol", symbolCode))
 		}
 	}
 
@@ -465,6 +497,45 @@ func (m *TestnetPositionMonitor) handleClosedPosition(track *models.TradeTrack, 
 	if err := m.trackRepo.Update(track); err != nil {
 		m.logger.Error("[Testnet] 更新平仓记录失败", zap.Error(err))
 	}
+}
+
+// matchClosedPnl 验证 closed PnL 记录是否属于当前交易
+// 必须满足：平仓时间 > 开仓时间（排除旧交易的记录）
+// 可选验证：entryPrice 与 track 的入场价接近（容差 1%）
+func (m *TestnetPositionMonitor) matchClosedPnl(track *models.TradeTrack, pnlInfo *ClosedPnlInfo) bool {
+	// 1. 时间校验：closed PnL 的平仓时间必须在开仓时间之后
+	if track.EntryTime == nil {
+		// 没有开仓时间，只能跳过时间校验
+		return true
+	}
+	if pnlInfo.OccuringTime <= track.EntryTime.UnixMilli() {
+		m.logger.Debug("[Testnet] closed PnL 记录时间早于开仓时间，跳过",
+			zap.Int("track_id", track.ID),
+			zap.Int64("pnl_time", pnlInfo.OccuringTime),
+			zap.Int64("entry_time", track.EntryTime.UnixMilli()))
+		return false
+	}
+
+	// 2. 入场价校验：entryPrice 与 track 的入场价接近（容差 1%）
+	if track.EntryPrice != nil && *track.EntryPrice > 0 {
+		pnlEntryPrice, _ := strconv.ParseFloat(pnlInfo.EntryPrice, 64)
+		if pnlEntryPrice > 0 {
+			tolerance := *track.EntryPrice * 0.01
+			diff := pnlEntryPrice - *track.EntryPrice
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff > tolerance {
+				m.logger.Debug("[Testnet] closed PnL 入场价不匹配，跳过",
+					zap.Int("track_id", track.ID),
+					zap.Float64("track_entry", *track.EntryPrice),
+					zap.Float64("pnl_entry", pnlEntryPrice))
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // inferExitReason 根据退出价与止损/止盈价的比较判断平仓原因
@@ -571,26 +642,104 @@ func (m *TestnetPositionMonitor) tryRecoverAnomalousAll() {
 			continue
 		}
 
-		// 2. 查询已平仓记录
-		closedPnls, err := m.client.GetClosedPnlBySymbol(symbolCode, 10)
-		if err == nil && len(closedPnls) > 0 {
-			pnlInfo := closedPnls[0]
-			qty, _ := strconv.ParseFloat(pnlInfo.Qty, 64)
-			closedPnlVal, _ := strconv.ParseFloat(pnlInfo.ClosedPnl, 64)
-			if qty > 0 || closedPnlVal != 0 {
-				m.handleClosedPositionFromPnl(track, symbolCode, &pnlInfo)
-				m.logger.Info("[Testnet] 异常持仓已确认为平仓",
-					zap.Int("track_id", track.ID),
-					zap.String("symbol", symbolCode))
-				continue
+			// 2. 查询已平仓记录，遍历找到属于当前交易的记录
+			closedPnls, err := m.client.GetClosedPnlBySymbol(symbolCode, 10)
+			if err == nil {
+				var matchedPnl *ClosedPnlInfo
+				for i := range closedPnls {
+					if m.matchClosedPnl(track, &closedPnls[i]) {
+						matchedPnl = &closedPnls[i]
+						break
+					}
+				}
+				if matchedPnl != nil {
+					m.handleClosedPositionFromPnl(track, symbolCode, matchedPnl)
+					m.logger.Info("[Testnet] 异常持仓已确认为平仓",
+						zap.Int("track_id", track.ID),
+						zap.String("symbol", symbolCode))
+					continue
+				}
 			}
-		}
 
 		// 3. 仍然找不到，保持异常状态
-		m.logger.Debug("[Testnet] 异常持仓仍未匹配，保持异常",
+		m.logger.Warn("[Testnet] 异常持仓仍未匹配，保持异常",
 			zap.Int("track_id", track.ID),
-			zap.String("symbol", symbolCode))
+			zap.String("symbol", symbolCode),
+			zap.Time("created_at", track.CreatedAt))
+
+		// 4. 超过 24 小时仍无法恢复的异常仓位，自动平仓关闭
+		if time.Since(track.CreatedAt) > 24*time.Hour {
+			m.logger.Warn("[Testnet] 异常持仓超过24小时无法恢复，自动平仓关闭",
+				zap.Int("track_id", track.ID),
+				zap.String("symbol", symbolCode))
+			m.forceCloseAnomalous(track, symbolCode)
+		}
 	}
+}
+
+// forceCloseAnomalous 自动关闭长期无法恢复的异常仓位
+// 尝试获取当前市价计算盈亏，标记为异常平仓
+func (m *TestnetPositionMonitor) forceCloseAnomalous(track *models.TradeTrack, symbolCode string) {
+	now := time.Now()
+
+	// 尝试在 Bybit 上主动平仓（可能仓位已不存在，忽略错误）
+	if track.Quantity != nil && *track.Quantity > 0 {
+		var side string
+		if track.Direction == models.DirectionLong {
+			side = "Buy"
+		} else {
+			side = "Sell"
+		}
+		qtyStr := strconv.FormatFloat(*track.Quantity, 'f', 6, 64)
+		if closeErr := m.client.ClosePosition(symbolCode, side, qtyStr); closeErr != nil {
+			m.logger.Debug("[Testnet] 自动平仓时 Bybit 平仓失败（仓位可能已不存在）",
+				zap.String("symbol", symbolCode),
+				zap.Error(closeErr))
+		}
+	}
+
+	// 获取当前市价计算盈亏
+	exitPrice := 0.0
+	if marketPrice, err := m.client.GetTickerPrice(symbolCode); err == nil {
+		exitPrice = marketPrice
+	}
+	if exitPrice <= 0 && track.EntryPrice != nil {
+		exitPrice = *track.EntryPrice
+	}
+
+	var pnl float64
+	if track.EntryPrice != nil && track.Quantity != nil {
+		if track.Direction == models.DirectionLong {
+			pnl = (exitPrice - *track.EntryPrice) * *track.Quantity
+		} else {
+			pnl = (*track.EntryPrice - exitPrice) * *track.Quantity
+		}
+	}
+
+	var pnlPercent float64
+	if track.PositionValue != nil && *track.PositionValue != 0 {
+		pnlPercent = pnl / *track.PositionValue
+	}
+
+	track.Status = models.TrackStatusClosed
+	track.ExitPrice = &exitPrice
+	track.ExitTime = &now
+	track.PnL = &pnl
+	track.PnLPercent = &pnlPercent
+	track.ExitReason = ptrString(models.ExitReasonAnomalous)
+	track.AnomalousReason = nil
+	track.UpdatedAt = now
+
+	if err := m.trackRepo.Update(track); err != nil {
+		m.logger.Error("[Testnet] 自动平仓异常持仓更新失败", zap.Int("track_id", track.ID), zap.Error(err))
+		return
+	}
+
+	m.logger.Info("[Testnet] 异常持仓已自动平仓关闭",
+		zap.Int("track_id", track.ID),
+		zap.String("symbol", symbolCode),
+		zap.Float64("exit_price", exitPrice),
+		zap.Float64("pnl", pnl))
 }
 
 func (m *TestnetPositionMonitor) markAnomalous(track *models.TradeTrack, symbolCode string) {

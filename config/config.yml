@@ -205,7 +205,7 @@ trading:
     api_key: "DatS4UH1Leyg9qG2Kc"                        # Bybit Testnet API Key
     api_secret: "UlUKA1qDeVRa3XYAuzDbGVyWqZZICWvvmY6y"                     # Bybit Testnet API Secret
     base_url: "https://api-demo.bybit.com"
-    score_threshold: 60                # 最低评分阈值
+    score_threshold: 80                # 最低评分阈值（80分以下不交易）
     fixed_trade_amount: 100            # 每笔固定交易金额（USDT）
     leverage: 2                        # 默认杠杆倍数
     max_open_positions: 5              # 最大同时持仓数
