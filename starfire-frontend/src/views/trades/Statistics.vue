@@ -23,32 +23,32 @@
 
     <!-- 数据面板 -->
     <template v-else>
-      <!-- 综合统计卡片 -->
-      <el-row :gutter="16" class="stats-row">
-        <el-col :span="6" v-for="stat in summaryStats" :key="stat.label">
-          <div class="stat-item">
-            <div class="stat-label">{{ stat.label }}</div>
-            <div class="stat-value" :class="stat.class">{{ stat.value }}</div>
-          </div>
-        </el-col>
-      </el-row>
-
-      <!-- 权益曲线 + 周期盈亏 -->
+      <!-- 权益曲线 + 周期盈亏（始终展示全部历史数据） -->
       <el-row :gutter="20">
         <el-col :span="12">
           <el-card>
             <template #header>{{ t('dashboard.equityCurve') }}</template>
-            <EquityCurveChart :data="scoreEquityData" />
+            <EquityCurveChart :data="allTimeScoreEquityData" />
           </el-card>
         </el-col>
         <el-col :span="12">
           <el-card>
             <template #header>{{ t('statistics.distribution') }}</template>
             <PnLByPeriodChart
-              :data="periodPnLData"
-              v-model:period="selectedPeriod"
+              :data="allTimePeriodPnLData"
+              v-model:period="allTimePeriod"
             />
           </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 综合统计卡片 -->
+      <el-row :gutter="16" class="stats-row mt-20">
+        <el-col :span="6" v-for="stat in summaryStats" :key="stat.label">
+          <div class="stat-item">
+            <div class="stat-label">{{ stat.label }}</div>
+            <div class="stat-value" :class="stat.class">{{ stat.value }}</div>
+          </div>
         </el-col>
       </el-row>
 
@@ -154,7 +154,12 @@ const loading = ref(false)
 const selectedTimeRange = ref('24h')
 const quickTimeFilterRef = ref(null)
 const selectedPeriod = ref('daily')
+const allTimePeriod = ref('daily')
 const tradeSource = ref('paper')
+
+// 全量历史数据（不受时间筛选影响）
+const allTimeScoreEquityData = ref({ ranges: [] })
+const allTimePeriodPnLData = ref([])
 
 const sourceOptions = computed(() => [
   { label: t('trades.sourceAll'), value: '' },
@@ -168,10 +173,7 @@ const toggleSource = (value) => {
 }
 
 const stats = ref(null)
-const equityData = ref([])
-const scoreEquityData = ref({ ranges: [] })
 const symbolData = ref([])
-const periodPnLData = ref([])
 const pnlDistData = ref({ buckets: [] })
 const scoreAnalysisData = ref([])
 const strategyAnalysisData = ref([])
@@ -239,15 +241,13 @@ const fetchData = async () => {
     const params = getDateParams()
     if (tradeSource.value) params.trade_source = tradeSource.value
     const [
-      statsRes, equityRes, symbolRes,
-      periodRes, distRes, scoreRes, strategyRes,
+      statsRes, symbolRes,
+      distRes, scoreRes, strategyRes,
       regimeRes, strategyRegimeRes, scoreRegimeRes,
       scoreGradeRegimeRes
     ] = await Promise.all([
       tradeApi.stats(params),
-      tradeApi.scoreEquityCurve(params),
       tradeApi.symbolAnalysis(params),
-      tradeApi.periodPnL({ ...params, period: selectedPeriod.value }),
       tradeApi.pnlDistribution(params),
       tradeApi.scoreAnalysis(params),
       tradeApi.strategyAnalysis(params),
@@ -258,10 +258,7 @@ const fetchData = async () => {
     ])
 
     stats.value = statsRes.data || null
-    equityData.value = equityRes.data || []
-    scoreEquityData.value = equityRes.data || { ranges: [] }
     symbolData.value = symbolRes.data || []
-    periodPnLData.value = periodRes.data || []
     pnlDistData.value = distRes.data || { buckets: [] }
     scoreAnalysisData.value = scoreRes.data || []
     strategyAnalysisData.value = strategyRes.data || []
@@ -276,9 +273,26 @@ const fetchData = async () => {
   }
 }
 
+// 获取全量历史图表数据（不受时间筛选影响）
+const fetchAllTimeChartData = async () => {
+  try {
+    const params = {}
+    if (tradeSource.value) params.trade_source = tradeSource.value
+    const [equityRes, periodRes] = await Promise.all([
+      tradeApi.scoreEquityCurve(params),
+      tradeApi.periodPnL({ ...params, period: allTimePeriod.value })
+    ])
+    allTimeScoreEquityData.value = equityRes.data || { ranges: [] }
+    allTimePeriodPnLData.value = periodRes.data || []
+  } catch (error) {
+    console.error('Failed to fetch all-time chart data:', error)
+  }
+}
+
 const resetFilter = () => {
   selectedTimeRange.value = ''
   tradeSource.value = ''
+  fetchAllTimeChartData()
   fetchData()
 }
 
@@ -286,15 +300,16 @@ const onTimeFilterChange = () => {
   fetchData()
 }
 
-watch(selectedPeriod, () => {
-  const params = getDateParams()
+watch(allTimePeriod, () => {
+  const params = {}
   if (tradeSource.value) params.trade_source = tradeSource.value
-  tradeApi.periodPnL({ ...params, period: selectedPeriod.value }).then(res => {
-    periodPnLData.value = res.data || []
+  tradeApi.periodPnL({ ...params, period: allTimePeriod.value }).then(res => {
+    allTimePeriodPnLData.value = res.data || []
   }).catch(() => {})
 })
 
 onMounted(() => {
+  fetchAllTimeChartData()
   fetchData()
 })
 </script>

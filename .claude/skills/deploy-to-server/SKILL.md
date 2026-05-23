@@ -34,7 +34,8 @@ cd /home/ubuntu/starfire
 sudo docker-compose pull
 
 # 重启服务
-sudo docker-compose up -d --remove-orphans
+sudo docker-compose down
+sudo docker-compose up -d
 
 # 检查服务状态
 sudo docker-compose ps

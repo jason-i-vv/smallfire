@@ -79,8 +79,8 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		return
 	}
 
-	// 3. 交易质量过滤
-	if !ShouldTrade(opp) {
+	// 3. 交易质量过滤（严格模式，追求盈利）
+	if !ShouldTradeStrict(opp) {
 		return
 	}
 

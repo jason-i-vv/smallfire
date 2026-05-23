@@ -4,19 +4,28 @@ import (
 	"github.com/smallfire/starfire/internal/models"
 )
 
-// ShouldTrade 交易质量过滤
-// 基于历史交易数据分析，过滤掉低胜率的交易机会
+// ShouldTrade 系统模拟交易过滤（基础过滤，用于数据采集）
+// 只过滤明显不合理的交易，保留尽可能多的数据用于统计分析
 func ShouldTrade(opp *models.TradingOpportunity) bool {
 	// 1. 策略历史胜率 < 50% 的信号不自动交易
-	// 数据显示：42.5%和46.9%胜率的信号拿到了80+分却亏损
 	winRate := getWinRateFromScoreDetails(opp.ScoreDetails)
 	if winRate > 0 && winRate < 0.5 {
 		return false
 	}
 
 	// 2. 单信号(consensus=1)不自动交易
-	// 数据显示：confluence_count=1 的80+分交易胜率仅35%
 	if opp.SignalCount <= 1 {
+		return false
+	}
+
+	return true
+}
+
+// ShouldTradeStrict Bybit 模拟仓位严格过滤（追求盈利）
+// 在基础过滤之上，额外过滤历史数据证明低胜率的场景
+func ShouldTradeStrict(opp *models.TradingOpportunity) bool {
+	// 先通过基础过滤
+	if !ShouldTrade(opp) {
 		return false
 	}
 

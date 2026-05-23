@@ -27,6 +27,12 @@ type PriceProvider interface {
 	GetCurrentPrice(symbolID int) (float64, error)
 }
 
+const (
+	positionMonitorPeriod        = "15m"
+	positionMonitorKlineLimit    = 500
+	positionMonitorKlineInterval = 15 * time.Minute
+)
+
 // NewPositionMonitor 创建持仓监控服务
 func NewPositionMonitor(executor *TradeExecutor, trackRepo repository.TradeTrackRepo, symbolRepo repository.SymbolRepo, klineRepo repository.KlineRepo, logger *zap.Logger) *PositionMonitor {
 	return &PositionMonitor{
@@ -135,29 +141,20 @@ func (m *PositionMonitor) checkStopLossTakeProfitWithKlines(track *models.TradeT
 		return nil
 	}
 
-	// 从入场时间之前一根K线开始查询，确保第一根查询到的K线是已收盘的
-	lookbackStart := track.EntryTime.Add(-15 * time.Minute)
-	klines, err := m.klineRepo.GetBySymbolPeriod(int64(track.SymbolID), "15m",
-		&lookbackStart, nil, 500) // 最多取500根15分钟K线，足够覆盖3天
+	// 每轮最多扫描 500 根 15m K线。新仓位从入场前一根开始扫，老仓位扫最近窗口，
+	// 避免长期仓位永远只检查入场后的最早 500 根 K线而漏掉后续触发。
+	lookbackStart := track.EntryTime.Add(-positionMonitorKlineInterval)
+	latestWindowStart := time.Now().Add(-time.Duration(positionMonitorKlineLimit) * positionMonitorKlineInterval)
+	if lookbackStart.Before(latestWindowStart) {
+		lookbackStart = latestWindowStart
+	}
+	klines, err := m.klineRepo.GetBySymbolPeriod(int64(track.SymbolID), positionMonitorPeriod,
+		&lookbackStart, nil, positionMonitorKlineLimit)
 	if err != nil || len(klines) == 0 {
 		return nil
 	}
 
-	// 找到入场K线在数组中的位置：找第一根 OpenTime > EntryTime 的K线，它的前一根就是入场K线
-	entryIdx := -1
-	for i, k := range klines {
-		if k.OpenTime.After(*track.EntryTime) {
-			entryIdx = i
-			break
-		}
-	}
-
-	// entryIdx - 1 就是入场K线，它本身不参与平仓判断（无法判断极值点是在入场前还是入场后）
-	// 从入场K线的下一根开始判断
-	if entryIdx <= 0 || entryIdx >= len(klines) {
-		return nil
-	}
-	klinesToCheck := klines[entryIdx:]
+	klinesToCheck := filterKlinesAfterEntry(klines, *track.EntryTime)
 
 	if len(klinesToCheck) == 0 {
 		return nil
@@ -226,6 +223,15 @@ func (m *PositionMonitor) checkStopLossTakeProfitWithKlines(track *models.TradeT
 		}
 	}
 
+	return nil
+}
+
+func filterKlinesAfterEntry(klines []models.Kline, entryTime time.Time) []models.Kline {
+	for i, k := range klines {
+		if k.OpenTime.After(entryTime) {
+			return klines[i:]
+		}
+	}
 	return nil
 }
 

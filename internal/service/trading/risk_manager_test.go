@@ -81,6 +81,9 @@ func (m *mockTrackRepo) GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSo
 }
 func (m *mockTrackRepo) CountByStatus(status string) (int, error) { return 0, nil }
 func (m *mockTrackRepo) GetAnomalous() ([]*models.TradeTrack, error) { return nil, nil }
+func (m *mockTrackRepo) GetHistorySummary(startDate, endDate time.Time, filters map[string]string) (float64, int, int, float64, float64, error) {
+	return 0, 0, 0, 0, 0, nil
+}
 
 func TestRiskManager_CheckBeforeOpen(t *testing.T) {
 	cfg := &config.TradingConfig{

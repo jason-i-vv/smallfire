@@ -279,6 +279,9 @@ func (m *mockTrackRepoForStats) GetAnomalous() ([]*models.TradeTrack, error) { r
 func (m *mockTrackRepoForStats) GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreRegimeSQLResult, error) {
 	return nil, nil
 }
+func (m *mockTrackRepoForStats) GetHistorySummary(startDate, endDate time.Time, filters map[string]string) (float64, int, int, float64, float64, error) {
+	return 0, 0, 0, 0, 0, nil
+}
 
 func makeClosedTrackFull(pnl float64, symbolID int, direction string, entryTime, exitTime time.Time, exitReason string) *models.TradeTrack {
 	return &models.TradeTrack{
