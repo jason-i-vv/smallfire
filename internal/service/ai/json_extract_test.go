@@ -336,6 +336,77 @@ func TestTrendPullbackReadyKeepsValidRiskRewardAndDedupesSamePullback(t *testing
 	}
 }
 
+func TestTimePriceProjectionParsesReadySignal(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 12,
+			"trend_state": "confirmed",
+			"projection_state": "triggered",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 0.5402,
+			"stop_loss": 0.5000,
+			"take_profit": 0.6800,
+			"swing_a": 0.4000,
+			"swing_b": 0.5400,
+			"swing_c": 0.5400,
+			"projection_target": 0.6800,
+			"ab_range": 0.1400,
+			"time_symmetry": "matched",
+			"confidence": 82,
+			"reasoning": "ABC等距突破确认"
+		}
+	]}`
+
+	steps, err := (&TimePriceProjectionSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].Decision != "alert" || steps[0].BuyPoint != "ready" {
+		t.Fatalf("unexpected signal: decision=%s buy_point=%s", steps[0].Decision, steps[0].BuyPoint)
+	}
+	if steps[0].Extra["strategy"] != "time_price_projection" {
+		t.Fatalf("missing time price strategy extra: %+v", steps[0].Extra)
+	}
+	if steps[0].Extra["projection_target"] != 0.6800 {
+		t.Fatalf("projection_target = %v, want 0.68", steps[0].Extra["projection_target"])
+	}
+}
+
+func TestTimePriceProjectionRejectsBadDirectionalPrices(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 12,
+			"trend_state": "confirmed",
+			"projection_state": "triggered",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 0.5402,
+			"stop_loss": 0.5000,
+			"take_profit": 0.5300,
+			"confidence": 82,
+			"reasoning": "止盈方向错误"
+		}
+	]}`
+
+	steps, err := (&TimePriceProjectionSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].Decision != "wait" || steps[0].BuyPoint != "watch" {
+		t.Fatalf("unexpected downgraded signal: decision=%s buy_point=%s", steps[0].Decision, steps[0].BuyPoint)
+	}
+	if steps[0].EntryPrice != nil || steps[0].StopLoss != nil || steps[0].TakeProfit != nil {
+		t.Fatalf("expected invalid ready to clear prices: %+v", steps[0])
+	}
+}
+
 func TestInvalidStepTerminatesTrackingImmediately(t *testing.T) {
 	steps := []AnalysisStep{
 		{Decision: "wait"},

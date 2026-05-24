@@ -27,21 +27,59 @@ func CalcSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.Tr
 	// 根据市场状态动态调整止盈止损比例
 	slPct, tpPct := GetRegimeSLTP(opp, cfg)
 
-	// 1. 尝试使用 opportunity 建议值
+	// 最大止盈止损距离限制
+	maxSLDist := entryPrice * MaxStopLossDistance(cfg)
+	maxTPDist := entryPrice * 0.15 // 止盈最大 15%
+	minDist := entryPrice * 0.01   // 最小距离 1%
+
+	// 1. 尝试使用 opportunity 建议值（需校验最大距离）
 	if opp.SuggestedStopLoss != nil && *opp.SuggestedStopLoss > 0 {
-		minDist := entryPrice * 0.01
-		if opp.Direction == models.DirectionLong && *opp.SuggestedStopLoss < entryPrice-minDist {
-			sl = *opp.SuggestedStopLoss
-		} else if opp.Direction == models.DirectionShort && *opp.SuggestedStopLoss > entryPrice+minDist {
-			sl = *opp.SuggestedStopLoss
+		if opp.Direction == models.DirectionLong {
+			suggestedSL := *opp.SuggestedStopLoss
+			// 限制最大止损距离
+			if entryPrice-suggestedSL > maxSLDist {
+				suggestedSL = entryPrice - maxSLDist
+				logger.Warn("建议止损超过最大距离，已截断",
+					zap.String("symbol_code", opp.SymbolCode),
+					zap.Float64("suggested_sl", *opp.SuggestedStopLoss),
+					zap.Float64("capped_sl", suggestedSL),
+					zap.Float64("max_sl_pct", MaxStopLossDistance(cfg)))
+			}
+			if suggestedSL < entryPrice-minDist {
+				sl = suggestedSL
+			}
+		} else {
+			suggestedSL := *opp.SuggestedStopLoss
+			if suggestedSL-entryPrice > maxSLDist {
+				suggestedSL = entryPrice + maxSLDist
+				logger.Warn("建议止损超过最大距离，已截断",
+					zap.String("symbol_code", opp.SymbolCode),
+					zap.Float64("suggested_sl", *opp.SuggestedStopLoss),
+					zap.Float64("capped_sl", suggestedSL),
+					zap.Float64("max_sl_pct", MaxStopLossDistance(cfg)))
+			}
+			if suggestedSL > entryPrice+minDist {
+				sl = suggestedSL
+			}
 		}
 	}
 	if opp.SuggestedTakeProfit != nil && *opp.SuggestedTakeProfit > 0 {
-		minDist := entryPrice * 0.01
-		if opp.Direction == models.DirectionLong && *opp.SuggestedTakeProfit > entryPrice+minDist {
-			tp = *opp.SuggestedTakeProfit
-		} else if opp.Direction == models.DirectionShort && *opp.SuggestedTakeProfit < entryPrice-minDist {
-			tp = *opp.SuggestedTakeProfit
+		if opp.Direction == models.DirectionLong {
+			suggestedTP := *opp.SuggestedTakeProfit
+			if suggestedTP-entryPrice > maxTPDist {
+				suggestedTP = entryPrice + maxTPDist
+			}
+			if suggestedTP > entryPrice+minDist {
+				tp = suggestedTP
+			}
+		} else {
+			suggestedTP := *opp.SuggestedTakeProfit
+			if entryPrice-suggestedTP > maxTPDist {
+				suggestedTP = entryPrice - maxTPDist
+			}
+			if suggestedTP < entryPrice-minDist {
+				tp = suggestedTP
+			}
 		}
 	}
 

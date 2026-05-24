@@ -27,7 +27,7 @@
             </div>
           </div>
 
-          <div class="form-row" v-if="draft.skill_name === 'trend_pullback'">
+          <div class="form-row" v-if="isDirectionalSkill(draft.skill_name)">
             <div class="form-label">
               <span class="label-icon"><el-icon><Position /></el-icon></span>
               <span>方向</span>
@@ -126,7 +126,7 @@
             <strong class="symbol">{{ row.symbol_code }}</strong>
             <span class="muted">{{ row.market_code }} · {{ row.period }}</span>
             <el-tag size="small" type="info" style="margin-left: 4px">{{ skillLabel(row.skill_name) }}</el-tag>
-            <el-tag v-if="row.skill_name === 'trend_pullback'" size="small" :type="directionType(row.direction)" style="margin-left: 4px">{{ directionLabel(row.direction) }}</el-tag>
+            <el-tag v-if="isDirectionalSkill(row.skill_name)" size="small" :type="directionType(row.direction)" style="margin-left: 4px">{{ directionLabel(row.direction) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="状态" min-width="135">
@@ -356,6 +356,20 @@
           <div v-if="selectedStep.take_profit != null">
             <span>止盈价</span><strong>{{ formatMaybe(selectedStep.take_profit) }}</strong>
           </div>
+          <template v-if="selectedStep.extra?.strategy === 'time_price_projection'">
+            <div v-if="selectedStep.extra.swing_a != null">
+              <span>A点</span><strong>{{ formatMaybe(selectedStep.extra.swing_a) }}</strong>
+            </div>
+            <div v-if="selectedStep.extra.swing_b != null">
+              <span>B点</span><strong>{{ formatMaybe(selectedStep.extra.swing_b) }}</strong>
+            </div>
+            <div v-if="selectedStep.extra.swing_c != null">
+              <span>C点</span><strong>{{ formatMaybe(selectedStep.extra.swing_c) }}</strong>
+            </div>
+            <div v-if="selectedStep.extra.projection_target != null">
+              <span>等距目标</span><strong>{{ formatMaybe(selectedStep.extra.projection_target) }}</strong>
+            </div>
+          </template>
         </div>
         <div v-if="selectedStep.reasoning" class="step-section">
           <h4>AI 分析</h4>
@@ -398,6 +412,8 @@ const directionOptions = [
   { label: '做空', value: 'short' }
 ]
 const skillOptions = SKILLS
+const DIRECTIONAL_SKILLS = new Set(['trend_pullback', 'time_price_projection'])
+const isDirectionalSkill = skillName => DIRECTIONAL_SKILLS.has(skillName)
 function skillLabel(name) {
   return SKILLS.find(s => s.name === name)?.label || name
 }
@@ -514,7 +530,7 @@ async function loadRemoteTargets() {
     const previousActiveId = activeTargetId.value
     // 加载所有策略的观察仓
     const allTargets = []
-    for (const skill of ['trend_pullback', 'elliott_wave']) {
+    for (const skill of SKILLS.map(item => item.name)) {
       try {
         const res = await trendApi.listWatchTargets(skill)
         const remoteTargets = Array.isArray(res.data) ? res.data : []
@@ -576,7 +592,7 @@ async function deleteTargetRemote(target) {
 }
 
 function serializeTarget(target) {
-  const direction = target.skill_name === 'trend_pullback' ? normalizeDirection(target.direction) : 'long'
+  const direction = isDirectionalSkill(target.skill_name) ? normalizeDirection(target.direction) : 'long'
   return {
     skill_name: target.skill_name || AGENT_TYPE,
     market_code: target.market_code,
@@ -595,7 +611,7 @@ function serializeTarget(target) {
 }
 
 function newTargetId(symbol, period) {
-  const direction = draft.skill_name === 'trend_pullback' ? draft.direction || 'long' : 'long'
+  const direction = isDirectionalSkill(draft.skill_name) ? draft.direction || 'long' : 'long'
   return `${Date.now()}-${symbol || 'SYMBOL'}-${period || '1h'}-${direction}`
 }
 
@@ -610,7 +626,7 @@ async function addTarget() {
     item.market_code === draft.market_code &&
     item.period === draft.period &&
     item.skill_name === draft.skill_name &&
-    (draft.skill_name !== 'trend_pullback' || normalizeDirection(item.direction) === normalizeDirection(draft.direction))
+    (!isDirectionalSkill(draft.skill_name) || normalizeDirection(item.direction) === normalizeDirection(draft.direction))
   )
   if (exists) {
     ElMessage.warning('观察仓里已有这个标的、周期和方向')
@@ -872,9 +888,11 @@ function markerShape(step, direction) {
 function isBuyPointStep(step, direction = activeTarget.value?.direction) {
   return step?.buy_point === 'ready' &&
     step?.decision !== 'invalid' &&
-    step?.trend_state === 'confirmed' &&
-    ['healthy', 'completed'].includes(step?.pullback_state) &&
-    hasValidTrendPullbackRisk(step, direction)
+    (step?.extra?.strategy === 'time_price_projection'
+      ? hasValidTimePriceRisk(step, direction)
+      : step?.trend_state === 'confirmed' &&
+        ['healthy', 'completed'].includes(step?.pullback_state) &&
+        hasValidTrendPullbackRisk(step, direction))
 }
 
 function isImportantStep(step, direction = activeTarget.value?.direction) {
@@ -918,6 +936,17 @@ function hasValidTrendPullbackRisk(step, direction = activeTarget.value?.directi
   const reward = dir === 'short' ? entry - take : take - entry
   if (risk <= 0 || reward <= 0) return false
   return reward / risk >= 1.8
+}
+
+function hasValidTimePriceRisk(step, direction = activeTarget.value?.direction) {
+  const entry = numberValue(step?.entry_price)
+  const stop = numberValue(step?.stop_loss)
+  const take = numberValue(step?.take_profit)
+  if (entry == null || stop == null || take == null) return false
+  const dir = normalizeDirection(direction)
+  return dir === 'short'
+    ? take < entry && entry < stop
+    : stop < entry && entry < take
 }
 
 function showStepDetail(step) {

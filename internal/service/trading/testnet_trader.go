@@ -178,7 +178,8 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 	if tradeAmount <= 0 {
 		tradeAmount = 100
 	}
-	positionValue := float64(leverage) * tradeAmount // 杠杆后的仓位价值
+	margin := tradeAmount                          // 实际保证金（用于 PnL% 计算）
+	positionValue := float64(leverage) * tradeAmount // 杠杆后的仓位价值（用于计算数量和手续费）
 
 	quantity := positionValue / entryPrice // 用杠杆后的仓位价值计算数量
 
@@ -262,7 +263,7 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		EntryPrice:            &entryPrice,
 		EntryTime:             &entryTime,
 		Quantity:              &quantity,
-		PositionValue:         &positionValue,
+		PositionValue:         &margin, // 存储保证金而非杠杆后价值，确保 PnL% = pnl / margin = ROE
 		StopLossPrice:         &stopLossPrice,
 		StopLossPercent:       ptrFloat64(t.config.StopLossPercent),
 		TakeProfitPrice:       &takeProfitPrice,

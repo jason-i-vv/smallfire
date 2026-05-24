@@ -13,5 +13,6 @@ export const trendApi = {
 // 可用的 AI 策略列表
 export const SKILLS = [
   { name: 'trend_pullback', label: '趋势回调', labelEn: 'Trend Pullback', description: '顺大逆小策略，在强趋势的健康回调中寻找买点' },
+  { name: 'time_price_projection', label: '时间价格等距', labelEn: 'Time Price Projection', description: 'A-B-C 波段结构 + 1:1 等距目标，止损以前波段高低点为准' },
   { name: 'elliott_wave', label: '艾略特波浪', labelEn: 'Elliott Wave', description: '推动浪/修正浪识别 + A股主升低吸买点' },
 ]
