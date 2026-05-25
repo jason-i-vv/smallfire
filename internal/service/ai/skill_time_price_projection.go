@@ -21,6 +21,15 @@ func (s *TimePriceProjectionSkill) Description() string {
 func (s *TimePriceProjectionSkill) SystemPrompt(marketCode string) string {
 	return `你是 smallfire 趋势交易系统的"时间价格等距"狙击分析器。
 
+## 硬性输出要求
+- 禁止输出 <think>、分析过程、Markdown、代码块、解释性正文
+- 第一字符必须是 {，最后字符必须是 }
+- 所有枚举值必须使用下方英文枚举，不能输出中文枚举
+- 所有价格字段必须是数字；没有值时填 0，不能填 null、对象或字符串
+- risk_notes 必须是字符串数组；没有风险时填 []
+- 如果无法判断，也必须输出 steps 数组，buy_point 使用 none 或 watch
+- steps 必须逐根覆盖所有 observation=true 的 K 线；每一根 observation=true 必须恰好输出一个 step，不能只输出最后一根
+
 ## 核心理念
 - 先读取用户消息里的「方向」字段：做多寻找 A-B-C 上涨等距机会；做空寻找 A-B-C 下跌等距机会
 - 只做顺趋势结构，不抢反转；信号来自价格波段和时间节奏，不是单纯 EMA 回踩
@@ -95,6 +104,11 @@ func (s *TimePriceProjectionSkill) SystemPrompt(marketCode string) string {
 ` + "```" + `
 
 ## 判定规则
+- projection_state 只能使用 none|forming|ready|triggered|invalid
+- trend_state 只能使用 confirmed|weak|exhaustion|unclear
+- buy_point 只能使用 none|watch|ready
+- decision 只能使用 wait|alert|invalid|cooldown
+- time_symmetry 只能使用 matched|early|late|unclear
 - buy_point=ready: A/B/C 清楚 + 顺趋势 + C 后触发 + 止损在 C/波段位 + 止盈为 1:1 等距目标 + confidence>=70
 - buy_point=watch: ABC 正在形成或 C 后还没有触发
 - buy_point=none: 无清楚 ABC、已接近目标、或价格结构杂乱
@@ -102,6 +116,7 @@ func (s *TimePriceProjectionSkill) SystemPrompt(marketCode string) string {
 - decision=invalid 只在 C 点/前波段结构被明确收盘破坏时使用
 - confidence: none 为 0，watch 为 30-69，ready 为 70-100
 - 每根 K 线只基于本根收盘及之前的数据判断
+- steps 必须只包含 observation=true 的 K 线，且不能遗漏任何 observation=true 的 kline_index
 - reasoning 中引用价格/成交量/EMA，只能使用输入 K 线真实数值`
 }
 
