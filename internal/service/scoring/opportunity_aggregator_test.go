@@ -122,6 +122,9 @@ type mockTrackRepoForAgg struct {
 }
 
 func (m *mockTrackRepoForAgg) GetOpenPositions() ([]*models.TradeTrack, error) { return nil, nil }
+	func (m *mockTrackRepoForAgg) GetHistorySummary(startDate, endDate time.Time, filters map[string]string) (float64, int, int, float64, float64, error) {
+		return 0, 0, 0, 0, 0, nil
+	}
 func (m *mockTrackRepoForAgg) GetOpenPositionsPaginated(page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
 	return nil, 0, nil
 }

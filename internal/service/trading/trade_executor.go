@@ -185,9 +185,11 @@ func (e *TradeExecutor) ClosePosition(track *models.TradeTrack, reason string, e
 // updateSignalTypeStatsAsync 异步更新信号类型统计
 func (e *TradeExecutor) updateSignalTypeStatsAsync(track *models.TradeTrack, exitPrice float64) {
 	if e.statsRepo == nil || track.OpportunityID == nil {
-		e.logger.Debug("反馈闭环跳过: statsRepo或opportunity_id为空",
-			zap.Int("track_id", track.ID),
-			zap.Any("opportunity_id", track.OpportunityID))
+		if e.logger != nil {
+			e.logger.Debug("反馈闭环跳过: statsRepo或opportunity_id为空",
+				zap.Int("track_id", track.ID),
+				zap.Any("opportunity_id", track.OpportunityID))
+		}
 		return
 	}
 

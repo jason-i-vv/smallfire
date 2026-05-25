@@ -72,6 +72,9 @@ func (s *StatisticsService) GetStatistics(startDate, endDate *time.Time, tradeSo
 	if err != nil {
 		return nil, fmt.Errorf("获取基本统计失败: %w", err)
 	}
+	if basic == nil {
+		return stats, nil
+	}
 	stats.TotalTrades = basic.TotalTrades
 	stats.WinTrades = basic.WinTrades
 	stats.LossTrades = basic.LossTrades
