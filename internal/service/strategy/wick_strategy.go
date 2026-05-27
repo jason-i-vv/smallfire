@@ -2,11 +2,13 @@ package strategy
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"time"
 
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
+	"github.com/smallfire/starfire/internal/service/strategy/helpers"
 	trendpkg "github.com/smallfire/starfire/internal/service/trend"
 )
 
@@ -18,6 +20,17 @@ const (
 	WickTypeUpper   // 上引线（潜在空头）
 	WickTypeLower   // 下引线（潜在多头）
 )
+
+func wickTypeToStr(wt WickType) string {
+	switch wt {
+	case WickTypeUpper:
+		return "upper"
+	case WickTypeLower:
+		return "lower"
+	default:
+		return "none"
+	}
+}
 
 // WickStrategy 上下引线反转策略
 type WickStrategy struct {
@@ -68,7 +81,21 @@ func (s *WickStrategy) Analyze(symbolID int, symbolCode, period string, klines [
 	// 2. 获取当前趋势（优先从数据库获取，不可用时从K线自行计算）
 	trend := s.getCurrentTrend(symbolID, period, klines)
 
-	// 3. 检查是否满足反转条件
+	// 3. 趋势位置过滤器（P0·串行）—— 拒绝不在关键位置的引线
+	if !s.isPricePositionValid(latestKline, wickType, trend, klines) {
+		log.Printf("[wick] position rejected: symbol=%d period=%s wick=%s trend=%s close=%.6f",
+			symbolID, period, wickTypeToStr(wickType), trend.Type, latestKline.ClosePrice)
+		return nil, nil
+	}
+
+	// 4. ATR归一化引线长度（P0·串行）—— 拒绝不够"异常长"的引线
+	if !s.isWickLongEnough(latestKline, wickType, klines) {
+		log.Printf("[wick] atr-length rejected: symbol=%d period=%s wick=%s",
+			symbolID, period, wickTypeToStr(wickType))
+		return nil, nil
+	}
+
+	// 5. 检查是否满足反转条件
 	signal := s.checkReversalSignal(symbolID, latestKline, wickType, trend, historicalKlines)
 	if signal == nil {
 		return nil, nil
@@ -125,12 +152,11 @@ func (s *WickStrategy) getNearbyKeyLevels(symbolID int, period string, currentPr
 		}
 
 		distance := math.Abs(level.Price - currentPrice)
-		distancePct := distance / currentPrice * 100
+		distancePct = distance / currentPrice * 100
 
 		if distancePct <= threshold && distance < minDistance {
 			minDistance = distance
 			nearestLevel = level
-			distancePct = distancePct
 		}
 	}
 
@@ -139,6 +165,78 @@ func (s *WickStrategy) getNearbyKeyLevels(symbolID int, period string, currentPr
 	}
 
 	return "none", 0, 0
+}
+
+// isPricePositionValid 双模位置过滤（P0）
+// 区分反转引线和回调末端引线，确保引线出现在趋势结构中的关键位置
+func (s *WickStrategy) isPricePositionValid(kline models.Kline, wickType WickType, trend TrendInfo, klines []models.Kline) bool {
+	cfg := helpers.PositionFilterConfig{
+		ReversalNearExtremePct:     s.config.ReversalNearExtremePct,
+		ContinuationMinPullbackPct: s.config.ContinuationMinPullbackPct,
+		RangeLookback:              s.config.RangeLookback,
+	}
+	if cfg.ReversalNearExtremePct == 0 {
+		cfg.ReversalNearExtremePct = 2.0
+	}
+	if cfg.ContinuationMinPullbackPct == 0 {
+		cfg.ContinuationMinPullbackPct = 1.5
+	}
+	if cfg.RangeLookback <= 0 {
+		cfg.RangeLookback = 20
+	}
+
+	_, valid := helpers.IsPricePositionValid(kline, wickTypeToStr(wickType), trend.Type, klines, cfg)
+	return valid
+}
+
+// isWickLongEnough ATR归一化引线长度过滤（P0）
+// 引线长度必须 >= ATR * minRatio，确保引线在近期波动率背景下"异常长"
+func (s *WickStrategy) isWickLongEnough(kline models.Kline, wickType WickType, klines []models.Kline) bool {
+	minRatio := s.config.WickATRMinRatio
+	if minRatio < 0 {
+		return true // 负数表示跳过此过滤器
+	}
+	if minRatio == 0 {
+		minRatio = 0.5
+	}
+	atrPeriod := s.config.ATRPeriod
+	if atrPeriod < 5 {
+		atrPeriod = 14
+	}
+
+	// 数据不足时跳过（不拒绝），记录降级日志
+	if len(klines) < atrPeriod+1 {
+		log.Printf("[wick] atr-length skipped: insufficient data (need %d, got %d)", atrPeriod+1, len(klines))
+		return true
+	}
+
+	atr, ok := helpers.CalculateATRRaw(klines, atrPeriod)
+	if !ok || atr <= 0 {
+		return true // 降级透传
+	}
+
+	bodyHigh := math.Max(kline.OpenPrice, kline.ClosePrice)
+	bodyLow := math.Min(kline.OpenPrice, kline.ClosePrice)
+	var wickLen float64
+	if wickType == WickTypeUpper {
+		wickLen = kline.HighPrice - bodyHigh
+	} else {
+		wickLen = bodyLow - kline.LowPrice
+	}
+
+	valid, _ := helpers.IsWickLongEnough(wickLen, atr, kline.ClosePrice, minRatio)
+	return valid
+}
+
+// identifyScene 识别引线场景（A/B/C/D）
+func (s *WickStrategy) identifyScene(fakeBreakout *FakeBreakoutInfo, nearLevel string, trendMatch bool) helpers.WickScene {
+	levelAvailable := s.deps.LevelRepo != nil
+	return helpers.IdentifyScene(
+		fakeBreakout != nil && fakeBreakout.Failed,
+		nearLevel,
+		trendMatch,
+		levelAvailable,
+	)
 }
 
 // detectWickType 检测K线是否为上下引线形态
@@ -187,23 +285,35 @@ func (s *WickStrategy) detectWickType(kline models.Kline) WickType {
 
 // checkReversalSignal 检查是否生成反转信号
 func (s *WickStrategy) checkReversalSignal(symbolID int, kline models.Kline, wickType WickType, trend TrendInfo, lookbackKlines []models.Kline) *models.Signal {
-	// 1. 趋势不再硬性过滤信号生成，改为在 calculateStrength 中影响强度
-	// 原逻辑：趋势不匹配时直接返回nil，导致牛市中只有做空信号
-	// 新逻辑：趋势不匹配的信号强度降低，但仍可产生
-
-	// 2. 检测假突破
+	// 1. 检测假突破
 	fakeBreakout := s.detectFakeBreakout(kline, wickType, lookbackKlines)
 
-	// 3. 获取附近关键位
+	// 2. 获取附近关键位
 	nearLevel, _, levelDistance := s.getNearbyKeyLevels(symbolID, kline.Period, kline.ClosePrice)
 
-	// 4. 计算信号强度
-	strength := s.calculateStrength(kline, wickType, trend, fakeBreakout, nearLevel, lookbackKlines)
+	// 3. 判断趋势是否匹配（趋势方向与引线反转方向一致）
+	trendMatch := false
+	if wickType == WickTypeUpper && trend.Type == models.TrendTypeBullish {
+		trendMatch = true
+	}
+	if wickType == WickTypeLower && trend.Type == models.TrendTypeBearish {
+		trendMatch = true
+	}
 
-	// 5. 构建信号数据
-	signalData := s.buildSignalData(kline, wickType, trend, fakeBreakout, nearLevel, levelDistance, lookbackKlines)
+	// 4. 场景识别（A/B/C/D）
+	scene := s.identifyScene(fakeBreakout, nearLevel, trendMatch)
 
-	// 6. 确定信号类型和方向
+	// 5. 计算盘整状态和成交量因子
+	isConsolidating := s.isConsolidating(kline, trend, lookbackKlines)
+	volumeFactor := s.calcVolumeFactor(kline, lookbackKlines)
+
+	// 6. 计算信号强度
+	strength := s.calculateStrength(kline, wickType, trend, fakeBreakout, nearLevel, lookbackKlines, scene, isConsolidating, volumeFactor)
+
+	// 7. 构建信号数据
+	signalData := s.buildSignalData(kline, wickType, trend, fakeBreakout, nearLevel, levelDistance, lookbackKlines, scene)
+
+	// 8. 确定信号类型和方向
 	var signalType, direction string
 	if fakeBreakout != nil && fakeBreakout.Failed {
 		if wickType == WickTypeUpper {
@@ -223,7 +333,7 @@ func (s *WickStrategy) checkReversalSignal(symbolID int, kline models.Kline, wic
 		}
 	}
 
-	// 7. 计算止盈止损
+	// 9. 计算止盈止损
 	stopLoss := s.calculateStopLoss(kline, direction)
 	target := s.calculateTarget(kline, direction)
 
@@ -248,6 +358,64 @@ func (s *WickStrategy) checkReversalSignal(symbolID int, kline models.Kline, wic
 	}
 }
 
+// isConsolidating 判断是否处于盘整状态（软降权）
+func (s *WickStrategy) isConsolidating(kline models.Kline, trend TrendInfo, lookbackKlines []models.Kline) bool {
+	// 趋势判定为 sideways → 盘整
+	if trend.Type == models.TrendTypeSideways {
+		return true
+	}
+
+	// 近期区间振幅 < ATR * 2 → 窄幅波动
+	atrPeriod := s.config.ATRPeriod
+	if atrPeriod < 5 {
+		atrPeriod = 14
+	}
+	if len(lookbackKlines) < atrPeriod+1 {
+		return false
+	}
+
+	atr, ok := helpers.CalculateATRRaw(lookbackKlines, atrPeriod)
+	if !ok || atr <= 0 {
+		return false
+	}
+
+	return helpers.IsConsolidating(trend.Type, lookbackKlines, atr, kline.ClosePrice)
+}
+
+// calcVolumeFactor 计算成交量因子（放量+1 / 缩量-1 / 正常0）
+func (s *WickStrategy) calcVolumeFactor(kline models.Kline, lookbackKlines []models.Kline) int {
+	lookback := s.config.VolumeLookback
+	if lookback <= 0 {
+		lookback = 20
+	}
+	if len(lookbackKlines) < lookback {
+		return 0
+	}
+
+	avgVol, ok := helpers.GetAverageVolume(lookbackKlines, lookback)
+	if !ok || avgVol <= 0 {
+		return 0
+	}
+
+	spikeRatio := s.config.VolumeSpikeRatio
+	if spikeRatio == 0 {
+		spikeRatio = 1.5
+	}
+	lowRatio := s.config.VolumeLowRatio
+	if lowRatio == 0 {
+		lowRatio = 0.7
+	}
+
+	ratio := kline.Volume / avgVol
+	if ratio >= spikeRatio {
+		return 1 // 放量加成
+	}
+	if ratio < lowRatio {
+		return -1 // 缩量惩罚
+	}
+	return 0
+}
+
 // detectFakeBreakout 检测是否发生假突破
 func (s *WickStrategy) detectFakeBreakout(kline models.Kline, wickType WickType, lookbackKlines []models.Kline) *FakeBreakoutInfo {
 	if !s.config.FakeBreakoutEnabled {
@@ -257,20 +425,8 @@ func (s *WickStrategy) detectFakeBreakout(kline models.Kline, wickType WickType,
 	// 使用 ATR 动态计算突破阈值
 	threshold := s.calculateBreakoutThreshold(lookbackKlines) / 100
 
-	// 获取近期高低价（最近20根K线）
-	var recentHigh, recentLow float64
-	startIdx := len(lookbackKlines) - 20
-	if startIdx < 0 {
-		startIdx = 0
-	}
-	for _, k := range lookbackKlines[startIdx:] {
-		if k.HighPrice > recentHigh {
-			recentHigh = k.HighPrice
-		}
-		if k.LowPrice < recentLow || recentLow == 0 {
-			recentLow = k.LowPrice
-		}
-	}
+	// 获取近期高低价
+	recentHigh, recentLow := helpers.GetRecentRange(lookbackKlines, 20)
 
 	if wickType == WickTypeUpper {
 		// 检查是否向上突破近期高点后回落
@@ -349,12 +505,11 @@ func (s *WickStrategy) calculateBreakoutThreshold(klines []models.Kline) float64
 	return threshold
 }
 
-// calculateStrength 计算信号强度
-func (s *WickStrategy) calculateStrength(kline models.Kline, wickType WickType, trend TrendInfo, fakeBreakout *FakeBreakoutInfo, nearLevel string, lookbackKlines []models.Kline) int {
+// calculateStrength 计算信号强度（7因子加权）
+func (s *WickStrategy) calculateStrength(kline models.Kline, wickType WickType, trend TrendInfo, fakeBreakout *FakeBreakoutInfo, nearLevel string, lookbackKlines []models.Kline, scene helpers.WickScene, isConsolidating bool, volumeFactor int) int {
 	baseStrength := 2 // 基础强度
 
 	// 1. 趋势一致性加成/惩罚
-	// 趋势方向与引线反转方向一致时加成，不一致时降低强度
 	trendMatch := false
 	if wickType == WickTypeUpper && trend.Type == models.TrendTypeBullish {
 		trendMatch = true
@@ -363,9 +518,9 @@ func (s *WickStrategy) calculateStrength(kline models.Kline, wickType WickType, 
 		trendMatch = true
 	}
 	if trendMatch {
-		baseStrength += trend.Strength - 1 // 趋势一致时根据趋势强度加成
+		baseStrength += trend.Strength - 1
 	} else {
-		baseStrength -= 1 // 趋势不一致时降低强度（仍可产生信号）
+		baseStrength -= 1
 	}
 
 	// 2. 假突破加成
@@ -373,29 +528,41 @@ func (s *WickStrategy) calculateStrength(kline models.Kline, wickType WickType, 
 		baseStrength += 1
 	}
 
-	// 3. 附近有关键位加成
+	// 3. 关键位加成
 	if nearLevel != "none" {
 		baseStrength += 1
 	}
 
-	// 4. 形态明显程度
+	// 4. 形态明显程度（实体越小，引线越明显）
 	bodyHigh := math.Max(kline.OpenPrice, kline.ClosePrice)
 	bodyLow := math.Min(kline.OpenPrice, kline.ClosePrice)
 	bodySize := bodyHigh - bodyLow
 	totalRange := kline.HighPrice - kline.LowPrice
-
 	if totalRange > 0 {
 		bodyPercent := bodySize / totalRange * 100
-		// 实体越小，引线越明显
 		if bodyPercent < 15 {
 			baseStrength += 1
 		}
 	}
 
-	// 5. 历史验证：统计前N根K线是否有类似形态
+	// 5. 历史验证
 	similarCount := s.countSimilarWicks(lookbackKlines, wickType)
 	if similarCount >= 3 {
 		baseStrength += 1
+	}
+
+	// 6. 场景加成（A=+2, B/C=+1, D=0）
+	baseStrength += scene.SceneStrengthBonus()
+
+	// 7. 成交量因子（放量+1 / 缩量-1）
+	baseStrength += volumeFactor
+
+	// 8. 盘整惩罚（盘整中-2）
+	if isConsolidating {
+		baseStrength -= s.config.ConsolidationPenalty
+		if s.config.ConsolidationPenalty == 0 {
+			baseStrength -= 2 // 默认惩罚
+		}
 	}
 
 	// 限制强度范围 1-5
@@ -428,7 +595,7 @@ func (s *WickStrategy) countSimilarWicks(klines []models.Kline, wickType WickTyp
 }
 
 // buildSignalData 构建信号附加数据
-func (s *WickStrategy) buildSignalData(kline models.Kline, wickType WickType, trend TrendInfo, fakeBreakout *FakeBreakoutInfo, nearLevel string, levelDistance float64, lookbackKlines []models.Kline) *models.JSONB {
+func (s *WickStrategy) buildSignalData(kline models.Kline, wickType WickType, trend TrendInfo, fakeBreakout *FakeBreakoutInfo, nearLevel string, levelDistance float64, lookbackKlines []models.Kline, scene helpers.WickScene) *models.JSONB {
 	bodyHigh := math.Max(kline.OpenPrice, kline.ClosePrice)
 	bodyLow := math.Min(kline.OpenPrice, kline.ClosePrice)
 	bodySize := bodyHigh - bodyLow
@@ -444,6 +611,7 @@ func (s *WickStrategy) buildSignalData(kline models.Kline, wickType WickType, tr
 		"near_level":       nearLevel,
 		"level_distance":   levelDistance,
 		"prev_wick_count":  s.countSimilarWicks(lookbackKlines, wickType),
+		"wick_scene":       helpers.SceneNames[scene],
 	}
 
 	if fakeBreakout != nil {
@@ -533,6 +701,16 @@ func (s *WickStrategy) buildDescription(kline models.Kline, wickType WickType, t
 		models.TrendTypeSideways: "震荡",
 	}[trend.Type]
 
+	// 场景标签
+	sceneLabel := ""
+	if signalData != nil {
+		if scene, ok := (*signalData)["wick_scene"]; ok {
+			if s, ok := scene.(string); ok {
+				sceneLabel = s
+			}
+		}
+	}
+
 	// 判断是否为假突破
 	isFakeBreakout := false
 	if signalData != nil {
@@ -548,10 +726,10 @@ func (s *WickStrategy) buildDescription(kline models.Kline, wickType WickType, t
 				breakoutPoint, _ = bp.(float64)
 			}
 		}
-		return fmt.Sprintf("%s假突破 | 实体占比%.1f%% 引线/实体=%.1fx 趋势=%s 突破点=%.6f",
-			wickLabel, bodyPct, shadowRatio, trendLabel, breakoutPoint)
+		return fmt.Sprintf("%s假突破 | 实体%.1f%% 引线/实体=%.1fx 趋势=%s 场景=%s 突破点=%.6f",
+			wickLabel, bodyPct, shadowRatio, trendLabel, sceneLabel, breakoutPoint)
 	}
 
-	return fmt.Sprintf("%s 反转 | 实体占比%.1f%% 引线/实体=%.1fx 趋势=%s",
-		wickLabel, bodyPct, shadowRatio, trendLabel)
+	return fmt.Sprintf("%s反转 | 实体%.1f%% 引线/实体=%.1fx 趋势=%s 场景=%s",
+		wickLabel, bodyPct, shadowRatio, trendLabel, sceneLabel)
 }
