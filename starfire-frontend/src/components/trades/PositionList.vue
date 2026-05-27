@@ -9,6 +9,15 @@
           <TrendBadge :trend="row.trend_4h" />
         </template>
       </el-table-column>
+      <el-table-column label="入场趋势" width="170">
+        <template #default="{ row }">
+          <div class="trend-stack">
+            <span>4H <TrendBadge :trend="row.trend_4h" /></span>
+            <span>1H <TrendBadge :trend="row.trend_1h" /></span>
+            <span>15M <TrendBadge :trend="row.trend_15m" /></span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column prop="trade_source" :label="t('positions.tradeSource')" width="120">
         <template #default="{ row }">
           <el-tag :type="row.trade_source === 'testnet' ? 'warning' : 'info'" size="small">
@@ -158,6 +167,12 @@ const handleViewChart = (position) => {
 .dir-short { color: $danger; }
 .profit { color: $success; }
 .loss { color: $danger; }
+.trend-stack {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: $text-secondary;
+}
 .anomalous-reason {
   color: $warning;
   font-size: 12px;

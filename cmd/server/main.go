@@ -111,6 +111,7 @@ func main() {
 		SignalRepo: signalRepo,
 		OppRepo:    oppRepo,
 		StatsRepo:  statsRepo,
+		KlineRepo:  klineRepo,
 		Logger:     utils.Logger,
 	}
 	tradeExecutor := trading.NewTradeExecutor(&cfg.Trading, tradingDeps)
@@ -588,6 +589,7 @@ func main() {
 				tradesGroup.GET("/strategy-regime-analysis", tradeHandler.GetStrategyRegimeAnalysis)
 				tradesGroup.GET("/score-regime-analysis", tradeHandler.GetScoreRegimeAnalysis)
 				tradesGroup.GET("/score-grade-regime-analysis", tradeHandler.GetScoreGradeRegimeAnalysis)
+				tradesGroup.GET("/multi-trend-analysis", tradeHandler.GetMultiTrendAnalysis)
 				tradesGroup.POST("/:id/close", tradeHandler.ClosePosition)
 				tradesGroup.GET("/:id", tradeHandler.GetTradeDetail)
 				// 异常持仓操作（recheck/force-close）

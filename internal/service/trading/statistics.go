@@ -1221,3 +1221,228 @@ func (s *StatisticsService) GetScoreGradeRegimeAnalysis(startDate, endDate *time
 	}
 	return result, nil
 }
+
+// MultiTrendAnalysis 多周期趋势统计分析
+type MultiTrendAnalysis struct {
+	Periods           []TrendPeriodAnalysis           `json:"periods"`
+	Scenarios         []TrendScenarioAnalysis         `json:"scenarios"`
+	StrategyScenarios []StrategyTrendScenarioAnalysis `json:"strategy_scenarios"`
+}
+
+// TrendPeriodAnalysis 单周期趋势分布
+type TrendPeriodAnalysis struct {
+	Period string                 `json:"period"`
+	Trends map[string]RegimeStats `json:"trends"` // bullish/bearish/sideways/unknown
+}
+
+// TrendScenarioAnalysis 多周期趋势场景汇总
+type TrendScenarioAnalysis struct {
+	ScenarioKey string `json:"scenario_key"`
+	Scenario    string `json:"scenario"`
+	RegimeStats
+}
+
+// StrategyTrendScenarioAnalysis 策略在多周期趋势场景下的表现
+type StrategyTrendScenarioAnalysis struct {
+	Strategy    string                 `json:"strategy"`
+	StrategyKey string                 `json:"strategy_key"`
+	Overall     RegimeStats            `json:"overall"`
+	Scenarios   map[string]RegimeStats `json:"scenarios"`
+}
+
+var trendScenarioLabels = map[string]string{
+	"strong_trend_following": "强顺势",
+	"trend_following":        "普通顺势",
+	"trend_pullback":         "顺势回调",
+	"countertrend_reversal":  "逆势反转",
+	"range_breakout":         "震荡突破",
+	"range_noise":            "震荡噪音",
+	"mixed_trend":            "周期分歧",
+}
+
+var trendScenarioOrder = []string{
+	"strong_trend_following",
+	"trend_following",
+	"trend_pullback",
+	"countertrend_reversal",
+	"range_breakout",
+	"range_noise",
+	"mixed_trend",
+}
+
+// GetMultiTrendAnalysis 获取4h/1h/15m多周期趋势统计
+func (s *StatisticsService) GetMultiTrendAnalysis(startDate, endDate *time.Time, tradeSource string) (*MultiTrendAnalysis, error) {
+	tracks, err := s.trackRepo.GetClosedTracks(startDate, endDate, tradeSource)
+	if err != nil {
+		return nil, fmt.Errorf("获取多周期趋势统计失败: %w", err)
+	}
+
+	siCtx := s.buildSignalInfoContext(tracks)
+	periodMaps := map[string]map[string]*RegimeStats{
+		"4h":  make(map[string]*RegimeStats),
+		"1h":  make(map[string]*RegimeStats),
+		"15m": make(map[string]*RegimeStats),
+	}
+	scenarioMap := make(map[string]*RegimeStats)
+	strategyMap := make(map[string]map[string]*RegimeStats)
+
+	for _, track := range tracks {
+		if track == nil || track.PnL == nil {
+			continue
+		}
+		pnl := *track.PnL
+		win := pnl > 0
+
+		addTrendStats(periodMaps["4h"], normalizeTrend(track.Trend4h), pnl, win)
+		addTrendStats(periodMaps["1h"], normalizeTrend(track.Trend1h), pnl, win)
+		addTrendStats(periodMaps["15m"], normalizeTrend(track.Trend15m), pnl, win)
+
+		scenarioKey := classifyTrendScenario(track)
+		addTrendStats(scenarioMap, scenarioKey, pnl, win)
+
+		_, sourceType := s.getFullSignalInfoFromContext(track, siCtx)
+		if sourceType == "" {
+			sourceType = "unknown"
+		}
+		if strategyMap[sourceType] == nil {
+			strategyMap[sourceType] = make(map[string]*RegimeStats)
+		}
+		addTrendStats(strategyMap[sourceType], scenarioKey, pnl, win)
+	}
+
+	return &MultiTrendAnalysis{
+		Periods:           buildTrendPeriodResults(periodMaps),
+		Scenarios:         buildTrendScenarioResults(scenarioMap),
+		StrategyScenarios: buildStrategyScenarioResults(strategyMap),
+	}, nil
+}
+
+func addTrendStats(m map[string]*RegimeStats, key string, pnl float64, win bool) {
+	if key == "" {
+		key = "unknown"
+	}
+	if m[key] == nil {
+		m[key] = &RegimeStats{}
+	}
+	st := m[key]
+	st.TotalTrades++
+	if win {
+		st.WinTrades++
+	}
+	st.TotalPnL += pnl
+	st.WinRate = float64(st.WinTrades) / float64(st.TotalTrades)
+	st.AvgPnL = st.TotalPnL / float64(st.TotalTrades)
+}
+
+func normalizeTrend(trend string) string {
+	switch trend {
+	case models.TrendTypeBullish, models.TrendTypeBearish, models.TrendTypeSideways:
+		return trend
+	default:
+		return "unknown"
+	}
+}
+
+func buildTrendPeriodResults(periodMaps map[string]map[string]*RegimeStats) []TrendPeriodAnalysis {
+	periods := []string{"4h", "1h", "15m"}
+	trends := []string{models.TrendTypeBullish, models.TrendTypeBearish, models.TrendTypeSideways, "unknown"}
+	result := make([]TrendPeriodAnalysis, 0, len(periods))
+	for _, period := range periods {
+		item := TrendPeriodAnalysis{Period: period, Trends: make(map[string]RegimeStats)}
+		for _, trend := range trends {
+			if st := periodMaps[period][trend]; st != nil && st.TotalTrades > 0 {
+				item.Trends[trend] = *st
+			}
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func buildTrendScenarioResults(scenarioMap map[string]*RegimeStats) []TrendScenarioAnalysis {
+	result := make([]TrendScenarioAnalysis, 0, len(trendScenarioOrder))
+	for _, key := range trendScenarioOrder {
+		if st := scenarioMap[key]; st != nil && st.TotalTrades > 0 {
+			result = append(result, TrendScenarioAnalysis{
+				ScenarioKey: key,
+				Scenario:    trendScenarioLabels[key],
+				RegimeStats: *st,
+			})
+		}
+	}
+	return result
+}
+
+func buildStrategyScenarioResults(strategyMap map[string]map[string]*RegimeStats) []StrategyTrendScenarioAnalysis {
+	result := make([]StrategyTrendScenarioAnalysis, 0, len(strategyMap))
+	for strategyKey, scenarios := range strategyMap {
+		item := StrategyTrendScenarioAnalysis{
+			Strategy:    strategyLabels[strategyKey],
+			StrategyKey: strategyKey,
+			Scenarios:   make(map[string]RegimeStats),
+		}
+		if item.Strategy == "" {
+			item.Strategy = strategyKey
+		}
+		for _, key := range trendScenarioOrder {
+			if st := scenarios[key]; st != nil && st.TotalTrades > 0 {
+				item.Scenarios[key] = *st
+				item.Overall.TotalTrades += st.TotalTrades
+				item.Overall.WinTrades += st.WinTrades
+				item.Overall.TotalPnL += st.TotalPnL
+			}
+		}
+		if item.Overall.TotalTrades > 0 {
+			item.Overall.WinRate = float64(item.Overall.WinTrades) / float64(item.Overall.TotalTrades)
+			item.Overall.AvgPnL = item.Overall.TotalPnL / float64(item.Overall.TotalTrades)
+		}
+		result = append(result, item)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Overall.TotalPnL > result[j].Overall.TotalPnL
+	})
+	return result
+}
+
+func classifyTrendScenario(track *models.TradeTrack) string {
+	t4h := normalizeTrend(track.Trend4h)
+	t1h := normalizeTrend(track.Trend1h)
+	t15m := normalizeTrend(track.Trend15m)
+
+	match4h := trendMatchesDirection(t4h, track.Direction)
+	match1h := trendMatchesDirection(t1h, track.Direction)
+	match15m := trendMatchesDirection(t15m, track.Direction)
+	oppose4h := trendOpposesDirection(t4h, track.Direction)
+	oppose1h := trendOpposesDirection(t1h, track.Direction)
+	oppose15m := trendOpposesDirection(t15m, track.Direction)
+
+	if match4h && match1h && match15m {
+		return "strong_trend_following"
+	}
+	if match4h && (oppose1h || oppose15m) {
+		return "trend_pullback"
+	}
+	if match4h && (match1h || match15m) {
+		return "trend_following"
+	}
+	if oppose4h && (match1h || match15m) {
+		return "countertrend_reversal"
+	}
+	if t4h == models.TrendTypeSideways && match1h && match15m {
+		return "range_breakout"
+	}
+	if t4h == models.TrendTypeSideways || (t1h == models.TrendTypeSideways && t15m == models.TrendTypeSideways) {
+		return "range_noise"
+	}
+	return "mixed_trend"
+}
+
+func trendMatchesDirection(trend, direction string) bool {
+	return (trend == models.TrendTypeBullish && direction == models.DirectionLong) ||
+		(trend == models.TrendTypeBearish && direction == models.DirectionShort)
+}
+
+func trendOpposesDirection(trend, direction string) bool {
+	return (trend == models.TrendTypeBullish && direction == models.DirectionShort) ||
+		(trend == models.TrendTypeBearish && direction == models.DirectionLong)
+}

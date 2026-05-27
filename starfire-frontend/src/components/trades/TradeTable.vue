@@ -14,6 +14,15 @@
           <TrendBadge :trend="row.trend_4h" />
         </template>
       </el-table-column>
+      <el-table-column label="入场趋势" width="170">
+        <template #default="{ row }">
+          <div class="trend-stack">
+            <span>4H <TrendBadge :trend="row.trend_4h" /></span>
+            <span>1H <TrendBadge :trend="row.trend_1h" /></span>
+            <span>15M <TrendBadge :trend="row.trend_15m" /></span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column prop="direction" :label="t('trades.direction') || '方向'" width="80">
         <template #default="{ row }">
           <span :class="row.direction === 'long' ? 'dir-long' : 'dir-short'">
@@ -283,6 +292,13 @@ const getMergedStrategies = (directions) => {
 .text-muted { color: $text-tertiary; }
 .exit-stop { color: $danger; font-weight: 500; }
 .exit-profit { color: $success; font-weight: 500; }
+
+.trend-stack {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  color: $text-secondary;
+}
 
 .strategy-tags {
   display: flex;

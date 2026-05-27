@@ -18,8 +18,8 @@ type TradeHandler struct {
 	trackRepo      repository.TradeTrackRepo
 	executor       *trading.TradeExecutor
 	statsService   *trading.StatisticsService
-	testnetTrader  *trading.TestnetTrader           // 可选：testnet 交易服务
-	testnetMonitor *trading.TestnetPositionMonitor   // 可选：testnet 持仓监控
+	testnetTrader  *trading.TestnetTrader          // 可选：testnet 交易服务
+	testnetMonitor *trading.TestnetPositionMonitor // 可选：testnet 持仓监控
 	logger         *zap.Logger
 }
 
@@ -251,7 +251,7 @@ func (h *TradeHandler) GetTradeStats(c *gin.Context) {
 
 	tradeSource := c.Query("trade_source")
 
-stats, err := h.statsService.GetStatistics(startDate, endDate, tradeSource)
+	stats, err := h.statsService.GetStatistics(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取交易统计失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -265,7 +265,7 @@ stats, err := h.statsService.GetStatistics(startDate, endDate, tradeSource)
 func (h *TradeHandler) GetSignalAnalysis(c *gin.Context) {
 	tradeSource := c.Query("trade_source")
 
-analysis, err := h.statsService.GetSignalAnalysis(tradeSource)
+	analysis, err := h.statsService.GetSignalAnalysis(tradeSource)
 	if err != nil {
 		h.logger.Error("获取信号分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -423,7 +423,7 @@ func (h *TradeHandler) GetEquityCurve(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
 	tradeSource := c.Query("trade_source")
 
-data, err := h.statsService.GetEquityCurve(startDate, endDate, tradeSource)
+	data, err := h.statsService.GetEquityCurve(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取权益曲线失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -437,7 +437,7 @@ func (h *TradeHandler) GetSymbolAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
 	tradeSource := c.Query("trade_source")
 
-data, err := h.statsService.GetSymbolAnalysis(startDate, endDate, tradeSource)
+	data, err := h.statsService.GetSymbolAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取标的分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -451,7 +451,7 @@ func (h *TradeHandler) GetDirectionAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
 	tradeSource := c.Query("trade_source")
 
-data, err := h.statsService.GetDirectionAnalysis(startDate, endDate, tradeSource)
+	data, err := h.statsService.GetDirectionAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取方向分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -465,7 +465,7 @@ func (h *TradeHandler) GetExitReasonAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
 	tradeSource := c.Query("trade_source")
 
-data, err := h.statsService.GetExitReasonAnalysis(startDate, endDate, tradeSource)
+	data, err := h.statsService.GetExitReasonAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取出场原因分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -483,7 +483,7 @@ func (h *TradeHandler) GetPeriodPnL(c *gin.Context) {
 	}
 	tradeSource := c.Query("trade_source")
 
-data, err := h.statsService.GetPeriodPnL(startDate, endDate, period, tradeSource)
+	data, err := h.statsService.GetPeriodPnL(startDate, endDate, period, tradeSource)
 	if err != nil {
 		h.logger.Error("获取周期盈亏失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -497,7 +497,7 @@ func (h *TradeHandler) GetPnLDistribution(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
 	tradeSource := c.Query("trade_source")
 
-data, err := h.statsService.GetPnLDistribution(startDate, endDate, tradeSource)
+	data, err := h.statsService.GetPnLDistribution(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取盈亏分布失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -511,7 +511,7 @@ func (h *TradeHandler) GetDetailedSignalAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
 	tradeSource := c.Query("trade_source")
 
-data, err := h.statsService.GetDetailedSignalAnalysis(startDate, endDate, tradeSource)
+	data, err := h.statsService.GetDetailedSignalAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取详细信号分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -525,7 +525,7 @@ func (h *TradeHandler) GetScoreAnalysis(c *gin.Context) {
 	startDate, endDate := h.parseDateRange(c)
 	tradeSource := c.Query("trade_source")
 
-data, err := h.statsService.GetScoreAnalysis(startDate, endDate, tradeSource)
+	data, err := h.statsService.GetScoreAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取评分区间分析失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
@@ -612,6 +612,20 @@ func (h *TradeHandler) GetScoreGradeRegimeAnalysis(c *gin.Context) {
 	data, err := h.statsService.GetScoreGradeRegimeAnalysis(startDate, endDate, tradeSource)
 	if err != nil {
 		h.logger.Error("获取评分区间市场状态交叉分析失败", zap.Error(err))
+		HandleError(c, http.StatusInternalServerError, err)
+		return
+	}
+	HandleSuccess(c, data)
+}
+
+// GetMultiTrendAnalysis 获取4h/1h/15m多周期趋势统计
+func (h *TradeHandler) GetMultiTrendAnalysis(c *gin.Context) {
+	startDate, endDate := h.parseDateRange(c)
+	tradeSource := c.Query("trade_source")
+
+	data, err := h.statsService.GetMultiTrendAnalysis(startDate, endDate, tradeSource)
+	if err != nil {
+		h.logger.Error("获取多周期趋势统计失败", zap.Error(err))
 		HandleError(c, http.StatusInternalServerError, err)
 		return
 	}

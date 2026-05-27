@@ -28,57 +28,59 @@ func (t *UnixTime) UnmarshalJSON(data []byte) error {
 
 // TradeTrackResponse 用于 API 返回的结构体，时间字段使用毫秒时间戳
 type TradeTrackResponse struct {
-	ID         int     `json:"id"`
-	SignalID      *int    `json:"signal_id,omitempty"`
-	OpportunityID *int    `json:"opportunity_id,omitempty"`
-	SymbolID      int     `json:"symbol_id"`
-	SymbolCode    string  `json:"symbol_code"`
-	Trend4h       string  `json:"trend_4h,omitempty"`
-	Direction     string  `json:"direction"`
-	EntryPrice    *float64 `json:"entry_price,omitempty"`
-	EntryTime     int64   `json:"entry_time,omitempty"`    // 毫秒时间戳
-	Quantity      *float64 `json:"quantity,omitempty"`
-	PositionValue *float64 `json:"position_value,omitempty"`
-	StopLossPrice *float64 `json:"stop_loss_price,omitempty"`
-	TakeProfitPrice *float64 `json:"take_profit_price,omitempty"`
-	ExitPrice     *float64 `json:"exit_price,omitempty"`
-	ExitTime      int64    `json:"exit_time,omitempty"`
-	ExitReason    *string  `json:"exit_reason,omitempty"`
-	PnL           *float64 `json:"pnl,omitempty"`
-	PnLPercent    *float64 `json:"pnl_percent,omitempty"`
-	CurrentPrice  *float64 `json:"current_price,omitempty"`
-	UnrealizedPnL *float64 `json:"unrealized_pnl,omitempty"`
+	ID               int      `json:"id"`
+	SignalID         *int     `json:"signal_id,omitempty"`
+	OpportunityID    *int     `json:"opportunity_id,omitempty"`
+	SymbolID         int      `json:"symbol_id"`
+	SymbolCode       string   `json:"symbol_code"`
+	Trend4h          string   `json:"trend_4h,omitempty"`
+	Trend1h          string   `json:"trend_1h,omitempty"`
+	Trend15m         string   `json:"trend_15m,omitempty"`
+	Direction        string   `json:"direction"`
+	EntryPrice       *float64 `json:"entry_price,omitempty"`
+	EntryTime        int64    `json:"entry_time,omitempty"` // 毫秒时间戳
+	Quantity         *float64 `json:"quantity,omitempty"`
+	PositionValue    *float64 `json:"position_value,omitempty"`
+	StopLossPrice    *float64 `json:"stop_loss_price,omitempty"`
+	TakeProfitPrice  *float64 `json:"take_profit_price,omitempty"`
+	ExitPrice        *float64 `json:"exit_price,omitempty"`
+	ExitTime         int64    `json:"exit_time,omitempty"`
+	ExitReason       *string  `json:"exit_reason,omitempty"`
+	PnL              *float64 `json:"pnl,omitempty"`
+	PnLPercent       *float64 `json:"pnl_percent,omitempty"`
+	CurrentPrice     *float64 `json:"current_price,omitempty"`
+	UnrealizedPnL    *float64 `json:"unrealized_pnl,omitempty"`
 	UnrealizedPnLPct *float64 `json:"unrealized_pnl_pct,omitempty"`
-	Status        string  `json:"status"`
-	AnomalousReason *string `json:"anomalous_reason,omitempty"`
-	SignalType    string  `json:"signal_type,omitempty"`   // 关联信号类型
-	SourceType    string  `json:"source_type,omitempty"`   // 关联信号来源
-	TradeSource      string  `json:"trade_source,omitempty"`  // 交易来源: paper, testnet
-	ExchangeOrderID  string  `json:"exchange_order_id,omitempty"` // 交易所订单ID
-	CreatedAt     int64   `json:"created_at"` // 毫秒时间戳
-	UpdatedAt     int64   `json:"updated_at"` // 毫秒时间戳
+	Status           string   `json:"status"`
+	AnomalousReason  *string  `json:"anomalous_reason,omitempty"`
+	SignalType       string   `json:"signal_type,omitempty"`       // 关联信号类型
+	SourceType       string   `json:"source_type,omitempty"`       // 关联信号来源
+	TradeSource      string   `json:"trade_source,omitempty"`      // 交易来源: paper, testnet
+	ExchangeOrderID  string   `json:"exchange_order_id,omitempty"` // 交易所订单ID
+	CreatedAt        int64    `json:"created_at"`                  // 毫秒时间戳
+	UpdatedAt        int64    `json:"updated_at"`                  // 毫秒时间戳
 }
 
 // ToResponse 转换为 API 返回结构体
 func (t *TradeTrack) ToResponse() *TradeTrackResponse {
 	resp := &TradeTrackResponse{
-		ID:            t.ID,
-		SignalID:      t.SignalID,
-		OpportunityID: t.OpportunityID,
-		SymbolID:      t.SymbolID,
-		SymbolCode:    t.SymbolCode,
-		Direction:     t.Direction,
-		EntryPrice:    t.EntryPrice,
-		Quantity:      t.Quantity,
-		PositionValue: t.PositionValue,
-		StopLossPrice: t.StopLossPrice,
-		TakeProfitPrice: t.TakeProfitPrice,
-		ExitPrice:     t.ExitPrice,
-		ExitReason:    t.ExitReason,
-		PnL:           t.PnL,
-		PnLPercent:    t.PnLPercent,
-		CurrentPrice:  t.CurrentPrice,
-		UnrealizedPnL: t.UnrealizedPnL,
+		ID:               t.ID,
+		SignalID:         t.SignalID,
+		OpportunityID:    t.OpportunityID,
+		SymbolID:         t.SymbolID,
+		SymbolCode:       t.SymbolCode,
+		Direction:        t.Direction,
+		EntryPrice:       t.EntryPrice,
+		Quantity:         t.Quantity,
+		PositionValue:    t.PositionValue,
+		StopLossPrice:    t.StopLossPrice,
+		TakeProfitPrice:  t.TakeProfitPrice,
+		ExitPrice:        t.ExitPrice,
+		ExitReason:       t.ExitReason,
+		PnL:              t.PnL,
+		PnLPercent:       t.PnLPercent,
+		CurrentPrice:     t.CurrentPrice,
+		UnrealizedPnL:    t.UnrealizedPnL,
 		UnrealizedPnLPct: t.UnrealizedPnLPct,
 		Status:           t.Status,
 		AnomalousReason:  t.AnomalousReason,
@@ -96,16 +98,20 @@ func (t *TradeTrack) ToResponse() *TradeTrackResponse {
 	resp.TradeSource = t.TradeSource
 	resp.ExchangeOrderID = t.ExchangeOrderID
 	resp.Trend4h = t.Trend4h
+	resp.Trend1h = t.Trend1h
+	resp.Trend15m = t.Trend15m
 	return resp
 }
 
 type TradeTrack struct {
-	ID         int     `json:"id" db:"id"`
-	SignalID      *int    `json:"signal_id,omitempty" db:"signal_id"`       // 模拟交易时为 NULL
-	OpportunityID *int    `json:"opportunity_id,omitempty" db:"opportunity_id"` // 关联交易机会（AI 分析来源）
-	SymbolID      int     `json:"symbol_id" db:"symbol_id"`
-	SymbolCode string `json:"symbol_code" db:"-"` // 关联字段，不从数据库读取
-	Trend4h    string `json:"-" db:"-"`           // 关联字段，4h趋势
+	ID            int    `json:"id" db:"id"`
+	SignalID      *int   `json:"signal_id,omitempty" db:"signal_id"`           // 模拟交易时为 NULL
+	OpportunityID *int   `json:"opportunity_id,omitempty" db:"opportunity_id"` // 关联交易机会（AI 分析来源）
+	SymbolID      int    `json:"symbol_id" db:"symbol_id"`
+	SymbolCode    string `json:"symbol_code" db:"-"` // 关联字段，不从数据库读取
+	Trend4h       string `json:"-" db:"trend_4h"`    // 入场时4h趋势快照
+	Trend1h       string `json:"-" db:"trend_1h"`    // 入场时1h趋势快照
+	Trend15m      string `json:"-" db:"trend_15m"`   // 入场时15m趋势快照
 
 	// 入场信息
 	Direction     string     `json:"direction" db:"direction"` // long, short
@@ -154,15 +160,15 @@ type TradeTrack struct {
 	SourceType string `json:"source_type,omitempty" db:"-"` // 关联信号的 source_type
 
 	// 交易来源
-	TradeSource      string `json:"trade_source,omitempty" db:"trade_source"`           // paper, testnet
-	ExchangeOrderID  string `json:"exchange_order_id,omitempty" db:"exchange_order_id"` // 交易所订单ID
+	TradeSource     string `json:"trade_source,omitempty" db:"trade_source"`           // paper, testnet
+	ExchangeOrderID string `json:"exchange_order_id,omitempty" db:"exchange_order_id"` // 交易所订单ID
 }
 
 const (
-	TrackStatusOpen        = "open"
-	TrackStatusClosed      = "closed"
-	TrackStatusCancelled   = "cancelled"
-	TrackStatusAnomalous   = "anomalous" // 异常状态：持仓在 Bybit 上找不到，需人工介入
+	TrackStatusOpen      = "open"
+	TrackStatusClosed    = "closed"
+	TrackStatusCancelled = "cancelled"
+	TrackStatusAnomalous = "anomalous" // 异常状态：持仓在 Bybit 上找不到，需人工介入
 
 	ExitReasonStopLoss     = "stop_loss"
 	ExitReasonTakeProfit   = "take_profit"

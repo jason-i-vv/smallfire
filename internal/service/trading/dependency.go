@@ -12,6 +12,7 @@ type Dependency struct {
 	SignalRepo repository.SignalRepo
 	OppRepo    repository.OpportunityRepo
 	StatsRepo  repository.SignalTypeStatsRepo
+	KlineRepo  repository.KlineRepo
 	Logger     *zap.Logger
 }
 

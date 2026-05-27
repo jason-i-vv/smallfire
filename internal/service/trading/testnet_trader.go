@@ -15,12 +15,12 @@ import (
 // TestnetTrader Bybit Testnet 模拟交易服务
 // 实现 OpportunityHandler 接口，通过 Bybit Testnet API 真实下单
 type TestnetTrader struct {
-	config     *config.TradingConfig
-	trackRepo  repository.TradeTrackRepo
-	klineRepo  repository.KlineRepo
-	client     *BybitTradingClient
-	logger     *zap.Logger
-	mu         sync.Mutex
+	config    *config.TradingConfig
+	trackRepo repository.TradeTrackRepo
+	klineRepo repository.KlineRepo
+	client    *BybitTradingClient
+	logger    *zap.Logger
+	mu        sync.Mutex
 }
 
 // NewTestnetTrader 创建 Bybit Testnet 交易服务
@@ -178,33 +178,33 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 	if tradeAmount <= 0 {
 		tradeAmount = 100
 	}
-	margin := tradeAmount                          // 实际保证金（用于 PnL% 计算）
+	margin := tradeAmount                            // 实际保证金（用于 PnL% 计算）
 	positionValue := float64(leverage) * tradeAmount // 杠杆后的仓位价值（用于计算数量和手续费）
 
 	quantity := positionValue / entryPrice // 用杠杆后的仓位价值计算数量
 
-		// 获取交易对信息，按 qtyStep 对齐数量
-		var qtyStr string
-		instrumentInfo, instrumentErr := t.client.GetInstrumentInfo(opp.SymbolCode)
-		if instrumentErr != nil {
-			t.logger.Warn("[Testnet] 获取交易对信息失败，使用默认精度",
-				zap.String("symbol", opp.SymbolCode),
-				zap.Error(instrumentErr))
+	// 获取交易对信息，按 qtyStep 对齐数量
+	var qtyStr string
+	instrumentInfo, instrumentErr := t.client.GetInstrumentInfo(opp.SymbolCode)
+	if instrumentErr != nil {
+		t.logger.Warn("[Testnet] 获取交易对信息失败，使用默认精度",
+			zap.String("symbol", opp.SymbolCode),
+			zap.Error(instrumentErr))
+	}
+	if instrumentInfo != nil {
+		qtyStepStr := instrumentInfo.LotSizeFilter.QtyStep
+		if qtyStepStr == "" {
+			qtyStepStr = instrumentInfo.QtyStep
 		}
-		if instrumentInfo != nil {
-			qtyStepStr := instrumentInfo.LotSizeFilter.QtyStep
-			if qtyStepStr == "" {
-				qtyStepStr = instrumentInfo.QtyStep
-			}
-			qtyStep, _ := strconv.ParseFloat(qtyStepStr, 64)
-			if qtyStep > 0 {
-				qtyStr = FormatQty(quantity, qtyStep)
-			} else {
-				qtyStr = strconv.FormatFloat(quantity, 'f', 6, 64)
-			}
+		qtyStep, _ := strconv.ParseFloat(qtyStepStr, 64)
+		if qtyStep > 0 {
+			qtyStr = FormatQty(quantity, qtyStep)
 		} else {
 			qtyStr = strconv.FormatFloat(quantity, 'f', 6, 64)
 		}
+	} else {
+		qtyStr = strconv.FormatFloat(quantity, 'f', 6, 64)
+	}
 
 	// 确定方向
 	var side string
@@ -257,27 +257,28 @@ func (t *TestnetTrader) OnOpportunity(opp *models.TradingOpportunity) {
 	now := time.Now()
 	oppID := opp.ID
 	track := &models.TradeTrack{
-		OpportunityID:         &oppID,
-		SymbolID:              opp.SymbolID,
-		Direction:             opp.Direction,
-		EntryPrice:            &entryPrice,
-		EntryTime:             &entryTime,
-		Quantity:              &quantity,
-		PositionValue:         &margin, // 存储保证金而非杠杆后价值，确保 PnL% = pnl / margin = ROE
-		StopLossPrice:         &stopLossPrice,
-		StopLossPercent:       ptrFloat64(t.config.StopLossPercent),
-		TakeProfitPrice:       &takeProfitPrice,
-		TakeProfitPercent:     ptrFloat64(t.config.TakeProfitPercent),
-		TrailingStopEnabled:   false, // testnet 使用交易所原生 SL/TP
-		TrailingStopActive:    false,
-		Status:                models.TrackStatusOpen,
-		SubscriberCount:       1,
-		Fees:                  fees,
-		TradeSource:           models.TradeSourceTestnet,
-		ExchangeOrderID:       orderResp.OrderID,
-		CreatedAt:             now,
-		UpdatedAt:             now,
+		OpportunityID:       &oppID,
+		SymbolID:            opp.SymbolID,
+		Direction:           opp.Direction,
+		EntryPrice:          &entryPrice,
+		EntryTime:           &entryTime,
+		Quantity:            &quantity,
+		PositionValue:       &margin, // 存储保证金而非杠杆后价值，确保 PnL% = pnl / margin = ROE
+		StopLossPrice:       &stopLossPrice,
+		StopLossPercent:     ptrFloat64(t.config.StopLossPercent),
+		TakeProfitPrice:     &takeProfitPrice,
+		TakeProfitPercent:   ptrFloat64(t.config.TakeProfitPercent),
+		TrailingStopEnabled: false, // testnet 使用交易所原生 SL/TP
+		TrailingStopActive:  false,
+		Status:              models.TrackStatusOpen,
+		SubscriberCount:     1,
+		Fees:                fees,
+		TradeSource:         models.TradeSourceTestnet,
+		ExchangeOrderID:     orderResp.OrderID,
+		CreatedAt:           now,
+		UpdatedAt:           now,
 	}
+	populateTrendSnapshot(track, t.klineRepo)
 
 	if err := t.trackRepo.Create(track); err != nil {
 		t.logger.Error("[Testnet] 创建交易记录失败，回滚 Bybit 仓位",

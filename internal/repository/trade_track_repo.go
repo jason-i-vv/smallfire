@@ -21,7 +21,8 @@ const tradeTrackColumns = `
 	trailing_stop_price, trailing_activation_pct, exit_price, exit_time,
 	exit_reason, pnl, pnl_percent, fees, status, current_price,
 	unrealized_pnl, unrealized_pnl_pct, subscriber_count, created_at, updated_at,
-	trade_source, exchange_order_id, anomalous_reason
+	trade_source, exchange_order_id, anomalous_reason,
+	trend_4h, trend_1h, trend_15m
 `
 
 // TradeTrackRepoPG 交易跟踪数据访问实现
@@ -49,7 +50,7 @@ func scanTradeTrack(row interface{ Scan(dest ...any) error }) (*models.TradeTrac
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
 		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID,
-		&track.AnomalousReason,
+		&track.AnomalousReason, &track.Trend4h, &track.Trend1h, &track.Trend15m,
 	); err != nil {
 		return nil, err
 	}
@@ -60,7 +61,6 @@ func scanTradeTrack(row interface{ Scan(dest ...any) error }) (*models.TradeTrac
 func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*models.TradeTrack, string, error) {
 	var track models.TradeTrack
 	var symbolCode string
-	var trend4h string
 	if err := row.Scan(
 		&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
 		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
@@ -71,18 +71,17 @@ func scanTradeTrackWithSymbolCode(row interface{ Scan(dest ...any) error }) (*mo
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
 		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID, &track.AnomalousReason,
-		&symbolCode, &trend4h,
+		&track.Trend4h, &track.Trend1h, &track.Trend15m, &symbolCode,
 	); err != nil {
 		return nil, "", err
 	}
-	track.Trend4h = trend4h
 	return &track, symbolCode, nil
 }
 
 // scanTradeTrackWithDetails 扫描包含 symbol_code, signal_type, source_type 的行数据
 func scanTradeTrackWithDetails(row interface{ Scan(dest ...any) error }) (*models.TradeTrack, error) {
 	var track models.TradeTrack
-	var symbolCode, trend4h, signalType, sourceType string
+	var symbolCode, signalType, sourceType string
 	if err := row.Scan(
 		&track.ID, &track.SignalID, &track.OpportunityID, &track.SymbolID, &track.Direction,
 		&track.EntryPrice, &track.EntryTime, &track.Quantity, &track.PositionValue,
@@ -93,12 +92,12 @@ func scanTradeTrackWithDetails(row interface{ Scan(dest ...any) error }) (*model
 		&track.Fees, &track.Status, &track.CurrentPrice, &track.UnrealizedPnL,
 		&track.UnrealizedPnLPct, &track.SubscriberCount, &track.CreatedAt,
 		&track.UpdatedAt, &track.TradeSource, &track.ExchangeOrderID, &track.AnomalousReason,
-		&symbolCode, &trend4h, &signalType, &sourceType,
+		&track.Trend4h, &track.Trend1h, &track.Trend15m,
+		&symbolCode, &signalType, &sourceType,
 	); err != nil {
 		return nil, err
 	}
 	track.SymbolCode = symbolCode
-	track.Trend4h = trend4h
 	track.SignalType = signalType
 	track.SourceType = sourceType
 	return &track, nil
@@ -126,8 +125,10 @@ func (r *TradeTrackRepoPG) GetOpenPositions() ([]*models.TradeTrack, error) {
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
 			       t.anomalous_reason,
-			       COALESCE(s.symbol_code, '') as symbol_code,
-			       COALESCE(s.trend_4h, '') as trend_4h
+			       COALESCE(t.trend_4h, s.trend_4h, '') as trend_4h,
+			       COALESCE(t.trend_1h, '') as trend_1h,
+			       COALESCE(t.trend_15m, '') as trend_15m,
+			       COALESCE(s.symbol_code, '') as symbol_code
 			FROM trade_tracks t
 			LEFT JOIN symbols s ON t.symbol_id = s.id
 			WHERE t.status = $1
@@ -246,8 +247,10 @@ func (r *TradeTrackRepoPG) GetOpenPositionsPaginated(page, size int, filters map
 				       COALESCE(t.trade_source, 'paper') as trade_source,
 				       COALESCE(t.exchange_order_id, '') as exchange_order_id,
 				       t.anomalous_reason,
-				       COALESCE(s.symbol_code, '') as symbol_code,
-			       COALESCE(s.trend_4h, '') as trend_4h
+				       COALESCE(t.trend_4h, s.trend_4h, '') as trend_4h,
+				       COALESCE(t.trend_1h, '') as trend_1h,
+				       COALESCE(t.trend_15m, '') as trend_15m,
+				       COALESCE(s.symbol_code, '') as symbol_code
 				FROM trade_tracks t
 				LEFT JOIN symbols s ON t.symbol_id = s.id
 				%s
@@ -338,8 +341,10 @@ func (r *TradeTrackRepoPG) GetClosedTracks(startDate, endDate *time.Time, tradeS
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
 			       t.anomalous_reason,
-			       COALESCE(s.symbol_code, '') as symbol_code,
-			       COALESCE(s.trend_4h, '') as trend_4h
+			       COALESCE(t.trend_4h, s.trend_4h, '') as trend_4h,
+			       COALESCE(t.trend_1h, '') as trend_1h,
+			       COALESCE(t.trend_15m, '') as trend_15m,
+			       COALESCE(s.symbol_code, '') as symbol_code
 			FROM trade_tracks t
 			LEFT JOIN symbols s ON t.symbol_id = s.id
 			WHERE t.status = $1`
@@ -402,9 +407,10 @@ func (r *TradeTrackRepoPG) Create(track *models.TradeTrack) error {
 				take_profit_price, take_profit_percent, trailing_stop_enabled,
 				trailing_stop_active, trailing_stop_price, trailing_activation_pct,
 				fees, status, subscriber_count, trade_source, exchange_order_id,
+				trend_4h, trend_1h, trend_15m,
 				created_at, updated_at
 			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
 				NOW(), NOW()
 			) RETURNING id
 		`
@@ -416,6 +422,7 @@ func (r *TradeTrackRepoPG) Create(track *models.TradeTrack) error {
 		track.TakeProfitPercent, track.TrailingStopEnabled, track.TrailingStopActive,
 		track.TrailingStopPrice, track.TrailingActivationPct, track.Fees,
 		track.Status, track.SubscriberCount, track.TradeSource, track.ExchangeOrderID,
+		track.Trend4h, track.Trend1h, track.Trend15m,
 	).Scan(&track.ID)
 	if err != nil {
 		return fmt.Errorf("创建交易跟踪失败: %w", err)
@@ -435,8 +442,9 @@ func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 				pnl_percent = $18, fees = $19, status = $20, current_price = $21,
 				unrealized_pnl = $22, unrealized_pnl_pct = $23, subscriber_count = $24,
 				trade_source = $25, exchange_order_id = $26, anomalous_reason = $27,
+				trend_4h = $28, trend_1h = $29, trend_15m = $30,
 				updated_at = NOW()
-			WHERE id = $28
+			WHERE id = $31
 		`
 
 	_, err := r.db.Exec(context.Background(), query,
@@ -448,6 +456,7 @@ func (r *TradeTrackRepoPG) Update(track *models.TradeTrack) error {
 		track.PnLPercent, track.Fees, track.Status, track.CurrentPrice,
 		track.UnrealizedPnL, track.UnrealizedPnLPct, track.SubscriberCount,
 		track.TradeSource, track.ExchangeOrderID, track.AnomalousReason,
+		track.Trend4h, track.Trend1h, track.Trend15m,
 		track.ID,
 	)
 	if err != nil {
@@ -528,8 +537,10 @@ func (r *TradeTrackRepoPG) GetHistory(startDate, endDate time.Time, page, size i
 			       COALESCE(t.trade_source, 'paper') as trade_source,
 			       COALESCE(t.exchange_order_id, '') as exchange_order_id,
 			       t.anomalous_reason,
+			       COALESCE(t.trend_4h, s.trend_4h, '') as trend_4h,
+			       COALESCE(t.trend_1h, '') as trend_1h,
+			       COALESCE(t.trend_15m, '') as trend_15m,
 			       COALESCE(s.symbol_code, '') as symbol_code,
-			       COALESCE(s.trend_4h, '') as trend_4h,
 			       COALESCE(sig.signal_type, '') as signal_type,
 			       COALESCE(sig.source_type, '') as source_type
 			FROM trade_tracks t
@@ -709,10 +720,10 @@ func (r *TradeTrackRepoPG) GetOpenBySource(source string) ([]*models.TradeTrack,
 
 // RegimeStatsResult SQL聚合的市场状态统计数据
 type RegimeStatsResult struct {
-	Regime         string
-	TotalTrades    int
-	WinTrades      int
-	TotalPnL       float64
+	Regime          string
+	TotalTrades     int
+	WinTrades       int
+	TotalPnL        float64
 	AvgHoldingHours float64
 }
 
@@ -842,9 +853,10 @@ func (r *TradeTrackRepoPG) GetAnomalous() ([]*models.TradeTrack, error) {
 		"t.trailing_stop_price, t.trailing_activation_pct, t.exit_price, t.exit_time, " +
 		"t.exit_reason, t.pnl, t.pnl_percent, t.fees, t.status, t.current_price, " +
 		"t.unrealized_pnl, t.unrealized_pnl_pct, t.subscriber_count, t.created_at, t.updated_at, " +
-		"t.trade_source, t.exchange_order_id, t.anomalous_reason"
+		"t.trade_source, t.exchange_order_id, t.anomalous_reason, " +
+		"COALESCE(t.trend_4h, s.trend_4h, '') as trend_4h, COALESCE(t.trend_1h, '') as trend_1h, COALESCE(t.trend_15m, '') as trend_15m"
 	query := fmt.Sprintf(`
-		SELECT %s, s.symbol_code, s.trend_4h
+		SELECT %s, s.symbol_code
 		FROM trade_tracks t
 		LEFT JOIN symbols s ON t.symbol_id = s.id
 		WHERE t.status = 'anomalous'

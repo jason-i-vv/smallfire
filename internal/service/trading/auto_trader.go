@@ -158,6 +158,7 @@ func (t *AutoTrader) openFixedPosition(opp *models.TradingOpportunity, entryPric
 		CreatedAt:             now,
 		UpdatedAt:             now,
 	}
+	populateTrendSnapshot(track, t.klineRepo)
 
 	if err := t.trackRepo.Create(track); err != nil {
 		return nil, fmt.Errorf("创建交易记录失败: %w", err)

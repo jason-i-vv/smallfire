@@ -13,7 +13,7 @@ import (
 
 // 指针帮助函数
 func ptrTime(t time.Time) *time.Time { return &t }
-func ptrFloat64(f float64) *float64 { return &f }
+func ptrFloat64(f float64) *float64  { return &f }
 func ptrString(s string) *string     { return &s }
 
 // TradeExecutor 交易执行器
@@ -23,7 +23,8 @@ type TradeExecutor struct {
 	signalRepo     repository.SignalRepo
 	oppRepo        repository.OpportunityRepo
 	statsRepo      repository.SignalTypeStatsRepo
-	positionSizer *PositionSizer
+	klineRepo      repository.KlineRepo
+	positionSizer  *PositionSizer
 	stopLoss       *StopLossStrategy
 	trailingStop   *TrailingStopStrategy
 	riskManager    *RiskManager
@@ -41,6 +42,7 @@ func NewTradeExecutor(cfg *config.TradingConfig, deps Dependency) *TradeExecutor
 		signalRepo:     deps.SignalRepo,
 		oppRepo:        deps.OppRepo,
 		statsRepo:      deps.StatsRepo,
+		klineRepo:      deps.KlineRepo,
 		positionSizer:  positionSizer,
 		stopLoss:       NewStopLossStrategy(cfg),
 		trailingStop:   NewTrailingStopStrategy(cfg),
@@ -100,6 +102,10 @@ func (e *TradeExecutor) OpenPosition(signal *models.Signal, currentPrice float64
 		Fees:                positionValue * 0.0004 * 2, // 双向手续费
 		CreatedAt:           now,
 		UpdatedAt:           now,
+	}
+	populateTrendSnapshot(track, e.klineRepo)
+	if track.Trend4h == "" && signal.Trend4h != "" {
+		track.Trend4h = signal.Trend4h
 	}
 
 	// 5. 保存

@@ -98,6 +98,16 @@
       <!-- 市场状态统计卡片 -->
       <RegimeAnalysisCard :data="regimeData" class="mt-20" />
 
+      <!-- 多周期趋势场景分析 -->
+      <el-row :gutter="20" class="mt-20">
+        <el-col :span="24">
+          <el-card>
+            <template #header>多周期趋势场景分析</template>
+            <MultiTrendAnalysisPanel :data="multiTrendData" />
+          </el-card>
+        </el-col>
+      </el-row>
+
       <!-- 策略 × 市场状态 交叉分析 -->
       <el-row :gutter="20" class="mt-20">
         <el-col :span="24">
@@ -145,6 +155,7 @@ import RegimeAnalysisCard from '@/components/trades/RegimeAnalysisCard.vue'
 import StrategyRegimeTable from '@/components/trades/StrategyRegimeTable.vue'
 import ScoreDimensionTable from '@/components/trades/ScoreDimensionTable.vue'
 import ScoreGradeRegimeTable from '@/components/trades/ScoreGradeRegimeTable.vue'
+import MultiTrendAnalysisPanel from '@/components/trades/MultiTrendAnalysisPanel.vue'
 import { tradeApi } from '@/api/trades'
 import { formatPnL, formatPercent } from '@/utils/formatters'
 import QuickTimeFilter from '@/components/common/QuickTimeFilter.vue'
@@ -181,6 +192,7 @@ const regimeData = ref([])
 const strategyRegimeData = ref([])
 const scoreRegimeData = ref([])
 const scoreGradeRegimeData = ref([])
+const multiTrendData = ref({})
 
 const noData = computed(() => {
   return stats.value && stats.value.total_trades === 0
@@ -244,7 +256,7 @@ const fetchData = async () => {
       statsRes, symbolRes,
       distRes, scoreRes, strategyRes,
       regimeRes, strategyRegimeRes, scoreRegimeRes,
-      scoreGradeRegimeRes
+      scoreGradeRegimeRes, multiTrendRes
     ] = await Promise.all([
       tradeApi.stats(params),
       tradeApi.symbolAnalysis(params),
@@ -254,7 +266,8 @@ const fetchData = async () => {
       tradeApi.regimeAnalysis(params),
       tradeApi.strategyRegimeAnalysis(params),
       tradeApi.scoreRegimeAnalysis(params),
-      tradeApi.scoreGradeRegimeAnalysis(params)
+      tradeApi.scoreGradeRegimeAnalysis(params),
+      tradeApi.multiTrendAnalysis(params)
     ])
 
     stats.value = statsRes.data || null
@@ -266,6 +279,7 @@ const fetchData = async () => {
     strategyRegimeData.value = strategyRegimeRes.data || []
     scoreRegimeData.value = scoreRegimeRes.data || []
     scoreGradeRegimeData.value = scoreGradeRegimeRes.data || []
+    multiTrendData.value = multiTrendRes.data || {}
   } catch (error) {
     console.error('Failed to fetch statistics:', error)
   } finally {
