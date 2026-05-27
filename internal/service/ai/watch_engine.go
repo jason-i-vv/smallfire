@@ -92,13 +92,12 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 	}
 
 	var raw string
+	var analysisKlines []models.Kline
 
 	if conv == nil {
-		// 3a. 首次分析：全量 K 线 + 完整 system prompt
-		observationStart := len(klines) - 12
-		if observationStart < minWatchContext {
-			observationStart = minWatchContext
-		}
+		// 3a. 首次分析：历史 K 线只做上下文，只有最新一根作为可执行观察点。
+		observationStart := firstRunObservationStart(klines)
+		analysisKlines = klines[observationStart:]
 
 		conv = &ClaudeConversation{
 			SystemPrompt: skill.SystemPrompt(target.MarketCode),
@@ -118,11 +117,12 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 			zap.String("skill", target.SkillName),
 			zap.Int("kline_count", len(klines)))
 	} else {
-		// 3b. 增量分析：只发新 K 线
-		newKlines := e.findNewKlines(klines, conv)
+		// 3b. 增量分析：只发上次结果之后的新 K 线
+		newKlines := e.findNewKlines(klines, target.Result)
 		if len(newKlines) == 0 {
 			return fmt.Errorf("没有新 K 线数据")
 		}
+		analysisKlines = newKlines
 
 		conv.Messages = append(conv.Messages, ClaudeMessage{
 			Role:    "user",
@@ -157,7 +157,7 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 	}
 
 	// 6. 填充 K 线数据到 steps
-	steps = e.fillKlineData(steps, klines)
+	steps = e.fillKlineData(steps, analysisKlines)
 	if target.SkillName == "trend_pullback" {
 		steps = guardTrendPullbackInvalidSteps(target.Direction, steps, klines)
 	}
@@ -218,47 +218,54 @@ func (e *WatchEngine) ResetTarget(targetID int) error {
 	return e.claude.ResetConversation(targetID)
 }
 
-// findNewKlines 找出尚未发送过的 K 线
-func (e *WatchEngine) findNewKlines(klines []models.Kline, conv *ClaudeConversation) []models.Kline {
-	if len(conv.Messages) == 0 {
-		return klines
+func firstRunObservationStart(klines []models.Kline) int {
+	if len(klines) == 0 {
+		return 0
+	}
+	return len(klines) - 1
+}
+
+// findNewKlines 找出尚未分析过的 K 线。
+func (e *WatchEngine) findNewKlines(klines []models.Kline, result json.RawMessage) []models.Kline {
+	if len(klines) == 0 {
+		return nil
 	}
 
-	// 从最后一条 user 消息中提取最后一条 K 线的时间
-	lastUserMsg := ""
-	for i := len(conv.Messages) - 1; i >= 0; i-- {
-		if conv.Messages[i].Role == "user" {
-			lastUserMsg = conv.Messages[i].Content
-			break
-		}
+	lastAnalyzedAt := latestAnalyzedKlineTime(result)
+	if lastAnalyzedAt == 0 {
+		return klines[len(klines)-1:]
 	}
 
-	if lastUserMsg == "" {
-		return klines[len(klines)-1:] // 默认只取最后 1 根
-	}
-
-	// 找到 K 线中最晚的时间，之后的都是新的
-	lastKlineTime := time.Time{}
+	newKlines := make([]models.Kline, 0)
 	for _, k := range klines {
-		if k.OpenTime.After(lastKlineTime) {
-			lastKlineTime = k.OpenTime
+		if k.OpenTime.UnixMilli() > lastAnalyzedAt {
+			newKlines = append(newKlines, k)
 		}
 	}
+	return newKlines
+}
 
-	// 简单策略：取最后几根 K 线（最近 1-3 根未分析的）
-	// 通过比较会话中的消息数量和 K 线数量来估算
-	estimatedAnalyzed := len(conv.Messages) / 2 // 每轮大约 2 条消息
-	if estimatedAnalyzed > len(klines) {
-		estimatedAnalyzed = len(klines) - 1
+func latestAnalyzedKlineTime(result json.RawMessage) int64 {
+	if len(result) == 0 {
+		return 0
 	}
 
-	// 保守取最后 3 根作为"新 K 线"，确保不遗漏
-	newCount := 3
-	if newCount > len(klines) {
-		newCount = len(klines)
+	var parsed struct {
+		Steps []struct {
+			KlineTime int64 `json:"kline_time"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		return 0
 	}
 
-	return klines[len(klines)-newCount:]
+	var latest int64
+	for _, step := range parsed.Steps {
+		if step.KlineTime > latest {
+			latest = step.KlineTime
+		}
+	}
+	return latest
 }
 
 // fillKlineData 填充 K 线时间和价格到 steps
