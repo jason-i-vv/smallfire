@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1.0] - 2026-05-25
+
+### Added
+- 评分策略优化：去除惩罚性扣分，恢复线性准确评分，提升高评分交易胜率
+- Wick 策略深度优化：场景分类、成交量/波动率过滤、ATR 止盈止损
+- AI 跟踪界面增加 EMA 均线展示和分析记录浮窗详情
+- 支持做空趋势回调跟踪，增加下一个跟踪目标导航
+- 交易历史增加快速筛选功能
+- 前端统计分析页面优化
+- Testnet 异常持仓自动恢复机制（Bybit 持仓监控增强）
+- 止盈止损计算器增强（ATR-based SL/TP）
+- 交易过滤器（ShouldTradeStrict）独立模块
+
+### Fixed
+- 修复 testnet 盈亏率计算和止盈止损距离限制，增加手动平仓按钮
+- 修复评分阈值调整和异常持仓恢复
+- 修复趋势监控的结构级别无效化保护
+- 修复 AI 跟踪初始化分析、信号无效停止、状态显示对齐
+- 禁用低价值吞没信号
+- 修复统计服务 nil pointer 问题
+- 修复 Bybit 持仓对账脚本 API 兼容性
+
+### Changed
+- AI 分析 prompt 增加硬性输出格式约束
+- 趋势回调分析器和守卫逻辑重构
+- 通知飞书消息优化
+- 前端 Dashboard/Statistics/TrendAgent/WaveAgent 界面优化
+
 ## [0.1.0.1] - 2026-04-22
 
 ### Added

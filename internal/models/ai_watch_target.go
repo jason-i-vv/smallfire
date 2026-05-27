@@ -13,6 +13,7 @@ type AIWatchTarget struct {
 	SymbolCode   string          `json:"symbol_code" db:"symbol_code"`
 	SymbolID     *int            `json:"symbol_id,omitempty" db:"symbol_id"`
 	Period       string          `json:"period" db:"period"`
+	Direction    string          `json:"direction" db:"direction"`
 	Limit        int             `json:"limit" db:"limit_count"`
 	SendFeishu   bool            `json:"send_feishu" db:"send_feishu"`
 	Enabled      bool            `json:"enabled" db:"enabled"`

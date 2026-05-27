@@ -733,8 +733,6 @@ const getSignalTypeLabel = (type) => {
     'lower_wick_reversal': '下引线反转',
     'fake_breakout_upper': '假突破上引线',
     'fake_breakout_lower': '假突破下引线',
-    'engulfing_bullish': '阳包阴吞没',
-    'engulfing_bearish': '阴包阳吞没',
     'momentum_bullish': '连阳动量',
     'momentum_bearish': '连阴动量',
     'morning_star': '早晨之星',

@@ -170,7 +170,7 @@ func (h *SignalHandler) GetSignalCounts(c *gin.Context) {
 
 	// 获取各信号类型的数量
 	signalTypeCounts := make(map[string]int)
-	signalTypes := []string{"", "box_breakout", "box_breakdown", "trend_retracement", "trend_reversal", "resistance_break", "support_break", "volume_price_rise", "volume_price_fall", "volume_surge", "price_surge_up", "price_surge_down", "upper_wick_reversal", "lower_wick_reversal", "fake_breakout_upper", "fake_breakout_lower", "engulfing_bullish", "engulfing_bearish", "momentum_bullish", "momentum_bearish", "morning_star", "evening_star", "macd"}
+	signalTypes := []string{"", "box_breakout", "box_breakdown", "trend_retracement", "trend_reversal", "resistance_break", "support_break", "volume_price_rise", "volume_price_fall", "volume_surge", "price_surge_up", "price_surge_down", "upper_wick_reversal", "lower_wick_reversal", "fake_breakout_upper", "fake_breakout_lower", "momentum_bullish", "momentum_bearish", "morning_star", "evening_star", "macd"}
 	for _, signalType := range signalTypes {
 		count, err := h.signalRepo.CountBySignalType(signalType)
 		if err != nil {
@@ -193,8 +193,8 @@ func (h *SignalHandler) GetSignalCounts(c *gin.Context) {
 	}
 
 	HandleSuccess(c, gin.H{
-		"market":       marketCounts,
-		"signal_type":  signalTypeCounts,
-		"source_type":  sourceTypeCounts,
+		"market":      marketCounts,
+		"signal_type": signalTypeCounts,
+		"source_type": sourceTypeCounts,
 	})
 }

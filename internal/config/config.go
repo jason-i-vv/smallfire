@@ -102,7 +102,7 @@ type MACDStrategyConfig struct {
 	// 信号冷却
 	SignalCooldown int `mapstructure:"signal_cooldown"` // 信号冷却时间（分钟，默认30）
 
-	CheckInterval int `mapstructure:"check_interval"` // 检查间隔（秒）
+		CheckInterval int `mapstructure:"check_interval"` // 检查间隔（秒）
 }
 
 type BoxStrategyConfig struct {
@@ -163,31 +163,41 @@ type VolumePriceStrategyConfig struct {
 
 // WickStrategyConfig 上下引线策略配置
 type WickStrategyConfig struct {
-	Enabled            bool    `mapstructure:"enabled"`
-	LookbackKlines    int     `mapstructure:"lookback_klines"`     // 回溯K线数（用于趋势判断）
+	Enabled         bool    `mapstructure:"enabled"`
+	LookbackKlines  int     `mapstructure:"lookback_klines"` // 回溯K线数（用于趋势判断）
 
 	// 形态参数
-	BodyPercentMax    float64 `mapstructure:"body_percent_max"`   // 实体占比上限（默认30%）
-	ShadowMinRatio    float64 `mapstructure:"shadow_min_ratio"`    // 引线最小倍数（默认2.0）
+	BodyPercentMax       float64 `mapstructure:"body_percent_max"`       // 实体占比上限（默认25%）
+	ShadowMinRatio       float64 `mapstructure:"shadow_min_ratio"`       // 引线最小倍数（默认2.5）
+	MinWickLengthPercent float64 `mapstructure:"min_wick_length_percent"` // 最小引线长度（占K线总长%），默认 40%
 
 	// 趋势确认
-	RequireTrend      bool    `mapstructure:"require_trend"`       // 是否要求趋势确认（默认true）
+	RequireTrend bool `mapstructure:"require_trend"` // 是否要求趋势确认（默认true）
 
 	// 假突破识别
-	FakeBreakoutEnabled  bool    `mapstructure:"fake_breakout_enabled"` // 是否识别假突破
-	BreakoutThreshold   float64 `mapstructure:"breakout_threshold"`   // 固定突破阈值（%）回退值
+	FakeBreakoutEnabled bool    `mapstructure:"fake_breakout_enabled"` // 是否识别假突破
+	BreakoutThreshold   float64 `mapstructure:"breakout_threshold"`    // 固定突破阈值（%）回退值
 
 	// ATR 动态阈值
-	ATRPeriod            int     `mapstructure:"atr_period"`               // ATR 计算周期
-	ATRMultiplier        float64 `mapstructure:"atr_multiplier"`           // 阈值 = ATR%/price * 倍数
-	MinBreakoutThreshold float64 `mapstructure:"min_breakout_threshold"`   // 最小突破阈值（%）
-	MaxBreakoutThreshold float64 `mapstructure:"max_breakout_threshold"`   // 最大突破阈值（%）
+	ATRPeriod            int     `mapstructure:"atr_period"`              // ATR 计算周期
+	ATRMultiplier        float64 `mapstructure:"atr_multiplier"`          // 阈值 = ATR%/price * 倍数
+	MinBreakoutThreshold float64 `mapstructure:"min_breakout_threshold"`  // 最小突破阈值（%）
+	MaxBreakoutThreshold float64 `mapstructure:"max_breakout_threshold"`  // 最大突破阈值（%）
+
+	// 量能确认
+	VolumeConfirmEnabled bool    `mapstructure:"volume_confirm_enabled"` // 是否要求量能确认，默认 true
+	VolumeMinRatio       float64 `mapstructure:"volume_min_ratio"`       // 引线K线成交量 >= 前N根均量的倍数，默认 1.5
+	VolumeLookback       int     `mapstructure:"volume_lookback"`        // 量能计算回溯K线数（不包含当前K线），默认 20
+
+	// 波动率过滤
+	VolatilityFilterEnabled bool    `mapstructure:"volatility_filter_enabled"` // 是否启用波动率过滤，默认 true
+	MinATRPercent           float64 `mapstructure:"min_atr_percent"`           // 最小ATR%（低于此值视为低波动不交易），默认 0.3
 
 	// 强度计算
-	StrengthLookback  int     `mapstructure:"strength_lookback"`   // 历史引线回溯数
+	StrengthLookback int `mapstructure:"strength_lookback"` // 历史引线回溯数
 
 	// 信号过滤
-	SignalCooldown    int     `mapstructure:"signal_cooldown"`     // 信号冷却期（分钟）
+	SignalCooldown int `mapstructure:"signal_cooldown"` // 信号冷却期（分钟）
 
 	// ===== 趋势位置过滤器（双模） =====
 	ReversalNearExtremePct     float64 `mapstructure:"reversal_near_extreme_pct"`      // 反转引线：距极值不超过此值确认在顶部/底部（默认2.0%）
@@ -203,9 +213,7 @@ type WickStrategyConfig struct {
 	// ===== 成交量确认 =====
 	VolumeSpikeRatio float64 `mapstructure:"volume_spike_ratio"` // 放量阈值（倍，默认1.5）
 	VolumeLowRatio   float64 `mapstructure:"volume_low_ratio"`   // 缩量阈值（倍，默认0.7）
-	VolumeLookback   int     `mapstructure:"volume_lookback"`    // 成交量均值计算回溯数（默认20）
-
-	CheckInterval     int     `mapstructure:"check_interval"`      // 检查间隔（秒）
+		CheckInterval int `mapstructure:"check_interval"` // 检查间隔（秒）
 }
 
 // CandlestickStrategyConfig K线形态识别策略配置

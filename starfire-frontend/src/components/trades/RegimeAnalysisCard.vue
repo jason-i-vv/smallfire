@@ -23,7 +23,7 @@
           </span>
         </div>
         <div class="regime-stat">
-          <span class="stat-label">{{ t('statistics.avgPnl') || '平均盈亏' }}</span>
+          <span class="stat-label">{{ t('statistics.avgPnL') || '平均盈亏' }}</span>
           <span class="stat-value" :class="item.avg_pnl >= 0 ? 'text-profit' : 'text-loss'">
             {{ formatPnL(item.avg_pnl) }}
           </span>

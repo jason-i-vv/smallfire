@@ -55,7 +55,12 @@ func (t *AutoTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		return
 	}
 
-	// 3. 检查该机会是否已有 paper 持仓，同一个机会只开一次仓
+	// 3. 交易质量过滤
+	if !ShouldTrade(opp) {
+		return
+	}
+
+	// 4. 检查该机会是否已有 paper 持仓，同一个机会只开一次仓
 	if opp.ID > 0 {
 		existing, err := t.trackRepo.GetOpenByOpportunityIDAndSource(opp.ID, models.TradeSourcePaper)
 		if err != nil {
@@ -70,7 +75,7 @@ func (t *AutoTrader) OnOpportunity(opp *models.TradingOpportunity) {
 		}
 	}
 
-	// 4. 检查本地是否已有同交易对同方向的 paper 持仓
+	// 5. 检查本地是否已有同交易对同方向的 paper 持仓
 	openTracks, err := t.trackRepo.GetOpenBySource(models.TradeSourcePaper)
 	if err != nil {
 		t.logger.Error("查询已有paper持仓失败", zap.Error(err))

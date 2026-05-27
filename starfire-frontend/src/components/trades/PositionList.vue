@@ -75,6 +75,11 @@
       </el-table-column>
       <el-table-column :label="t('common.actions') || '操作'" width="180">
         <template #default="{ row }">
+          <template v-if="row.status === 'open'">
+            <el-button type="danger" size="small" link @click="$emit('close', row)">
+              {{ t('positions.close') }}
+            </el-button>
+          </template>
           <template v-if="row.status === 'anomalous'">
             <el-button type="primary" size="small" link @click="$emit('recheck', row)">
               {{ t('positions.recheck') }}

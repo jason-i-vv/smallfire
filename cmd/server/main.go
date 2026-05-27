@@ -217,7 +217,7 @@ func main() {
 
 	// 初始化 Bybit Testnet 模拟交易服务
 	var testnetTrader *trading.TestnetTrader
-		var testnetMonitor *trading.TestnetPositionMonitor
+	var testnetMonitor *trading.TestnetPositionMonitor
 	if cfg.Trading.Testnet.Enabled && cfg.Trading.Testnet.APIKey != "" {
 		testnetTrader = trading.NewTestnetTrader(&cfg.Trading, trackRepo, klineRepo, utils.Logger)
 		oppAggregator.AddHandler(testnetTrader)
@@ -266,7 +266,8 @@ func main() {
 			skillRegistry := aiservice.NewSkillRegistry()
 			skillRegistry.Register(&aiservice.TrendPullbackSkill{})
 			skillRegistry.Register(&aiservice.ElliottWaveSkill{})
-			watchEngine = aiservice.NewWatchEngine(claudeClient, skillRegistry, klineRepo, notifyManager, utils.Logger)
+			skillRegistry.Register(&aiservice.TimePriceProjectionSkill{})
+			watchEngine = aiservice.NewWatchEngine(claudeClient, skillRegistry, klineRepo, notifyManager, utils.Logger, cfg.AI.LogDir)
 			utils.Info("Claude AI 分析引擎初始化成功",
 				zap.String("model", cfg.AI.Claude.Model),
 				zap.Int("registered_skills", len(skillRegistry.List())))
@@ -375,12 +376,12 @@ func main() {
 	opportunityHandler := handler.NewOpportunityHandler(oppRepo, trackRepo, signalScorer, aiAnalyzer, cfg.AI, cooldownTracker, utils.Logger)
 	strategyHandler := handler.NewStrategyHandler(&cfg.Strategies, utils.Logger)
 	tradeHandler := handler.NewTradeHandler(trackRepo, tradeExecutor, statsService, utils.Logger)
-		if testnetTrader != nil {
-			tradeHandler.SetTestnetTrader(testnetTrader)
-		}
-		if testnetMonitor != nil {
-			tradeHandler.SetTestnetMonitor(testnetMonitor)
-		}
+	if testnetTrader != nil {
+		tradeHandler.SetTestnetTrader(testnetTrader)
+	}
+	if testnetMonitor != nil {
+		tradeHandler.SetTestnetMonitor(testnetMonitor)
+	}
 	backtestHandler := handler.NewBacktestHandler(backtestService, utils.Logger)
 	boxHandler := handler.NewBoxHandler(boxRepo, symbolRepo, utils.Logger)
 	keyLevelHandler := handler.NewKeyLevelHandler(keyLevelV2Repo, utils.Logger)
@@ -401,11 +402,11 @@ func main() {
 			utils.Logger,
 		)
 	}
-		// 注册 AI 观察仓调度钩子
-		if watchScheduler != nil {
-			syncService.AddHook(watchScheduler)
-			utils.Info("AI观察仓调度器已注册")
-		}
+	// 注册 AI 观察仓调度钩子
+	if watchScheduler != nil {
+		syncService.AddHook(watchScheduler)
+		utils.Info("AI观察仓调度器已注册")
+	}
 
 	trendHandler := handler.NewTrendHandler(trendRepo, symbolRepo, syncService, trendPullbackAnalyzer, elliottWaveAnalyzer, utils.Logger)
 	aiWatchTargetHandler := handler.NewAIWatchTargetHandler(aiWatchTargetRepo, watchScheduler, syncService, utils.Logger)
@@ -562,7 +563,7 @@ func main() {
 				aiWatchTargetsGroup.GET("", aiWatchTargetHandler.List)
 				aiWatchTargetsGroup.POST("", aiWatchTargetHandler.Upsert)
 				aiWatchTargetsGroup.DELETE("/:id", aiWatchTargetHandler.Delete)
-					aiWatchTargetsGroup.POST("/:id/analyze", aiWatchTargetHandler.Analyze)
+				aiWatchTargetsGroup.POST("/:id/analyze", aiWatchTargetHandler.Analyze)
 			}
 
 			// 交易跟踪 API

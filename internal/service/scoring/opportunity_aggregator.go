@@ -284,6 +284,9 @@ func (a *OpportunityAggregator) buildScoringContext(signals []*models.Signal, sy
 	ctx.RegimeMatchScore = matchScore
 	ctx.MarketRegime = regime
 
+	// 6. 交易方向（用于做空惩罚评分）
+	ctx.Direction = direction
+
 	return ctx
 }
 
@@ -399,6 +402,20 @@ func (a *OpportunityAggregator) createOpportunity(signals []*models.Signal, ctx 
 	scoreDetails, _ := json.Marshal(result.Breakdown)
 	scoreDetailsJSONB := models.JSONB(result.Breakdown)
 
+	// 传播 wick_scene 到 ScoreDetails（供 CalcWickSLTP 使用）
+	var wickScenes []string
+	for _, sig := range signals {
+		if sig.SourceType == "wick" && sig.SignalData != nil {
+			if scene, ok := (*sig.SignalData)["wick_scene"].(string); ok && scene != "" {
+				wickScenes = append(wickScenes, scene)
+			}
+		}
+	}
+	if len(wickScenes) > 0 {
+		bestScene := pickHighestPriorityWickScene(wickScenes)
+		scoreDetailsJSONB["wick_scene"] = bestScene
+	}
+
 	var firstSignalAt, lastSignalAt *time.Time
 	for _, sig := range signals {
 		if sig.KlineTime != nil {
@@ -509,9 +526,9 @@ func (a *OpportunityAggregator) updateOpportunity(opp *models.TradingOpportunity
 	scoreDetailsJSONB := models.JSONB(result.Breakdown)
 	opp.ScoreDetails = &scoreDetailsJSONB
 
-		// 更新 regime 和 strategy_type
-		opp.Regime = computeRegime(ctx.MarketRegime, opp.Direction)
-		opp.StrategyType = pickStrategyType(newSignals)
+	// 更新 regime 和 strategy_type
+	opp.Regime = computeRegime(ctx.MarketRegime, opp.Direction)
+	opp.StrategyType = pickStrategyType(newSignals)
 
 	if err := a.oppRepo.Update(opp); err != nil {
 		a.logger.Error("更新交易机会失败", zap.Error(err))
@@ -591,11 +608,11 @@ func calcTrendDirectionScore(trend, direction string, signals []*models.Signal) 
 		// 顺势信号
 		case models.SignalTypeMACD, models.SignalTypeBoxBreakout,
 			models.SignalTypePriceSurgeUp, models.SignalTypeResistanceBreak,
-			models.SignalTypeMomentumBullish, models.SignalTypeEngulfingBullish,
+			models.SignalTypeMomentumBullish,
 			models.SignalTypeMorningStar,
 			models.SignalTypeBoxBreakdown, models.SignalTypePriceSurgeDown,
 			models.SignalTypeSupportBreak, models.SignalTypeMomentumBearish,
-			models.SignalTypeEngulfingBearish, models.SignalTypeEveningStar:
+			models.SignalTypeEveningStar:
 			trendFollowing++
 
 		// 逆势信号
@@ -669,4 +686,25 @@ func pickStrategyType(signals []*models.Signal) string {
 		}
 	}
 	return bestSource
+}
+
+// wickScenePriority 引线场景优先级
+var wickScenePriority = map[string]int{
+	"plain":                0,
+	"reversal_key_level":   1,
+	"fake_breakout":        2,
+	"fake_breakout_key_level": 3,
+}
+
+// pickHighestPriorityWickScene 取最高优先级的 wick_scene
+func pickHighestPriorityWickScene(scenes []string) string {
+	best := "plain"
+	bestPri := -1
+	for _, sc := range scenes {
+		if pri, ok := wickScenePriority[sc]; ok && pri > bestPri {
+			best = sc
+			bestPri = pri
+		}
+	}
+	return best
 }

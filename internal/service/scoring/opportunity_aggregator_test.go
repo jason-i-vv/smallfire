@@ -122,6 +122,9 @@ type mockTrackRepoForAgg struct {
 }
 
 func (m *mockTrackRepoForAgg) GetOpenPositions() ([]*models.TradeTrack, error) { return nil, nil }
+	func (m *mockTrackRepoForAgg) GetHistorySummary(startDate, endDate time.Time, filters map[string]string) (float64, int, int, float64, float64, error) {
+		return 0, 0, 0, 0, 0, nil
+	}
 func (m *mockTrackRepoForAgg) GetOpenPositionsPaginated(page, size int, filters map[string]string) ([]*models.TradeTrack, int, error) {
 	return nil, 0, nil
 }
@@ -146,6 +149,8 @@ func (m *mockTrackRepoForAgg) GetOpenByOpportunityID(opportunityID int) (*models
 func (m *mockTrackRepoForAgg) GetOpenByOpportunityIDAndSource(opportunityID int, source string) (*models.TradeTrack, error) {
 	return nil, nil
 }
+func (m *mockTrackRepoForAgg) CountByStatus(status string) (int, error) { return 0, nil }
+func (m *mockTrackRepoForAgg) GetAnomalous() ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForAgg) GetOpenBySource(source string) ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForAgg) GetRegimeStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.RegimeStatsResult, error) {
 	return nil, nil

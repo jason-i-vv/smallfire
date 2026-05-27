@@ -110,7 +110,14 @@
     "run": "运行",
     "symbolCode": "币对",
     "symbolPlaceholder": "搜索币对...",
-    "noActiveOpportunities": "暂无活跃交易机会"
+    "noActiveOpportunities": "暂无活跃交易机会",
+    "startDate": "开始日期",
+    "endDate": "结束日期"
+  },
+  "timeFilter": {
+    "last3d": "近3天",
+    "last7d": "近7天",
+    "allTime": "历史以来"
   },
   "menu": {
     "dashboard": "Bybit 模拟概览",
@@ -303,6 +310,7 @@
   },
   "trades": {
     "title": "历史交易",
+    "timeRange": "时间范围",
     "symbol": "交易对",
     "direction": "方向",
     "entryPrice": "入场价",
@@ -389,7 +397,17 @@
     "dimension": "维度",
     "trending": "顺势",
     "counterTrend": "逆势",
-    "sideways": "震荡"
+    "sideways": "震荡",
+    "regimeSLTP": "动态止盈止损",
+    "sidewaysSL": "震荡止损",
+    "sidewaysTP": "震荡止盈",
+    "trendSL": "趋势止损",
+    "trendTP": "趋势止盈",
+    "lowWinRateWarning": "低胜率警告",
+    "shortPenalty": "做空惩罚",
+    "singleSignalWarning": "单信号风险",
+    "tradeFiltered": "交易已过滤",
+    "filterReason": "过滤原因"
   },
   "market": {
     "title": "行情总览",
@@ -595,6 +613,28 @@
     "buy": "买入",
     "sell": "卖出",
     "noData": "暂无K线数据"
+  },
+  "wave": {
+    "addWatch": "新增观察",
+    "watchPool": "波浪观察仓",
+    "detail": "艾略特跟踪详情",
+    "analysisRecord": "分析记录",
+    "analysisDetail": "分析详情",
+    "waveLabel": "波浪标注",
+    "aiAnalysis": "AI 分析",
+    "riskAlert": "风险提示",
+    "time": "时间",
+    "closePrice": "收盘价",
+    "level": "级别",
+    "confidence": "置信度",
+    "stage": "阶段",
+    "pattern": "形态",
+    "structure": "结构",
+    "buyPoint": "买点",
+    "entryPrice": "入场价",
+    "stopLoss": "止损价",
+    "targetPrice": "目标价",
+    "noRecord": "暂无分析记录"
   },
   "astock": {
     "marketIndices": "大盘指数",

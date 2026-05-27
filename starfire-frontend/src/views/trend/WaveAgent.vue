@@ -123,7 +123,7 @@
           <span>{{ activeTarget?.period }} · {{ activeResult.analyzed || 0 }} 根观察K线</span>
         </div>
         <el-tag :type="activeResult.found ? 'success' : 'info'" effect="dark">
-          {{ activeResult.found ? `提醒 ${activeResult.best?.confidence}` : '未触发' }}
+          {{ activeResult.found ? `买点 ${activeResult.best?.confidence}` : '未触发' }}
         </el-tag>
       </div>
       <div v-if="activeResult.best" class="best-grid">
@@ -153,7 +153,7 @@
         </header>
 
         <div class="detail-summary">
-          <div><span>提醒</span><strong>{{ alertCount(activeTarget) }}</strong></div>
+          <div><span>买点</span><strong>{{ alertCount(activeTarget) }}</strong></div>
           <div><span>重点观察</span><strong>{{ watchCount(activeTarget) }}</strong></div>
           <div><span>风险/失效</span><strong>{{ riskCount(activeTarget) }}</strong></div>
           <div><span>普通折叠</span><strong>{{ quietCount(activeTarget) }}</strong></div>
@@ -162,7 +162,14 @@
         <el-tabs v-model="detailTab" @tab-change="onDetailTabChange">
           <el-tab-pane label="图表" name="chart">
             <div class="chart-layout">
-              <div ref="chartRef" class="chart-box" v-loading="chartLoading" />
+              <div style="position: relative;">
+                <div ref="chartRef" class="chart-box" v-loading="chartLoading" />
+                <div class="ema-legend">
+                  <span class="ema-item"><span class="ema-dot" style="background: #FFD740; border-top: 1px dashed #FFD740;"></span>EMA30</span>
+                  <span class="ema-item"><span class="ema-dot" style="background: #42A5F5; border-top: 1px dashed #42A5F5;"></span>EMA60</span>
+                  <span class="ema-item"><span class="ema-dot" style="background: #AB47BC;"></span>EMA90</span>
+                </div>
+              </div>
               <aside class="focus-panel">
                 <div class="panel-title">分析记录</div>
                 <el-empty v-if="allSteps.length === 0" description="暂无分析记录" :image-size="64" />
@@ -172,7 +179,7 @@
                       v-if="row.type === 'important'"
                       class="tl-card"
                       :class="`tl-${importanceKey(row.step)}`"
-                      @click="showStepInList"
+                      @click="showStepDetail(row.step)"
                     >
                       <div class="tl-card-head">
                         <span class="tl-time">{{ formatTime(row.step.kline_time) }}</span>
@@ -188,7 +195,7 @@
                         <span class="tl-quiet-text">{{ expandedQuietKeys.has(row.key) ? '收起' : `··· ${row.steps.length} 条普通记录 ···` }}</span>
                       </button>
                       <template v-if="expandedQuietKeys.has(row.key)">
-                        <button v-for="step in row.steps" :key="step.kline_time" class="tl-card tl-quiet" @click="showStepInList">
+                        <button v-for="step in row.steps" :key="step.kline_time" class="tl-card tl-quiet" @click="showStepDetail(step)">
                           <div class="tl-card-head">
                             <span class="tl-time">{{ formatTime(step.kline_time) }}</span>
                             <span class="tl-conf">{{ step.confidence }}</span>
@@ -259,6 +266,75 @@
         </el-tabs>
       </div>
     </el-drawer>
+
+    <!-- 分析记录浮窗 -->
+    <el-dialog
+      v-model="stepPopoverVisible"
+      :title="selectedStep ? formatTime(selectedStep.kline_time) + ' 分析详情' : ''"
+      width="520px"
+      class="step-dialog"
+      @close="closeStepPopover"
+    >
+      <div v-if="selectedStep" class="step-detail">
+        <div class="step-detail-grid">
+          <div><span>时间</span><strong>{{ formatTime(selectedStep.kline_time) }}</strong></div>
+          <div><span>收盘价</span><strong>{{ formatMaybe(selectedStep.close_price) }}</strong></div>
+          <div>
+            <span>级别</span>
+            <el-tag :type="importanceType(selectedStep)" effect="dark">{{ importanceLabel(selectedStep) }}</el-tag>
+          </div>
+          <div>
+            <span>置信度</span>
+            <strong>{{ selectedStep.confidence }}</strong>
+          </div>
+          <div v-if="selectedStep.wave_stage">
+            <span>阶段</span>
+            <el-tag :type="stageType(selectedStep.wave_stage)">{{ stageLabel(selectedStep.wave_stage) }}</el-tag>
+          </div>
+          <div v-if="selectedStep.pattern_type">
+            <span>形态</span>
+            <el-tag :type="patternType(selectedStep.pattern_type)">{{ patternLabel(selectedStep.pattern_type) }}</el-tag>
+          </div>
+          <div v-if="selectedStep.setup_status">
+            <span>结构</span>
+            <el-tag :type="setupType(selectedStep.setup_status)">{{ setupLabel(selectedStep.setup_status) }}</el-tag>
+          </div>
+          <div v-if="selectedStep.buy_point">
+            <span>买点</span>
+            <el-tag :type="buyPointType(selectedStep.buy_point)" effect="dark">{{ buyPointLabel(selectedStep.buy_point) }}</el-tag>
+          </div>
+          <div v-if="selectedStep.entry_price != null">
+            <span>入场价</span>
+            <strong>{{ formatMaybe(selectedStep.entry_price) }}</strong>
+          </div>
+          <div v-if="selectedStep.stop_loss != null">
+            <span>止损价</span>
+            <strong>{{ formatMaybe(selectedStep.stop_loss) }}</strong>
+          </div>
+          <div v-if="selectedStep.target_price != null">
+            <span>目标价</span>
+            <strong>{{ formatMaybe(selectedStep.target_price) }}</strong>
+          </div>
+        </div>
+        <div v-if="selectedStep.wave_count" class="step-section">
+          <h4>波浪标注</h4>
+          <p class="step-wave-count">{{ selectedStep.wave_count }}</p>
+        </div>
+        <div v-if="selectedStep.reasoning" class="step-section">
+          <h4>AI 分析</h4>
+          <p class="step-reasoning">{{ selectedStep.reasoning }}</p>
+        </div>
+        <div v-if="selectedStep.risk_notes?.length" class="step-section">
+          <h4>风险提示</h4>
+          <div class="step-risk-list">
+            <el-tag v-for="note in selectedStep.risk_notes" :key="note" type="warning">{{ note }}</el-tag>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="stepPopoverVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -303,8 +379,14 @@ const trackingRunning = ref(false)
 let chart = null
 let candleSeries = null
 let volumeSeries = null
+let emaShortSeries = null
+let emaMediumSeries = null
+let emaLongSeries = null
 let resizeObserver = null
 let trackingTimer = null
+
+const selectedStep = ref(null)
+const stepPopoverVisible = ref(false)
 
 const draftPeriodOptions = computed(() => draft.market_code === 'a_stock' ? stockPeriods : cryptoPeriods)
 const activeTarget = computed(() => targets.value.find(item => item.id === activeTargetId.value) || null)
@@ -382,11 +464,15 @@ function persistTargets() {
 
 async function loadRemoteTargets() {
   try {
+    const previousActiveId = activeTargetId.value
     const res = await api.get('/ai-watch-targets', { params: { skill_name: AGENT_TYPE } })
     const remoteTargets = Array.isArray(res.data) ? res.data : []
     if (remoteTargets.length === 0) return
     targets.value = remoteTargets.map(normalizeTarget)
-    activeTargetId.value = targets.value[0]?.id || null
+    const activeStillExists = targets.value.some(item => item.id === previousActiveId)
+    if (!activeStillExists) {
+      activeTargetId.value = targets.value[0]?.id || null
+    }
     persistTargets()
   } catch (error) {
     console.warn('读取远程波浪观察位失败，使用本地缓存:', error)
@@ -395,8 +481,14 @@ async function loadRemoteTargets() {
 
 async function saveTargetRemote(target) {
   try {
+    const previousId = target.id
     const res = await api.post('/ai-watch-targets', serializeTarget(target))
-    if (res.data?.id) target.id = res.data.id
+    if (res.data?.id) {
+      target.id = res.data.id
+      if (activeTargetId.value === previousId) {
+        activeTargetId.value = target.id
+      }
+    }
     persistTargets()
   } catch (error) {
     console.warn('保存远程波浪观察位失败:', error)
@@ -644,7 +736,8 @@ async function onDrawerOpened() {
   if (detailTab.value === 'chart') await renderChart()
 }
 
-async function onDetailTabChange() {
+async function onDetailTabChange(tab) {
+  console.log('[WaveAgent] tab changed to:', tab, 'new stack:', new Error().stack)
   if (detailTab.value === 'chart') {
     await nextTick()
     await renderChart()
@@ -711,6 +804,18 @@ function initChart() {
   })
   volumeSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' })
   volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+  emaShortSeries = chart.addLineSeries({
+    color: '#FFD740', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
+  emaMediumSeries = chart.addLineSeries({
+    color: '#42A5F5', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
+  emaLongSeries = chart.addLineSeries({
+    color: '#AB47BC', lineWidth: 2, lineStyle: 0,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
   resizeObserver = new ResizeObserver(() => {
     if (chart && chartRef.value) chart.applyOptions({ width: chartRef.value.clientWidth || 900 })
   })
@@ -736,6 +841,22 @@ function setChartData(klines, steps) {
   })
   candleSeries.setData(candleData)
   volumeSeries.setData(volumeData)
+  // EMA 均线数据
+  const emaShortData = []
+  const emaMediumData = []
+  const emaLongData = []
+  for (const k of klines) {
+    const time = k._time
+    const es = parseFloat(k.ema_short)
+    const em = parseFloat(k.ema_medium)
+    const el = parseFloat(k.ema_long)
+    if (!isNaN(es) && es > 0) emaShortData.push({ time, value: es })
+    if (!isNaN(em) && em > 0) emaMediumData.push({ time, value: em })
+    if (!isNaN(el) && el > 0) emaLongData.push({ time, value: el })
+  }
+  if (emaShortSeries) emaShortSeries.setData(emaShortData)
+  if (emaMediumSeries) emaMediumSeries.setData(emaMediumData)
+  if (emaLongSeries) emaLongSeries.setData(emaLongData)
   candleSeries.setMarkers(buildMarkers(steps))
   chart.timeScale().fitContent()
 }
@@ -792,7 +913,7 @@ function importanceKey(step) {
 }
 
 function importanceLabel(step) {
-  if (isAlertStep(step)) return '重点'
+  if (isAlertStep(step)) return '买点'
   if (isRiskStep(step)) return '风险'
   if (isImportantStep(step)) return '观察'
   return '普通'
@@ -805,9 +926,13 @@ function importanceType(step) {
   return 'info'
 }
 
-function showStepInList() {
-  detailTab.value = 'list'
-  importantOnly.value = true
+function showStepDetail(step) {
+  selectedStep.value = step
+  stepPopoverVisible.value = true
+}
+
+function closeStepPopover() {
+  stepPopoverVisible.value = false
 }
 
 function normalizeTimestamp(time) {
@@ -891,7 +1016,7 @@ const setupType = value => ({
   warning: 'danger',
   invalidated: 'danger'
 }[value] || 'info')
-const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '可入场' }[value] || value || '--')
+const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '买点' }[value] || value || '--')
 const buyPointType = value => ({ ready: 'success', watch: 'warning', none: 'info' }[value] || 'info')
 
 function alertCount(target) {
@@ -938,7 +1063,12 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   stopTrackingTimer()
   if (resizeObserver) resizeObserver.disconnect()
-  if (chart) chart.remove()
+  if (chart) {
+    emaShortSeries = null
+    emaMediumSeries = null
+    emaLongSeries = null
+    chart.remove()
+  }
 })
 </script>
 
@@ -1310,6 +1440,88 @@ onBeforeUnmount(() => {
   .focus-panel {
     min-height: 220px;
     max-height: 260px;
+  }
+}
+
+// ---- EMA 图例 ----
+.ema-legend {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  display: flex;
+  gap: 14px;
+  z-index: 10;
+
+  .ema-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #8B949E;
+
+    .ema-dot {
+      width: 16px;
+      height: 2px;
+      border-radius: 1px;
+    }
+  }
+}
+
+// ---- 分析详情浮窗 ----
+.step-detail {
+  .step-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+
+    > div {
+      padding: 10px;
+      border: 1px solid $border;
+      border-radius: 6px;
+      background: rgba($primary, 0.04);
+
+      span {
+        display: block;
+        color: $text-secondary;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+
+      strong {
+        color: $text-primary;
+        font-family: 'Monaco', 'Menlo', monospace;
+      }
+    }
+  }
+
+  .step-section {
+    margin-bottom: 14px;
+
+    h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: $text-secondary;
+    }
+  }
+
+  .step-wave-count {
+    color: $primary;
+    line-height: 1.7;
+    margin: 0;
+  }
+
+  .step-reasoning {
+    color: $text-primary;
+    line-height: 1.7;
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .step-risk-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 </style>

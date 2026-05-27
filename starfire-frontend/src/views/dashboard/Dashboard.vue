@@ -2,14 +2,10 @@
   <div class="statistics">
     <!-- 筛选栏 -->
     <div class="filter-bar">
-      <el-date-picker
-        v-model="dateRange"
-        type="daterange"
-        range-separator="至"
-        start-placeholder="开始日期"
-        end-placeholder="结束日期"
-        value-format="YYYY-MM-DD"
-        @change="fetchData"
+      <QuickTimeFilter
+        ref="quickTimeFilterRef"
+        v-model="selectedTimeRange"
+        @change="onTimeFilterChange"
       />
       <el-button @click="resetFilter">{{ t('common.reset') }}</el-button>
     </div>
@@ -27,32 +23,32 @@
 
     <!-- 数据面板 -->
     <template v-else>
-      <!-- 综合统计卡片 -->
-      <el-row :gutter="16" class="stats-row">
-        <el-col :span="6" v-for="stat in summaryStats" :key="stat.label">
-          <div class="stat-item">
-            <div class="stat-label">{{ stat.label }}</div>
-            <div class="stat-value" :class="stat.class">{{ stat.value }}</div>
-          </div>
-        </el-col>
-      </el-row>
-
-      <!-- 权益曲线 + 周期盈亏 -->
+      <!-- 权益曲线 + 周期盈亏（始终展示全部历史数据） -->
       <el-row :gutter="20">
         <el-col :span="12">
           <el-card>
             <template #header>{{ t('dashboard.equityCurve') }}</template>
-            <EquityCurveChart :data="scoreEquityData" />
+            <EquityCurveChart :data="allTimeScoreEquityData" />
           </el-card>
         </el-col>
         <el-col :span="12">
           <el-card>
             <template #header>{{ t('statistics.distribution') }}</template>
             <PnLByPeriodChart
-              :data="periodPnLData"
-              v-model:period="selectedPeriod"
+              :data="allTimePeriodPnLData"
+              v-model:period="allTimePeriod"
             />
           </el-card>
+        </el-col>
+      </el-row>
+
+      <!-- 综合统计卡片 -->
+      <el-row :gutter="16" class="stats-row mt-20">
+        <el-col :span="6" v-for="stat in summaryStats" :key="stat.label">
+          <div class="stat-item">
+            <div class="stat-label">{{ stat.label }}</div>
+            <div class="stat-value" :class="stat.class">{{ stat.value }}</div>
+          </div>
         </el-col>
       </el-row>
 
@@ -151,18 +147,23 @@ import ScoreDimensionTable from '@/components/trades/ScoreDimensionTable.vue'
 import ScoreGradeRegimeTable from '@/components/trades/ScoreGradeRegimeTable.vue'
 import { tradeApi } from '@/api/trades'
 import { formatPnL, formatPercent } from '@/utils/formatters'
+import QuickTimeFilter from '@/components/common/QuickTimeFilter.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
-const dateRange = ref(null)
+const selectedTimeRange = ref('24h')
+const quickTimeFilterRef = ref(null)
 const selectedPeriod = ref('daily')
+const allTimePeriod = ref('daily')
 // 固定为 testnet（Bybit 模拟盘）
 const tradeSource = 'testnet'
 
 const stats = ref(null)
-const scoreEquityData = ref({ ranges: [] })
 const symbolData = ref([])
-const periodPnLData = ref([])
+
+// 全量历史数据（不受时间筛选影响）
+const allTimeScoreEquityData = ref({ ranges: [] })
+const allTimePeriodPnLData = ref([])
 const pnlDistData = ref({ buckets: [] })
 const scoreAnalysisData = ref([])
 const strategyAnalysisData = ref([])
@@ -196,9 +197,31 @@ const summaryStats = computed(() => {
 
 const getDateParams = () => {
   const params = { trade_source: tradeSource }
-  if (dateRange.value && dateRange.value.length === 2) {
-    params.start_date = dateRange.value[0]
-    params.end_date = dateRange.value[1]
+  const range = selectedTimeRange.value
+  if (range === '24h') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    params.start_ts = start.getTime()
+    params.end_ts = now.getTime()
+  } else if (range === '3d') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
+    params.start_ts = start.getTime()
+    params.end_ts = now.getTime()
+  } else if (range === '7d') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    params.start_ts = start.getTime()
+    params.end_ts = now.getTime()
+  } else if (range === 'all') {
+    // 不传时间参数
+  } else {
+    // 自定义日期范围
+    const customRange = quickTimeFilterRef.value?.getCustomRange()
+    if (customRange && customRange.length === 2) {
+      params.start_date = customRange[0]
+      params.end_date = customRange[1]
+    }
   }
   return params
 }
@@ -208,15 +231,13 @@ const fetchData = async () => {
   try {
     const params = getDateParams()
     const [
-      statsRes, equityRes, symbolRes,
-      periodRes, distRes, scoreRes, strategyRes,
+      statsRes, symbolRes,
+      distRes, scoreRes, strategyRes,
       regimeRes, strategyRegimeRes, scoreRegimeRes,
       scoreGradeRegimeRes
     ] = await Promise.all([
       tradeApi.stats(params),
-      tradeApi.scoreEquityCurve(params),
       tradeApi.symbolAnalysis(params),
-      tradeApi.periodPnL({ ...params, period: selectedPeriod.value }),
       tradeApi.pnlDistribution(params),
       tradeApi.scoreAnalysis(params),
       tradeApi.strategyAnalysis(params),
@@ -227,9 +248,7 @@ const fetchData = async () => {
     ])
 
     stats.value = statsRes.data || null
-    scoreEquityData.value = equityRes.data || { ranges: [] }
     symbolData.value = symbolRes.data || []
-    periodPnLData.value = periodRes.data || []
     pnlDistData.value = distRes.data || { buckets: [] }
     scoreAnalysisData.value = scoreRes.data || []
     strategyAnalysisData.value = strategyRes.data || []
@@ -244,19 +263,40 @@ const fetchData = async () => {
   }
 }
 
+// 获取全量历史图表数据（不受时间筛选影响）
+const fetchAllTimeChartData = async () => {
+  try {
+    const params = { trade_source: tradeSource }
+    const [equityRes, periodRes] = await Promise.all([
+      tradeApi.scoreEquityCurve(params),
+      tradeApi.periodPnL({ ...params, period: allTimePeriod.value })
+    ])
+    allTimeScoreEquityData.value = equityRes.data || { ranges: [] }
+    allTimePeriodPnLData.value = periodRes.data || []
+  } catch (error) {
+    console.error('Failed to fetch all-time chart data:', error)
+  }
+}
+
 const resetFilter = () => {
-  dateRange.value = null
+  selectedTimeRange.value = ''
+  fetchAllTimeChartData()
   fetchData()
 }
 
-watch(selectedPeriod, () => {
-  const params = getDateParams()
-  tradeApi.periodPnL({ ...params, period: selectedPeriod.value }).then(res => {
-    periodPnLData.value = res.data || []
+const onTimeFilterChange = () => {
+  fetchData()
+}
+
+watch(allTimePeriod, () => {
+  const params = { trade_source: tradeSource }
+  tradeApi.periodPnL({ ...params, period: allTimePeriod.value }).then(res => {
+    allTimePeriodPnLData.value = res.data || []
   }).catch(() => {})
 })
 
 onMounted(() => {
+  fetchAllTimeChartData()
   fetchData()
 })
 </script>

@@ -12,25 +12,74 @@ import (
 )
 
 // CalcSLTP 计算止盈止损价格
-// 优先级：1. opportunity 建议值 → 2. ATR 动态计算 → 3. 固定百分比兜底
+// 优先级：1. wick 场景专用 → 2. opportunity 建议值 → 3. ATR 动态计算 → 4. 固定百分比兜底
 func CalcSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.TradingConfig, klineRepo repository.KlineRepo, logger *zap.Logger) (float64, float64) {
+	// 0. wick 策略场景专用止盈止损
+	if opp.StrategyType == "wick" {
+		wickSL, wickTP := CalcWickSLTP(entryPrice, opp, cfg, klineRepo, logger)
+		if wickSL > 0 && wickTP > 0 {
+			return wickSL, wickTP
+		}
+	}
+
 	sl, tp := 0.0, 0.0
 
-	// 1. 尝试使用 opportunity 建议值
+	// 根据市场状态动态调整止盈止损比例
+	slPct, tpPct := GetRegimeSLTP(opp, cfg)
+
+	// 最大止盈止损距离限制
+	maxSLDist := entryPrice * MaxStopLossDistance(cfg)
+	maxTPDist := entryPrice * 0.15 // 止盈最大 15%
+	minDist := entryPrice * 0.01   // 最小距离 1%
+
+	// 1. 尝试使用 opportunity 建议值（需校验最大距离）
 	if opp.SuggestedStopLoss != nil && *opp.SuggestedStopLoss > 0 {
-		minDist := entryPrice * 0.01
-		if opp.Direction == models.DirectionLong && *opp.SuggestedStopLoss < entryPrice-minDist {
-			sl = *opp.SuggestedStopLoss
-		} else if opp.Direction == models.DirectionShort && *opp.SuggestedStopLoss > entryPrice+minDist {
-			sl = *opp.SuggestedStopLoss
+		if opp.Direction == models.DirectionLong {
+			suggestedSL := *opp.SuggestedStopLoss
+			// 限制最大止损距离
+			if entryPrice-suggestedSL > maxSLDist {
+				suggestedSL = entryPrice - maxSLDist
+				logger.Warn("建议止损超过最大距离，已截断",
+					zap.String("symbol_code", opp.SymbolCode),
+					zap.Float64("suggested_sl", *opp.SuggestedStopLoss),
+					zap.Float64("capped_sl", suggestedSL),
+					zap.Float64("max_sl_pct", MaxStopLossDistance(cfg)))
+			}
+			if suggestedSL < entryPrice-minDist {
+				sl = suggestedSL
+			}
+		} else {
+			suggestedSL := *opp.SuggestedStopLoss
+			if suggestedSL-entryPrice > maxSLDist {
+				suggestedSL = entryPrice + maxSLDist
+				logger.Warn("建议止损超过最大距离，已截断",
+					zap.String("symbol_code", opp.SymbolCode),
+					zap.Float64("suggested_sl", *opp.SuggestedStopLoss),
+					zap.Float64("capped_sl", suggestedSL),
+					zap.Float64("max_sl_pct", MaxStopLossDistance(cfg)))
+			}
+			if suggestedSL > entryPrice+minDist {
+				sl = suggestedSL
+			}
 		}
 	}
 	if opp.SuggestedTakeProfit != nil && *opp.SuggestedTakeProfit > 0 {
-		minDist := entryPrice * 0.01
-		if opp.Direction == models.DirectionLong && *opp.SuggestedTakeProfit > entryPrice+minDist {
-			tp = *opp.SuggestedTakeProfit
-		} else if opp.Direction == models.DirectionShort && *opp.SuggestedTakeProfit < entryPrice-minDist {
-			tp = *opp.SuggestedTakeProfit
+		if opp.Direction == models.DirectionLong {
+			suggestedTP := *opp.SuggestedTakeProfit
+			if suggestedTP-entryPrice > maxTPDist {
+				suggestedTP = entryPrice + maxTPDist
+			}
+			if suggestedTP > entryPrice+minDist {
+				tp = suggestedTP
+			}
+		} else {
+			suggestedTP := *opp.SuggestedTakeProfit
+			if entryPrice-suggestedTP > maxTPDist {
+				suggestedTP = entryPrice - maxTPDist
+			}
+			if suggestedTP < entryPrice-minDist {
+				tp = suggestedTP
+			}
 		}
 	}
 
@@ -45,23 +94,157 @@ func CalcSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.Tr
 		}
 	}
 
-	// 3. 兜底：固定百分比
+	// 3. 兜底：动态百分比（基于市场状态）
 	if sl == 0 {
 		if opp.Direction == models.DirectionLong {
-			sl = entryPrice * (1 - cfg.StopLossPercent)
+			sl = entryPrice * (1 - slPct)
 		} else {
-			sl = entryPrice * (1 + cfg.StopLossPercent)
+			sl = entryPrice * (1 + slPct)
 		}
 	}
 	if tp == 0 {
 		if opp.Direction == models.DirectionLong {
-			tp = entryPrice * (1 + cfg.TakeProfitPercent)
+			tp = entryPrice * (1 + tpPct)
 		} else {
-			tp = entryPrice * (1 - cfg.TakeProfitPercent)
+			tp = entryPrice * (1 - tpPct)
 		}
 	}
 
 	return sl, tp
+}
+
+// wickSceneMultipliers 引线场景止盈止损 ATR 倍数
+var wickSceneMultipliers = map[string]struct {
+	SLMult float64
+	TPMult float64
+}{
+	"fake_breakout_key_level": {0.8, 2.0}, // 高确信，宽止盈，RR=2.5
+	"fake_breakout":           {1.0, 1.5}, // 中等确信，RR=1.5
+	"reversal_key_level":      {1.0, 1.5}, // 中等确信，RR=1.5
+	"plain":                   {1.2, 1.2}, // 低确信，严格风控，RR=1.0
+}
+
+// CalcWickSLTP 根据引线场景计算场景专用止盈止损
+func CalcWickSLTP(entryPrice float64, opp *models.TradingOpportunity, cfg *config.TradingConfig, klineRepo repository.KlineRepo, logger *zap.Logger) (float64, float64) {
+	// 获取 wick_scene
+	scene := "plain"
+	if opp.ScoreDetails != nil {
+		if s, ok := (*opp.ScoreDetails)["wick_scene"].(string); ok && s != "" {
+			scene = s
+		}
+	}
+
+	// 获取场景对应的 ATR 倍数
+	mult, ok := wickSceneMultipliers[scene]
+	if !ok {
+		mult = wickSceneMultipliers["plain"]
+	}
+
+	// 计算 ATR
+	atrPeriod := cfg.ATRPeriod
+	if atrPeriod <= 0 {
+		atrPeriod = 14
+	}
+
+	periods := []string{opp.Period, "15m", "1h"}
+	var klines []models.Kline
+	for _, p := range periods {
+		if p == "" {
+			continue
+		}
+		ks, err := klineRepo.GetLatestN(opp.SymbolID, p, atrPeriod+1)
+		if err != nil || len(ks) < 2 {
+			continue
+		}
+		klines = ks
+		break
+	}
+
+	if len(klines) < 2 {
+		logger.Debug("CalcWickSLTP: K线数据不足，回退到 CalcSLTP 通用逻辑",
+			zap.String("symbol_code", opp.SymbolCode),
+			zap.String("scene", scene))
+		return 0, 0
+	}
+
+	atr := helpers.CalculateATR(klines, atrPeriod)
+	if atr <= 0 {
+		return 0, 0
+	}
+
+	slDist := atr * mult.SLMult
+	tpDist := atr * mult.TPMult
+
+	// 最小/最大距离限制
+	minSLDist := entryPrice * 0.005  // 0.5%
+	maxSLDist := entryPrice * 0.05   // 5%
+	minTPDist := entryPrice * 0.008  // 0.8%
+	maxTPDist := entryPrice * 0.15   // 15%
+
+	if slDist < minSLDist {
+		slDist = minSLDist
+	}
+	if slDist > maxSLDist {
+		slDist = maxSLDist
+	}
+	if tpDist < minTPDist {
+		tpDist = minTPDist
+	}
+	if tpDist > maxTPDist {
+		tpDist = maxTPDist
+	}
+
+	var sl, tp float64
+	if opp.Direction == models.DirectionLong {
+		sl = entryPrice - slDist
+		tp = entryPrice + tpDist
+	} else {
+		sl = entryPrice + slDist
+		tp = entryPrice - tpDist
+	}
+
+	logger.Info("引线场景止盈止损",
+		zap.String("symbol_code", opp.SymbolCode),
+		zap.String("scene", scene),
+		zap.Float64("entry_price", entryPrice),
+		zap.Float64("atr", atr),
+		zap.Float64("sl_mult", mult.SLMult),
+		zap.Float64("tp_mult", mult.TPMult),
+		zap.Float64("stop_loss", sl),
+		zap.Float64("take_profit", tp))
+
+	return sl, tp
+}
+
+// GetRegimeSLTP 根据市场状态返回止盈止损比例
+// 震荡市：SL=3%, TP=6%, RR=2:1（震荡被过滤，此为兜底参数）
+// 趋势市：SL=2.5%, TP=6%, RR=2.4:1（从SL=2%放宽，减少快速止损被扫）
+// 量比异常(>10x)：SL=2%, TP=4%（高波动期适度收紧）
+func GetRegimeSLTP(opp *models.TradingOpportunity, cfg *config.TradingConfig) (float64, float64) {
+	slPct := 0.025 // 趋势市默认止损 2.5%（从2%放宽）
+	tpPct := 0.06  // 趋势市默认止盈 6%（从5%提高，保持RR=2.4）
+
+	// 检查量比是否异常
+	volumeRatio := 0.0
+	if opp.ScoreDetails != nil {
+		if vr, ok := (*opp.ScoreDetails)["volume_ratio"]; ok {
+			if f, ok := vr.(float64); ok {
+				volumeRatio = f
+			}
+		}
+	}
+
+	if volumeRatio > 10.0 {
+		// 异常放量：适度收紧止损和止盈
+		slPct = 0.02
+		tpPct = 0.04
+	} else if opp.Regime == "震荡" {
+		// 震荡市：放宽止损到3%，止盈到6%
+		slPct = 0.03
+		tpPct = 0.06
+	}
+
+	return slPct, tpPct
 }
 
 // CalcATRSLTP 基于近期K线的ATR计算止盈止损

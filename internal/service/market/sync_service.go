@@ -283,7 +283,7 @@ func (s *SyncService) syncSymbolKlines(symbol *models.Symbol, fetcher Fetcher, p
 		if gapHours > 1 {
 			// 有缺口，需要回补
 			isBackfill = true
-			s.logger.Info("检测到K线缺口，开始回补",
+			s.logger.Debug("检测到K线缺口，开始回补",
 				zap.String("symbol", symbol.SymbolCode),
 				zap.String("period", period),
 				zap.Int("gap_hours", gapHours))

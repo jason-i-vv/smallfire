@@ -207,7 +207,8 @@ func TestStatisticsService_GetSignalType(t *testing.T) {
 
 // mockTrackRepoForStats 用于 statistics 测试的 mock
 type mockTrackRepoForStats struct {
-	tracks []*models.TradeTrack
+	tracks      []*models.TradeTrack
+	signalStats []repository.SignalSQLResult
 }
 
 var _ repository.TradeTrackRepo = (*mockTrackRepoForStats)(nil)
@@ -245,37 +246,132 @@ func (m *mockTrackRepoForStats) GetLightTrackDataSQL(startDate, endDate *time.Ti
 	return nil, nil
 }
 func (m *mockTrackRepoForStats) GetDirectionStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.DirectionSQLResult, error) {
-	return nil, nil
+	if m.tracks == nil {
+		return nil, nil
+	}
+	dirMap := make(map[string]*repository.DirectionSQLResult)
+	for _, t := range m.tracks {
+		if t.PnL == nil {
+			continue
+		}
+		d, ok := dirMap[t.Direction]
+		if !ok {
+			d = &repository.DirectionSQLResult{Direction: t.Direction}
+			dirMap[t.Direction] = d
+		}
+		d.TotalTrades++
+		if *t.PnL > 0 {
+			d.WinTrades++
+		}
+		d.TotalPnL += *t.PnL
+	}
+	results := make([]repository.DirectionSQLResult, 0, len(dirMap))
+	for _, d := range dirMap {
+		results = append(results, *d)
+	}
+	return results, nil
 }
 func (m *mockTrackRepoForStats) GetSymbolStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.SymbolSQLResult, error) {
 	return nil, nil
 }
 func (m *mockTrackRepoForStats) GetExitReasonStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ExitReasonSQLResult, error) {
-	return nil, nil
+	if m.tracks == nil {
+		return nil, nil
+	}
+	reasonMap := make(map[string]*repository.ExitReasonSQLResult)
+	for _, t := range m.tracks {
+		if t.PnL == nil || t.ExitReason == nil {
+			continue
+		}
+		r, ok := reasonMap[*t.ExitReason]
+		if !ok {
+			r = &repository.ExitReasonSQLResult{ExitReason: *t.ExitReason}
+			reasonMap[*t.ExitReason] = r
+		}
+		r.TotalTrades++
+		if *t.PnL > 0 {
+			r.WinTrades++
+		}
+		r.TotalPnL += *t.PnL
+	}
+	results := make([]repository.ExitReasonSQLResult, 0, len(reasonMap))
+	for _, r := range reasonMap {
+		results = append(results, *r)
+	}
+	return results, nil
 }
 func (m *mockTrackRepoForStats) GetPeriodPnLSQL(startDate, endDate *time.Time, period, tradeSource string) ([]repository.PeriodPnLSQLResult, error) {
-	return nil, nil
+	if m.tracks == nil {
+		return nil, nil
+	}
+	// Group by day
+	dayMap := make(map[string]*repository.PeriodPnLSQLResult)
+	for _, t := range m.tracks {
+		if t.PnL == nil || t.ExitTime == nil {
+			continue
+		}
+		day := t.ExitTime.Format("2006-01-02")
+		d, ok := dayMap[day]
+		if !ok {
+			ts, _ := time.Parse("2006-01-02", day)
+			d = &repository.PeriodPnLSQLResult{PeriodStart: ts}
+			dayMap[day] = d
+		}
+		d.PnL += *t.PnL
+		d.TradeCount++
+	}
+	results := make([]repository.PeriodPnLSQLResult, 0, len(dayMap))
+	for _, d := range dayMap {
+		results = append(results, *d)
+	}
+	return results, nil
 }
 func (m *mockTrackRepoForStats) GetPnLValuesSQL(startDate, endDate *time.Time, tradeSource string) ([]float64, error) {
-	return nil, nil
+	if m.tracks == nil {
+		return nil, nil
+	}
+	pnls := make([]float64, 0, len(m.tracks))
+	for _, t := range m.tracks {
+		if t.PnL != nil {
+			pnls = append(pnls, *t.PnL)
+		}
+	}
+	return pnls, nil
 }
 func (m *mockTrackRepoForStats) GetStrategyStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.StrategySQLResult, error) {
 	return nil, nil
 }
 func (m *mockTrackRepoForStats) GetSignalStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.SignalSQLResult, error) {
-	return nil, nil
+	return m.signalStats, nil
 }
 func (m *mockTrackRepoForStats) GetScoreStatsSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreSQLResult, error) {
 	return nil, nil
 }
 func (m *mockTrackRepoForStats) GetEquityCurveSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.EquitySQLResult, error) {
-	return nil, nil
+	if m.tracks == nil {
+		return nil, nil
+	}
+	results := make([]repository.EquitySQLResult, 0, len(m.tracks))
+	for _, t := range m.tracks {
+		if t.PnL != nil && t.ExitTime != nil {
+			results = append(results, repository.EquitySQLResult{
+				Time:   t.ExitTime.Unix(),
+				CumPnL: *t.PnL,
+			})
+		}
+	}
+	return results, nil
 }
 func (m *mockTrackRepoForStats) GetScoreEquitySQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreEquitySQLResult, error) {
 	return nil, nil
 }
+func (m *mockTrackRepoForStats) CountByStatus(status string) (int, error) { return 0, nil }
+func (m *mockTrackRepoForStats) GetAnomalous() ([]*models.TradeTrack, error) { return nil, nil }
 func (m *mockTrackRepoForStats) GetScoreRegimeSQL(startDate, endDate *time.Time, tradeSource string) ([]repository.ScoreRegimeSQLResult, error) {
 	return nil, nil
+}
+func (m *mockTrackRepoForStats) GetHistorySummary(startDate, endDate time.Time, filters map[string]string) (float64, int, int, float64, float64, error) {
+	return 0, 0, 0, 0, 0, nil
 }
 
 func makeClosedTrackFull(pnl float64, symbolID int, direction string, entryTime, exitTime time.Time, exitReason string) *models.TradeTrack {
@@ -484,7 +580,7 @@ func TestStatisticsService_GetDetailedSignalAnalysis(t *testing.T) {
 			{SignalID: &signalID2, Direction: "short", PnL: ptrF64(-500), PositionValue: ptrF64(10000), EntryTime: ptrTimeF(now.Add(-4*time.Hour)), ExitTime: ptrTimeF(now.Add(-3*time.Hour))},
 			{SignalID: &signalID1, Direction: "long", PnL: ptrF64(300), PositionValue: ptrF64(10000), EntryTime: ptrTimeF(now.Add(-6*time.Hour)), ExitTime: ptrTimeF(now.Add(-5*time.Hour))},
 		}
-		repo := &mockTrackRepoForStats{tracks: tracks}
+		repo := &mockTrackRepoForStats{tracks: tracks, signalStats: []repository.SignalSQLResult{{SignalType: "box_breakout", SourceType: "box", TotalTrades: 2, WinTrades: 2, TotalPnL: 1300},{SignalType: "trend_retracement", SourceType: "trend", TotalTrades: 1, WinTrades: 0, TotalPnL: -500}}}
 		sigRepo := &mockSignalRepoForStats{
 			signals: map[int]*models.Signal{
 				1: {SignalType: "box_breakout", SourceType: "box"},

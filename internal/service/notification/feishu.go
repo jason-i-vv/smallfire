@@ -53,12 +53,12 @@ func (f *FeishuNotifier) Send(content *NotifyContent) error {
 
 	// 保存通知记录
 	notify := &models.Notification{
-		Channel:     models.ChannelFeishu,
-		Content:     msg,
-		Status:      models.NotifyStatusPending,
-		RetryCount:  0,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		Channel:    models.ChannelFeishu,
+		Content:    msg,
+		Status:     models.NotifyStatusPending,
+		RetryCount: 0,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	}
 	f.notifyRepo.Create(notify)
 
@@ -189,8 +189,8 @@ func (f *FeishuNotifier) SendSignalNotification(signal *models.Signal) error {
 	market := getMarketLabel(signal.SymbolCode)
 
 	content := &NotifyContent{
-		Title:   fmt.Sprintf("%s %s %s %s", emoji, market, signal.SymbolCode, signalType),
-		Type:    models.NotifyTypeSignal,
+		Title: fmt.Sprintf("%s %s %s %s", emoji, market, signal.SymbolCode, signalType),
+		Type:  models.NotifyTypeSignal,
 		Message: fmt.Sprintf("📊 **周期**: %s\n📈 **方向**: %s\n⭐ **强度**: %s\n💰 **信号价格**: %.4f",
 			signal.Period, direction, strength, signal.Price),
 	}
@@ -246,25 +246,23 @@ func (f *FeishuNotifier) SendOpportunityNotification(opp *models.TradingOpportun
 
 func (f *FeishuNotifier) getSignalTypeName(signalType string) string {
 	names := map[string]string{
-		"box_breakout":         "箱体向上突破",
-		"box_breakdown":        "箱体向下突破",
-		"trend_reversal":       "趋势反转",
-		"trend_retracement":    "趋势回撤",
-		"resistance_break":     "阻力位突破",
-		"support_break":        "支撑位跌破",
-		"volume_surge":         "成交量放大",
-		"price_surge_up":       "价格急涨",
-		"price_surge_down":     "价格急跌",
-		"upper_wick_reversal":  "上引线反转",
-		"lower_wick_reversal":  "下引线反转",
-		"fake_breakout_upper":  "假突破上引线",
-		"fake_breakout_lower":  "假突破下引线",
-		"engulfing_bullish":    "阳包阴吞没",
-		"engulfing_bearish":    "阴包阳吞没",
-		"momentum_bullish":     "连阳动量",
-		"momentum_bearish":     "连阴动量",
-		"morning_star":         "早晨之星",
-		"evening_star":         "黄昏之星",
+		"box_breakout":        "箱体向上突破",
+		"box_breakdown":       "箱体向下突破",
+		"trend_reversal":      "趋势反转",
+		"trend_retracement":   "趋势回撤",
+		"resistance_break":    "阻力位突破",
+		"support_break":       "支撑位跌破",
+		"volume_surge":        "成交量放大",
+		"price_surge_up":      "价格急涨",
+		"price_surge_down":    "价格急跌",
+		"upper_wick_reversal": "上引线反转",
+		"lower_wick_reversal": "下引线反转",
+		"fake_breakout_upper": "假突破上引线",
+		"fake_breakout_lower": "假突破下引线",
+		"momentum_bullish":    "连阳动量",
+		"momentum_bearish":    "连阴动量",
+		"morning_star":        "早晨之星",
+		"evening_star":        "黄昏之星",
 	}
 	if name, ok := names[signalType]; ok {
 		return name
@@ -281,8 +279,8 @@ func (f *FeishuNotifier) SendTradeOpenedNotification(track *models.TradeTrack) e
 	}
 
 	content := &NotifyContent{
-		Title:   fmt.Sprintf("%s %s 开仓", emoji, track.SymbolCode),
-		Type:    models.NotifyTypeTrade,
+		Title: fmt.Sprintf("%s %s 开仓", emoji, track.SymbolCode),
+		Type:  models.NotifyTypeTrade,
 		Message: fmt.Sprintf("📊 **方向**: %s\n💰 **入场价格**: %.4f\n📦 **仓位数量**: %.4f\n📐 **止损价格**: %.4f\n🎯 **止盈价格**: %.4f",
 			direction, *track.EntryPrice, *track.Quantity, *track.StopLossPrice, *track.TakeProfitPrice),
 		Data: map[string]interface{}{
@@ -316,8 +314,8 @@ func (f *FeishuNotifier) SendTradeClosedNotification(track *models.TradeTrack) e
 	}
 
 	content := &NotifyContent{
-		Title:   fmt.Sprintf("%s %s 平仓 %s", emoji, track.SymbolCode, pnlStr),
-		Type:    models.NotifyTypeTrade,
+		Title: fmt.Sprintf("%s %s 平仓 %s", emoji, track.SymbolCode, pnlStr),
+		Type:  models.NotifyTypeTrade,
 		Message: fmt.Sprintf("📊 **平仓原因**: %s\n💰 **出场价格**: %.4f\n💵 **盈亏**: %s (%.2f%%)\n⏱ **持仓时间**: %s",
 			exitReason, *track.ExitPrice, pnlStr, *track.PnLPercent*100,
 			FormatHoldingTime(track.EntryTime, track.ExitTime)),
@@ -342,8 +340,8 @@ func (f *FeishuNotifier) getExitReasonName(reason string) string {
 
 func (f *FeishuNotifier) SendSummaryNotification(stats *SummaryStats) error {
 	content := &NotifyContent{
-		Title:   "📊 星火量化 - 交易汇总",
-		Type:    models.NotifyTypeSummary,
+		Title: "📊 星火量化 - 交易汇总",
+		Type:  models.NotifyTypeSummary,
 		Message: fmt.Sprintf("📈 **今日统计**\n├ 交易次数: %d\n├ 盈利次数: %d\n├ 亏损次数: %d\n├ 胜率: %.1f%%\n├ 总盈亏: %s\n└ 最大回撤: %.2f%%\n\n💰 **账户状态**\n├ 初始资金: %.2f\n├ 当前权益: %.2f\n├ 总收益率: %.2f%%\n\n📋 **信号统计**\n├ 今日信号: %d\n└ 活跃持仓: %d",
 			stats.TodayTrades, stats.WinTrades, stats.LossTrades, stats.WinRate*100,
 			FormatPnL(stats.TotalPnL), stats.MaxDrawdownPct*100,

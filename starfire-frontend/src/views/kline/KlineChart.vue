@@ -475,8 +475,6 @@ const getSignalTypeName = (type) => {
     fake_breakout_upper: '假突破上引',
     fake_breakout_lower: '假突破下引',
     // K线形态信号
-    engulfing_bullish: '阳包阴吞没',
-    engulfing_bearish: '阴包阳吞没',
     momentum_bullish: '连阳动量',
     momentum_bearish: '连阴动量',
     morning_star: '早晨之星',
@@ -928,7 +926,6 @@ const signalNameMap = {
   volume_price_rise: '量价齐升', volume_price_fall: '量价齐跌',
   upper_wick_reversal: '上引线反转', lower_wick_reversal: '下引线反转',
   fake_breakout_upper: '假突破上引', fake_breakout_lower: '假突破下引',
-  engulfing_bullish: '阳包阴吞没', engulfing_bearish: '阴包阳吞没',
   momentum_bullish: '连阳动量', momentum_bearish: '连阴动量',
   morning_star: '早晨之星', evening_star: '黄昏之星'
 }
@@ -1575,7 +1572,7 @@ const buildOverlaySignals = (signals, klines) => {
   }))
 
   // 信号标记（wick / volume spike 类用 overlay 绘制，其他已由 setMarkers 处理）
-  const ovTypes = ['upper_wick_reversal', 'fake_breakout_upper', 'lower_wick_reversal', 'fake_breakout_lower', 'volume_surge', 'volume_price_rise', 'volume_price_fall', 'engulfing_bullish', 'engulfing_bearish', 'momentum_bullish', 'momentum_bearish', 'morning_star', 'evening_star']
+  const ovTypes = ['upper_wick_reversal', 'fake_breakout_upper', 'lower_wick_reversal', 'fake_breakout_lower', 'volume_surge', 'volume_price_rise', 'volume_price_fall', 'momentum_bullish', 'momentum_bearish', 'morning_star', 'evening_star']
   overlayData.signals = signals
     .filter(s => ovTypes.includes(s.signal_type || s.type))
     .map(s => ({

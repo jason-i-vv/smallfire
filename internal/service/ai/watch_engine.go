@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -14,9 +16,9 @@ import (
 )
 
 const (
-	minWatchContext  = 40
+	minWatchContext   = 40
 	defaultWatchLimit = 120
-	maxWatchLimit    = 200
+	maxWatchLimit     = 200
 )
 
 // WatchEngine 统一分析引擎
@@ -27,6 +29,7 @@ type WatchEngine struct {
 	klineRepo repository.KlineRepo
 	notifier  *notification.Manager
 	logger    *zap.Logger
+	logDir    string // AI 分析日志目录
 }
 
 // NewWatchEngine 创建统一分析引擎
@@ -36,6 +39,7 @@ func NewWatchEngine(
 	klineRepo repository.KlineRepo,
 	notifier *notification.Manager,
 	logger *zap.Logger,
+	logDir string,
 ) *WatchEngine {
 	return &WatchEngine{
 		claude:    claude,
@@ -43,6 +47,7 @@ func NewWatchEngine(
 		klineRepo: klineRepo,
 		notifier:  notifier,
 		logger:    logger,
+		logDir:    logDir,
 	}
 }
 
@@ -136,6 +141,11 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 		return fmt.Errorf("Claude 分析失败: %w", err)
 	}
 
+	// 4.1 保存 AI 调用日志
+	if e.logDir != "" {
+		e.saveAILog(target, conv, raw)
+	}
+
 	// 5. 解析结果
 	steps, err := skill.ParseResponse(raw)
 	if err != nil {
@@ -148,6 +158,9 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 
 	// 6. 填充 K 线数据到 steps
 	steps = e.fillKlineData(steps, klines)
+	if target.SkillName == "trend_pullback" {
+		steps = guardTrendPullbackInvalidSteps(target.Direction, steps, klines)
+	}
 
 	// 7. 保存 AI 回复到会话
 	conv.Messages = append(conv.Messages, ClaudeMessage{Role: "assistant", Content: raw})
@@ -172,21 +185,27 @@ func (e *WatchEngine) AnalyzeTarget(ctx context.Context, target *models.AIWatchT
 	now := time.Now().UnixMilli()
 	target.LastRunAt = &now
 
-	// 10. 判断是否关闭（连续 3 根 invalid 才关闭）
-	if shouldDisableTracking(target.Result) {
+	invalidStep := firstInvalidStep(steps)
+
+	// 10. 本轮出现 invalid 立即关闭，避免失效观察仓继续自动巡检
+	if invalidStep != nil {
 		target.Enabled = false
-		e.logger.Info("趋势连续失效，自动关闭 AI 跟踪",
+		e.logger.Info("趋势失效，自动关闭 AI 跟踪",
 			zap.String("symbol", target.SymbolCode),
 			zap.String("skill", target.SkillName))
 	}
 
-	// 11. 检查是否有可操作买点，发送通知
+	// 11. 失效通知优先于买点通知；失效后不会再继续跟踪
 	if target.SendFeishu && e.notifier != nil {
-		for i := range steps {
-			step := &steps[i]
-			if step.Decision == "alert" && step.BuyPoint == "ready" && step.Confidence >= 70 {
-				e.notifier.SendToAll(e.buildNotification(target, step))
-				break
+		if invalidStep != nil {
+			e.notifier.SendToAll(e.buildNotification(target, invalidStep))
+		} else {
+			for i := range steps {
+				step := &steps[i]
+				if step.Decision == "alert" && step.BuyPoint == "ready" && step.Confidence >= 70 {
+					e.notifier.SendToAll(e.buildNotification(target, step))
+					break
+				}
 			}
 		}
 	}
@@ -260,45 +279,33 @@ func (e *WatchEngine) fillKlineData(steps []AnalysisStep, klines []models.Kline)
 
 // buildHeader 构建消息头（标的元信息）
 func (e *WatchEngine) buildHeader(target *models.AIWatchTarget) string {
-	return fmt.Sprintf("标的: %s\n市场: %s\n周期: %s\n方向: 做多\n\n", target.SymbolCode, target.MarketCode, target.Period)
+	return fmt.Sprintf("标的: %s\n市场: %s\n周期: %s\n方向: %s\n\n",
+		target.SymbolCode, target.MarketCode, target.Period, watchDirectionLabel(target.Direction))
 }
 
-// shouldDisableTracking 检查最近的 steps 是否连续 3 根 invalid
-func shouldDisableTracking(resultJSON json.RawMessage) bool {
-	if len(resultJSON) == 0 {
-		return false
-	}
-
-	var result struct {
-		Steps []json.RawMessage `json:"steps"`
-	}
-	if json.Unmarshal(resultJSON, &result) != nil || len(result.Steps) == 0 {
-		return false
-	}
-
-	// 检查最后 3 根
-	latest := result.Steps
-	if len(latest) > 3 {
-		latest = latest[len(latest)-3:]
-	}
-
-	for _, raw := range latest {
-		var step struct {
-			Decision string `json:"decision"`
-		}
-		if json.Unmarshal(raw, &step) != nil {
-			return false
-		}
-		if step.Decision != "invalid" {
-			return false
+func firstInvalidStep(steps []AnalysisStep) *AnalysisStep {
+	for i := range steps {
+		if steps[i].Decision == "invalid" {
+			return &steps[i]
 		}
 	}
-	return len(latest) >= 3
+	return nil
 }
 
 func (e *WatchEngine) buildNotification(target *models.AIWatchTarget, step *AnalysisStep) *notification.NotifyContent {
-	message := fmt.Sprintf("标的: %s\n周期: %s\n策略: %s\n置信度: %d\n理由: %s",
-		target.SymbolCode, target.Period, target.SkillName, step.Confidence, step.Reasoning)
+	actionLabel := "买点"
+	if target.Direction == models.DirectionShort {
+		actionLabel = "空点"
+	}
+	title := fmt.Sprintf("AI %s提醒 %s (%s)", actionLabel, target.SymbolCode, target.SkillName)
+	notifyType := "opportunity"
+	if step.Decision == "invalid" {
+		actionLabel = "趋势失效"
+		title = fmt.Sprintf("AI 趋势失效提醒 %s (%s)", target.SymbolCode, target.SkillName)
+		notifyType = "alert"
+	}
+	message := fmt.Sprintf("标的: %s\n周期: %s\n方向: %s\n策略: %s\n置信度: %d\n理由: %s",
+		target.SymbolCode, target.Period, watchDirectionLabel(target.Direction), target.SkillName, step.Confidence, step.Reasoning)
 	if step.EntryPrice != nil {
 		message += fmt.Sprintf("\n建议入场: %.6g", *step.EntryPrice)
 	}
@@ -313,16 +320,25 @@ func (e *WatchEngine) buildNotification(target *models.AIWatchTarget, step *Anal
 	}
 
 	return &notification.NotifyContent{
-		Title:   fmt.Sprintf("AI 买点提醒 %s (%s)", target.SymbolCode, target.SkillName),
-		Type:    "opportunity",
+		Title:   title,
+		Type:    notifyType,
 		Message: message,
 		Data: map[string]interface{}{
 			"skill":      target.SkillName,
 			"period":     target.Period,
+			"direction":  target.Direction,
+			"event":      actionLabel,
 			"confidence": step.Confidence,
 			"kline_time": time.UnixMilli(step.KlineTime).In(time.FixedZone("UTC+8", 8*60*60)).Format("2006-01-02 15:04:05"),
 		},
 	}
+}
+
+func watchDirectionLabel(direction string) string {
+	if direction == models.DirectionShort {
+		return "做空"
+	}
+	return "做多"
 }
 
 func formatRiskNotes(notes []string) string {
@@ -334,4 +350,42 @@ func formatRiskNotes(notes []string) string {
 		result += n
 	}
 	return result
+}
+
+// saveAILog 保存 AI 调用日志到文件
+func (e *WatchEngine) saveAILog(target *models.AIWatchTarget, conv *ClaudeConversation, response string) {
+	if err := os.MkdirAll(e.logDir, 0755); err != nil {
+		e.logger.Warn("创建 AI 日志目录失败", zap.String("dir", e.logDir), zap.Error(err))
+		return
+	}
+
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("%s_%s_%s_%s.json", target.SymbolCode, target.SkillName, target.Period, timestamp)
+	filePath := filepath.Join(e.logDir, filename)
+
+	logData := map[string]interface{}{
+		"target_id":     target.ID,
+		"symbol":        target.SymbolCode,
+		"market_code":   target.MarketCode,
+		"skill":         target.SkillName,
+		"period":        target.Period,
+		"direction":     target.Direction,
+		"system_prompt": conv.SystemPrompt,
+		"messages":      conv.Messages,
+		"response":      response,
+		"logged_at":     time.Now().Format(time.RFC3339),
+	}
+
+	jsonData, err := json.MarshalIndent(logData, "", "  ")
+	if err != nil {
+		e.logger.Warn("序列化 AI 日志失败", zap.Error(err))
+		return
+	}
+
+	if err := os.WriteFile(filePath, jsonData, 0644); err != nil {
+		e.logger.Warn("写入 AI 日志文件失败", zap.String("file", filePath), zap.Error(err))
+		return
+	}
+
+	e.logger.Info("AI 调用日志已保存", zap.String("file", filePath))
 }

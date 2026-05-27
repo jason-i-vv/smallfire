@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -78,129 +79,42 @@ func generateBackgroundKlines(n int, basePrice float64) []models.Kline {
 	return klines
 }
 
+func generateTrendBackgroundKlines(n int, startPrice, step float64) []models.Kline {
+	bt := baseTime().Add(-time.Duration(n) * 15 * time.Minute)
+	klines := make([]models.Kline, n)
+	price := startPrice
+	for i := 0; i < n; i++ {
+		next := price + step
+		high := math.Max(price, next) + 0.2
+		low := math.Min(price, next) - 0.2
+		klines[i] = makeCandleKline(bt.Add(time.Duration(i)*15*time.Minute), price, high, low, next)
+		price = next
+	}
+	return klines
+}
+
 // ========================================
-// 吞没形态测试
+// 吞没形态禁用测试
 // ========================================
 
-func TestEngulfing_Bullish(t *testing.T) {
+func TestEngulfing_Disabled(t *testing.T) {
 	cfg := candlestickCfg()
+	cfg.RequireTrend = true
 	s := NewCandlestickStrategy(cfg, mockDeps()).(*CandlestickStrategy)
 
-	// 背景 + 阴线 + 阳包阴
-	bg := generateBackgroundKlines(20, 100)
+	bg := generateTrendBackgroundKlines(35, 110, -0.35)
 	bt := baseTime()
-
-	prev := makeCandleKline(bt, 102, 103, 100, 100.5) // 阴线，实体1.5
-	curr := makeCandleKline(bt.Add(15*time.Minute), 99.5, 104, 99, 103.5) // 阳线，实体4.0，包含前一根
+	prev := makeCandleKline(bt, 97.0, 97.2, 96.4, 96.5)
+	curr := makeCandleKline(bt.Add(15*time.Minute), 96.2, 98.8, 96.0, 97.8)
 	klines := append(bg, prev, curr)
 
 	signals, err := s.Analyze(1, "BTCUSDT", "15m", klines)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	found := false
-	for _, sig := range signals {
-		if sig.SignalType == models.SignalTypeEngulfingBullish {
-			found = true
-			if sig.Direction != models.DirectionLong {
-				t.Errorf("expected long direction, got %s", sig.Direction)
-			}
-			if sig.SourceType != models.SourceTypeCandlestick {
-				t.Errorf("expected source candlestick, got %s", sig.SourceType)
-			}
-			if sig.Strength < 1 || sig.Strength > 3 {
-				t.Errorf("unexpected strength: %d", sig.Strength)
-			}
-		}
-	}
-	if !found {
-		t.Error("expected engulfing_bullish signal, got none")
-	}
-}
-
-func TestEngulfing_Bearish(t *testing.T) {
-	cfg := candlestickCfg()
-	s := NewCandlestickStrategy(cfg, mockDeps()).(*CandlestickStrategy)
-
-	bg := generateBackgroundKlines(20, 100)
-	bt := baseTime()
-
-	prev := makeCandleKline(bt, 100, 103, 99.5, 102) // 阳线，Open=100 Close=102
-	curr := makeCandleKline(bt.Add(15*time.Minute), 103, 104, 98, 99) // 阴线，Open=103>102, Close=99<100
-	klines := append(bg, prev, curr)
-
-	signals, err := s.Analyze(1, "BTCUSDT", "15m", klines)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	found := false
-	for _, sig := range signals {
-		if sig.SignalType == models.SignalTypeEngulfingBearish && sig.Direction == models.DirectionShort {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected engulfing_bearish signal, got none")
-	}
-}
-
-func TestEngulfing_NotContained(t *testing.T) {
-	cfg := candlestickCfg()
-	s := NewCandlestickStrategy(cfg, mockDeps()).(*CandlestickStrategy)
-
-	bg := generateBackgroundKlines(20, 100)
-	bt := baseTime()
-
-	prev := makeCandleKline(bt, 102, 103, 101, 101.5) // 阴线，实体0.5
-	curr := makeCandleKline(bt.Add(15*time.Minute), 101, 102.5, 100, 102) // 阳线，但未完全包含前一根
-	klines := append(bg, prev, curr)
-
-	signals, _ := s.Analyze(1, "BTCUSDT", "15m", klines)
 	for _, sig := range signals {
 		if sig.SignalType == models.SignalTypeEngulfingBullish || sig.SignalType == models.SignalTypeEngulfingBearish {
-			t.Error("should not produce engulfing signal when bodies are not contained")
-		}
-	}
-}
-
-func TestEngulfing_SameDirection(t *testing.T) {
-	cfg := candlestickCfg()
-	s := NewCandlestickStrategy(cfg, mockDeps()).(*CandlestickStrategy)
-
-	bg := generateBackgroundKlines(20, 100)
-	bt := baseTime()
-
-	// 两根阳线，不应触发
-	prev := makeCandleKline(bt, 100, 103, 99, 102)
-	curr := makeCandleKline(bt.Add(15*time.Minute), 101, 105, 100, 104)
-	klines := append(bg, prev, curr)
-
-	signals, _ := s.Analyze(1, "BTCUSDT", "15m", klines)
-	for _, sig := range signals {
-		if sig.SourceType == models.SourceTypeCandlestick {
-			t.Error("should not produce signal for same-direction candles")
-		}
-	}
-}
-
-func TestEngulfing_SmallBody(t *testing.T) {
-	cfg := candlestickCfg()
-	s := NewCandlestickStrategy(cfg, mockDeps()).(*CandlestickStrategy)
-
-	bg := generateBackgroundKlines(20, 100)
-	bt := baseTime()
-
-	// 前一根正常阴线，当前K线虽然包含但实体太小
-	prev := makeCandleKline(bt, 101, 102, 100, 100.5)
-	curr := makeCandleKline(bt.Add(15*time.Minute), 100.4, 100.6, 100.3, 100.5) // 实体极小
-	klines := append(bg, prev, curr)
-
-	signals, _ := s.Analyze(1, "BTCUSDT", "15m", klines)
-	for _, sig := range signals {
-		if sig.SignalType == models.SignalTypeEngulfingBullish {
-			t.Error("should not produce signal when current body is too small")
+			t.Fatalf("engulfing signal should be disabled, got %s", sig.SignalType)
 		}
 	}
 }
@@ -275,7 +189,7 @@ func TestMomentum_NotIncreasing(t *testing.T) {
 	bt := baseTime()
 
 	// 三根阳线，但实体递减
-	c1 := makeCandleKline(bt, 100, 105, 99, 105) // 实体5
+	c1 := makeCandleKline(bt, 100, 105, 99, 105)                      // 实体5
 	c2 := makeCandleKline(bt.Add(15*time.Minute), 105, 108, 104, 108) // 实体3
 	c3 := makeCandleKline(bt.Add(30*time.Minute), 108, 110, 107, 110) // 实体2
 	klines := append(bg, c1, c2, c3)

@@ -23,12 +23,12 @@ def bybit_get(path):
     return json.loads(r.stdout)
 
 # 查所有持仓
-data = bybit_get("/v5/position/list?category=linear&limit=100")
-lst = data["result"]["list"]
-open_pos = [p for p in lst if int(p.get("size","0")) != 0]
+data = bybit_get("/v5/position/list?category=linear&settleCoin=USDT&limit=100")
+lst = data.get("result", {}).get("list", [])
+open_pos = [p for p in lst if float(p.get("size","0")) != 0]
 print(f"Bybit 共 {len(lst)} 条记录，其中 size!=0 的有 {len(open_pos)} 条")
 for p in open_pos:
-    print(f"  {p['symbol']} {p['side']} size={p['size']} entry={p['entryPrice']} unrealizedPnl={p.get('unrealisedPnl','0')}")
+    print(f"  {p['symbol']} {p['side']} size={p['size']} entry={p.get('avgPrice', p.get('entryPrice', '?'))} unrealizedPnl={p.get('unrealisedPnl','0')}")
 
 # 查数据库 open 数量
 r = subprocess.run(["sudo", "docker", "exec", "starfire-postgres",

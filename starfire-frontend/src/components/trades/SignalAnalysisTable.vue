@@ -57,8 +57,6 @@ const signalTypeLabel = (type) => {
     lower_wick_reversal: '下影线反转',
     fake_breakout_upper: '上假突破',
     fake_breakout_lower: '下假突破',
-    engulfing_bullish: '看涨吞没',
-    engulfing_bearish: '看跌吞没',
     momentum_bullish: '看涨动能',
     momentum_bearish: '看跌动能',
     morning_star: '晨星',

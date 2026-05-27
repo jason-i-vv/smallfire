@@ -27,6 +27,14 @@
             </div>
           </div>
 
+          <div class="form-row" v-if="isDirectionalSkill(draft.skill_name)">
+            <div class="form-label">
+              <span class="label-icon"><el-icon><Position /></el-icon></span>
+              <span>方向</span>
+            </div>
+            <el-segmented v-model="draft.direction" :options="directionOptions" class="form-control form-segmented" />
+          </div>
+
           <div class="form-row">
             <div class="form-label">
               <span class="label-icon"><el-icon><Coin /></el-icon></span>
@@ -107,7 +115,7 @@
         />
       </div>
 
-      <el-table :data="targets" row-key="id" height="360" empty-text="暂无观察标的">
+      <el-table :data="targets" row-key="id" height="calc(100vh - 300px)" empty-text="暂无观察标的">
         <el-table-column label="AI跟踪" width="92">
           <template #default="{ row }">
             <el-switch v-model="row.enabled" @change="onTargetToggle(row)" />
@@ -118,6 +126,7 @@
             <strong class="symbol">{{ row.symbol_code }}</strong>
             <span class="muted">{{ row.market_code }} · {{ row.period }}</span>
             <el-tag size="small" type="info" style="margin-left: 4px">{{ skillLabel(row.skill_name) }}</el-tag>
+            <el-tag v-if="isDirectionalSkill(row.skill_name)" size="small" :type="directionType(row.direction)" style="margin-left: 4px">{{ directionLabel(row.direction) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="状态" min-width="135">
@@ -128,7 +137,7 @@
         <el-table-column label="信号" min-width="170">
           <template #default="{ row }">
             <div class="signal-summary">
-              <el-tag v-if="row.result?.found || alertCount(row) > 0" type="success" effect="dark">买点 {{ alertCount(row) }}</el-tag>
+              <el-tag v-if="alertCount(row) > 0" :type="directionSignalType(row.direction)" effect="dark">{{ actionLabel(row.direction) }} {{ alertCount(row) }}</el-tag>
               <el-tag v-if="watchCount(row) > 0" type="warning">观察 {{ watchCount(row) }}</el-tag>
               <el-tag v-if="row.data_status === 'waiting_data'" type="info">等待数据</el-tag>
               <span v-if="!row.result" class="muted">未分析</span>
@@ -155,11 +164,11 @@
     <section v-if="activeResult" class="best-band">
       <div class="best-header">
         <div>
-          <h2>{{ activeTarget?.symbol_code }} 回调买点</h2>
-          <span>{{ activeTarget?.period }} · {{ formatTime(activeResult.best?.kline_time) }}</span>
+          <h2>{{ activeTarget?.symbol_code }} 回调{{ actionLabel(activeTarget?.direction) }}</h2>
+          <span>{{ directionLabel(activeTarget?.direction) }} · {{ activeTarget?.period }} · {{ formatTime(activeResult.best?.kline_time) }}</span>
         </div>
-        <el-tag :type="activeResult.found ? 'success' : 'info'" effect="dark">
-          {{ activeResult.found ? `提醒 ${activeResult.best?.confidence}` : '未触发' }}
+        <el-tag :type="activeResult.found ? directionSignalType(activeTarget?.direction) : 'info'" effect="dark">
+          {{ activeResult.found ? `${actionLabel(activeTarget?.direction)} ${activeResult.best?.confidence}` : '未触发' }}
         </el-tag>
       </div>
       <div v-if="activeResult.best" class="best-grid">
@@ -176,9 +185,13 @@
         <header class="detail-head">
           <div>
             <h2>{{ activeTarget.symbol_code }} AI 跟踪详情</h2>
-            <span>{{ activeTarget.market_code }} · {{ activeTarget.period }} · {{ activeTarget.result?.analyzed || 0 }} 根观察K线</span>
+            <span>{{ activeTarget.market_code }} · {{ activeTarget.period }} · {{ directionLabel(activeTarget.direction) }} · {{ activeTarget.result?.analyzed || 0 }} 根观察K线</span>
           </div>
           <div class="detail-actions">
+            <el-button size="small" :disabled="targets.length <= 1" @click="openNextTarget">
+              <el-icon><ArrowRight /></el-icon>
+              下一个
+            </el-button>
             <el-button type="primary" size="small" @click="triggerAnalysis(activeTarget)" :loading="activeTarget.loading">
               <el-icon><Cpu /></el-icon>
               手动分析
@@ -191,7 +204,7 @@
         </header>
 
         <div class="detail-summary">
-          <div><span>买点</span><strong>{{ alertCount(activeTarget) }}</strong></div>
+          <div><span>{{ actionLabel(activeTarget.direction) }}</span><strong>{{ alertCount(activeTarget) }}</strong></div>
           <div><span>观察</span><strong>{{ watchCount(activeTarget) }}</strong></div>
           <div><span>趋势失效</span><strong>{{ invalidCount(activeTarget) }}</strong></div>
           <div><span>普通</span><strong>{{ quietCount(activeTarget) }}</strong></div>
@@ -200,7 +213,14 @@
         <el-tabs v-model="detailTab" @tab-change="onDetailTabChange">
           <el-tab-pane label="图表" name="chart">
             <div class="chart-layout">
-              <div ref="chartRef" class="chart-box" v-loading="chartLoading" />
+              <div style="position: relative;">
+                <div ref="chartRef" class="chart-box" v-loading="chartLoading" />
+                <div class="ema-legend">
+                  <span class="ema-item"><span class="ema-dot" style="background: #FFD740; border-top: 1px dashed #FFD740;"></span>EMA30</span>
+                  <span class="ema-item"><span class="ema-dot" style="background: #42A5F5; border-top: 1px dashed #42A5F5;"></span>EMA60</span>
+                  <span class="ema-item"><span class="ema-dot" style="background: #AB47BC;"></span>EMA90</span>
+                </div>
+              </div>
               <aside class="focus-panel">
                 <div class="panel-title">分析记录</div>
                 <el-empty v-if="allSteps.length === 0" description="暂无分析记录" :image-size="64" />
@@ -211,7 +231,7 @@
                       v-if="row.type === 'important'"
                       class="tl-card"
                       :class="`tl-${importanceKey(row.step)}`"
-                      @click="scrollToStep(row.step)"
+                      @click="showStepDetail(row.step)"
                     >
                       <div class="tl-card-head">
                         <span class="tl-time">{{ formatTime(row.step.kline_time) }}</span>
@@ -232,7 +252,7 @@
                         <span class="tl-quiet-text">{{ expandedQuietKeys.has(row.key) ? '收起' : `··· ${row.steps.length} 条普通记录 ···` }}</span>
                       </button>
                       <template v-if="expandedQuietKeys.has(row.key)">
-                        <button v-for="step in row.steps" :key="step.kline_time" class="tl-card tl-quiet" @click="scrollToStep(step)">
+                        <button v-for="step in row.steps" :key="step.kline_time" class="tl-card tl-quiet" @click="showStepDetail(step)">
                           <div class="tl-card-head">
                             <span class="tl-time">{{ formatTime(step.kline_time) }}</span>
                             <span class="tl-conf">{{ step.confidence }}</span>
@@ -250,7 +270,7 @@
           <el-tab-pane label="列表" name="list">
             <div class="list-toolbar">
               <el-switch v-model="importantOnly" active-text="只看重点" inactive-text="显示全部" />
-              <span>普通结果会默认折叠，重点结果始终展开显示。</span>
+              <span>观察和普通K线默认折叠，买点和风险事件始终展开显示。</span>
             </div>
             <el-table :data="visibleSteps" row-key="kline_time" height="560">
               <el-table-column type="expand">
@@ -276,12 +296,12 @@
               </el-table-column>
               <el-table-column label="决策" width="108">
                 <template #default="{ row }">
-                  <el-tag :type="decisionType(row.decision)" effect="dark">{{ decisionLabel(row.decision) }}</el-tag>
+                  <el-tag :type="stepDecisionType(row)" effect="dark">{{ stepDecisionLabel(row) }}</el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="买点" width="100">
+              <el-table-column :label="actionLabel(activeTarget?.direction)" width="100">
                 <template #default="{ row }">
-                  <el-tag :type="buyPointType(row.buy_point)">{{ buyPointLabel(row.buy_point) }}</el-tag>
+                  <el-tag :type="stepBuyPointType(row)">{{ stepBuyPointLabel(row) }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column label="趋势/回调" min-width="150">
@@ -299,13 +319,80 @@
         </el-tabs>
       </div>
     </el-drawer>
+
+    <!-- 分析记录浮窗 -->
+    <el-dialog
+      v-model="stepDialogVisible"
+      :title="selectedStep ? formatTime(selectedStep.kline_time) + ' 分析详情' : ''"
+      width="540px"
+      @close="closeStepDialog"
+    >
+      <div v-if="selectedStep" class="step-detail">
+        <div class="step-detail-grid">
+          <div><span>时间</span><strong>{{ formatTime(selectedStep.kline_time) }}</strong></div>
+          <div><span>收盘价</span><strong>{{ formatMaybe(selectedStep.close_price) }}</strong></div>
+          <div>
+            <span>置信度</span>
+            <strong>{{ selectedStep.confidence }}</strong>
+          </div>
+          <div v-if="selectedStep.decision">
+            <span>决策</span>
+            <el-tag :type="stepDecisionType(selectedStep)" effect="dark">{{ stepDecisionLabel(selectedStep) }}</el-tag>
+          </div>
+          <div v-if="selectedStep.buy_point">
+            <span>{{ actionLabel(activeTarget?.direction) }}</span>
+            <el-tag :type="stepBuyPointType(selectedStep)" effect="dark">{{ stepBuyPointLabel(selectedStep) }}</el-tag>
+          </div>
+          <div v-if="selectedStep.trend">
+            <span>趋势</span>
+            <el-tag :type="selectedStep.trend === 'bullish' ? 'success' : selectedStep.trend === 'bearish' ? 'danger' : 'info'">{{ selectedStep.trend }}</el-tag>
+          </div>
+          <div v-if="selectedStep.entry_price != null">
+            <span>入场价</span><strong>{{ formatMaybe(selectedStep.entry_price) }}</strong>
+          </div>
+          <div v-if="selectedStep.stop_loss != null">
+            <span>止损价</span><strong>{{ formatMaybe(selectedStep.stop_loss) }}</strong>
+          </div>
+          <div v-if="selectedStep.take_profit != null">
+            <span>止盈价</span><strong>{{ formatMaybe(selectedStep.take_profit) }}</strong>
+          </div>
+          <template v-if="selectedStep.extra?.strategy === 'time_price_projection'">
+            <div v-if="selectedStep.extra.swing_a != null">
+              <span>A点</span><strong>{{ formatMaybe(selectedStep.extra.swing_a) }}</strong>
+            </div>
+            <div v-if="selectedStep.extra.swing_b != null">
+              <span>B点</span><strong>{{ formatMaybe(selectedStep.extra.swing_b) }}</strong>
+            </div>
+            <div v-if="selectedStep.extra.swing_c != null">
+              <span>C点</span><strong>{{ formatMaybe(selectedStep.extra.swing_c) }}</strong>
+            </div>
+            <div v-if="selectedStep.extra.projection_target != null">
+              <span>等距目标</span><strong>{{ formatMaybe(selectedStep.extra.projection_target) }}</strong>
+            </div>
+          </template>
+        </div>
+        <div v-if="selectedStep.reasoning" class="step-section">
+          <h4>AI 分析</h4>
+          <p class="step-reasoning">{{ selectedStep.reasoning }}</p>
+        </div>
+        <div v-if="selectedStep.risk_notes?.length" class="step-section">
+          <h4>风险提示</h4>
+          <div class="step-risk-list">
+            <el-tag v-for="note in selectedStep.risk_notes" :key="note" type="warning">{{ note }}</el-tag>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="stepDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Delete, Plus, View, Grid, Coin, Timer, Calendar, Bell, Position, Cpu } from '@element-plus/icons-vue'
+import { Delete, Plus, View, Grid, Coin, Timer, Calendar, Bell, Position, Cpu, ArrowRight } from '@element-plus/icons-vue'
 import { createChart, CrosshairMode } from 'lightweight-charts'
 import api from '@/api'
 import { symbolApi } from '@/api/symbols'
@@ -320,7 +407,13 @@ const periodOptions = [
   { label: '1h', value: '1h' },
   { label: '4h', value: '4h' }
 ]
+const directionOptions = [
+  { label: '做多', value: 'long' },
+  { label: '做空', value: 'short' }
+]
 const skillOptions = SKILLS
+const DIRECTIONAL_SKILLS = new Set(['trend_pullback', 'time_price_projection'])
+const isDirectionalSkill = skillName => DIRECTIONAL_SKILLS.has(skillName)
 function skillLabel(name) {
   return SKILLS.find(s => s.name === name)?.label || name
 }
@@ -331,6 +424,7 @@ const draft = reactive({
   market_code: 'bybit',
   symbol_code: 'BTCUSDT',
   period: '1h',
+  direction: 'long',
   limit: 120,
   send_feishu: true
 })
@@ -349,17 +443,30 @@ const symbolLoading = ref(false)
 let chart = null
 let candleSeries = null
 let volumeSeries = null
+let emaShortSeries = null
+let emaMediumSeries = null
+let emaLongSeries = null
 let resizeObserver = null
 let pollTimer = null
 
+const selectedStep = ref(null)
+const stepDialogVisible = ref(false)
+
 const activeTarget = computed(() => targets.value.find(item => item.id === activeTargetId.value) || null)
-const activeResult = computed(() => activeTarget.value?.result || null)
+const activeResult = computed(() => {
+  const result = activeTarget.value?.result
+  if (!result) return null
+  const steps = result.steps || []
+  const buySteps = steps.filter(step => isBuyPointStep(step, activeTarget.value?.direction))
+  const best = buySteps.length ? buySteps[buySteps.length - 1] : null
+  return { ...result, found: buySteps.length > 0, best }
+})
 const enabledCount = computed(() => targets.value.filter(item => item.enabled).length)
 const allSteps = computed(() => {
   const steps = activeResult.value?.steps || []
   return [...steps].reverse()
 })
-const importantSteps = computed(() => allSteps.value.filter(isImportantStep))
+const importantSteps = computed(() => allSteps.value.filter(step => isImportantStep(step)))
 const expandedQuietKeys = ref(new Set())
 function toggleQuietItem(key) {
   const s = new Set(expandedQuietKeys.value)
@@ -406,6 +513,7 @@ function normalizeTarget(target) {
     symbol_code: (target.symbol_code || '').toUpperCase(),
     market_code: target.market_code || 'bybit',
     period: target.period || '1h',
+    direction: normalizeDirection(target.direction),
     limit: target.limit || 120,
     send_feishu: Boolean(target.send_feishu),
     enabled: target.enabled !== false,
@@ -419,9 +527,10 @@ function normalizeTarget(target) {
 
 async function loadRemoteTargets() {
   try {
+    const previousActiveId = activeTargetId.value
     // 加载所有策略的观察仓
     const allTargets = []
-    for (const skill of ['trend_pullback', 'elliott_wave']) {
+    for (const skill of SKILLS.map(item => item.name)) {
       try {
         const res = await trendApi.listWatchTargets(skill)
         const remoteTargets = Array.isArray(res.data) ? res.data : []
@@ -449,7 +558,10 @@ async function loadRemoteTargets() {
         targets.value.push(normalizeTarget(remote))
       }
     }
-    activeTargetId.value = targets.value[0]?.id || null
+    const activeStillExists = targets.value.some(item => item.id === previousActiveId)
+    if (!activeStillExists) {
+      activeTargetId.value = targets.value[0]?.id || null
+    }
   } catch (error) {
     console.warn('读取观察位失败:', error)
   }
@@ -457,8 +569,14 @@ async function loadRemoteTargets() {
 
 async function saveTargetRemote(target) {
   try {
+    const previousId = target.id
     const res = await trendApi.saveWatchTarget(serializeTarget(target))
-    if (res.data?.id) target.id = res.data.id
+    if (res.data?.id) {
+      target.id = res.data.id
+      if (activeTargetId.value === previousId) {
+        activeTargetId.value = target.id
+      }
+    }
   } catch (error) {
     console.warn('保存趋势观察位失败:', error)
   }
@@ -474,12 +592,14 @@ async function deleteTargetRemote(target) {
 }
 
 function serializeTarget(target) {
+  const direction = isDirectionalSkill(target.skill_name) ? normalizeDirection(target.direction) : 'long'
   return {
     skill_name: target.skill_name || AGENT_TYPE,
     market_code: target.market_code,
     symbol_code: target.symbol_code,
     symbol_id: target.symbol_id || null,
     period: target.period,
+    direction,
     limit: target.limit,
     send_feishu: target.send_feishu,
     enabled: target.enabled,
@@ -491,7 +611,8 @@ function serializeTarget(target) {
 }
 
 function newTargetId(symbol, period) {
-  return `${Date.now()}-${symbol || 'SYMBOL'}-${period || '1h'}`
+  const direction = isDirectionalSkill(draft.skill_name) ? draft.direction || 'long' : 'long'
+  return `${Date.now()}-${symbol || 'SYMBOL'}-${period || '1h'}-${direction}`
 }
 
 async function addTarget() {
@@ -501,10 +622,14 @@ async function addTarget() {
     return
   }
   const exists = targets.value.some(item =>
-    item.symbol_code === symbol && item.market_code === draft.market_code && item.period === draft.period
+    item.symbol_code === symbol &&
+    item.market_code === draft.market_code &&
+    item.period === draft.period &&
+    item.skill_name === draft.skill_name &&
+    (!isDirectionalSkill(draft.skill_name) || normalizeDirection(item.direction) === normalizeDirection(draft.direction))
   )
   if (exists) {
-    ElMessage.warning('观察仓里已有这个标的和周期')
+    ElMessage.warning('观察仓里已有这个标的、周期和方向')
     return
   }
   const target = normalizeTarget({
@@ -588,6 +713,18 @@ async function openDetail(target) {
   await renderChart()
 }
 
+async function openNextTarget() {
+  if (targets.value.length <= 1) return
+  const currentIndex = targets.value.findIndex(item => item.id === activeTargetId.value)
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % targets.value.length : 0
+  selectedStep.value = null
+  stepDialogVisible.value = false
+  activeTargetId.value = targets.value[nextIndex].id
+  detailTab.value = 'chart'
+  await nextTick()
+  await renderChart()
+}
+
 async function onDrawerOpened() {
   if (detailTab.value === 'chart') await renderChart()
 }
@@ -657,6 +794,18 @@ function initChart() {
   })
   volumeSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' })
   volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+  emaShortSeries = chart.addLineSeries({
+    color: '#FFD740', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
+  emaMediumSeries = chart.addLineSeries({
+    color: '#42A5F5', lineWidth: 1, lineStyle: 2,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
+  emaLongSeries = chart.addLineSeries({
+    color: '#AB47BC', lineWidth: 2, lineStyle: 0,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false
+  })
   resizeObserver = new ResizeObserver(() => {
     if (chart && chartRef.value) chart.applyOptions({ width: chartRef.value.clientWidth || 900 })
   })
@@ -682,70 +831,131 @@ function setChartData(klines, steps) {
   })
   candleSeries.setData(candleData)
   volumeSeries.setData(volumeData)
+  // EMA 均线数据
+  const emaShortData = []
+  const emaMediumData = []
+  const emaLongData = []
+  for (const k of klines) {
+    const time = k._time
+    const es = parseFloat(k.ema_short)
+    const em = parseFloat(k.ema_medium)
+    const el = parseFloat(k.ema_long)
+    if (!isNaN(es) && es > 0) emaShortData.push({ time, value: es })
+    if (!isNaN(em) && em > 0) emaMediumData.push({ time, value: em })
+    if (!isNaN(el) && el > 0) emaLongData.push({ time, value: el })
+  }
+  if (emaShortSeries) emaShortSeries.setData(emaShortData)
+  if (emaMediumSeries) emaMediumSeries.setData(emaMediumData)
+  if (emaLongSeries) emaLongSeries.setData(emaLongData)
   candleSeries.setMarkers(buildMarkers(steps))
   chart.timeScale().fitContent()
 }
 
 function buildMarkers(steps) {
+  const direction = normalizeDirection(activeTarget.value?.direction)
   return steps
-    .filter(isImportantStep)
+    .filter(step => isImportantStep(step, direction))
     .map(step => ({
       time: normalizeTimestamp(step.kline_time),
-      position: step.decision === 'invalid' ? 'aboveBar' : 'belowBar',
-      color: markerColor(step),
-      shape: step.decision === 'alert' ? 'arrowUp' : step.decision === 'invalid' ? 'arrowDown' : 'circle',
-      text: step.decision === 'alert'
-        ? `提醒 ${step.confidence}`
+      position: markerPosition(step, direction),
+      color: markerColor(step, direction),
+      shape: markerShape(step, direction),
+      text: isBuyPointStep(step, direction)
+        ? `${actionLabel(direction)} ${step.confidence}`
         : step.decision === 'invalid'
           ? '失效'
           : `观察 ${step.confidence}`
     }))
 }
 
-function markerColor(step) {
-  if (step.decision === 'alert') return '#00c853'
+function markerColor(step, direction) {
+  if (isBuyPointStep(step, direction)) return directionSignalColor(direction)
   if (step.decision === 'invalid') return '#ff5252'
   return '#ffd740'
 }
 
-function isImportantStep(step) {
-  return step.decision === 'alert' ||
-    step.decision === 'invalid' ||
-    step.buy_point === 'ready' ||
-    step.buy_point === 'watch' ||
-    step.missed ||
-    step.confidence >= 55 ||
-    step.pullback_state === 'dangerous'
+function markerPosition(step, direction) {
+  if (isBuyPointStep(step, direction)) return normalizeDirection(direction) === 'short' ? 'aboveBar' : 'belowBar'
+  return step.decision === 'invalid' ? 'aboveBar' : 'belowBar'
+}
+
+function markerShape(step, direction) {
+  if (isBuyPointStep(step, direction)) return normalizeDirection(direction) === 'short' ? 'arrowDown' : 'arrowUp'
+  if (step.decision === 'invalid') return 'arrowDown'
+  return 'circle'
+}
+
+function isBuyPointStep(step, direction = activeTarget.value?.direction) {
+  return step?.buy_point === 'ready' &&
+    step?.decision !== 'invalid' &&
+    (step?.extra?.strategy === 'time_price_projection'
+      ? hasValidTimePriceRisk(step, direction)
+      : step?.trend_state === 'confirmed' &&
+        ['healthy', 'completed'].includes(step?.pullback_state) &&
+        hasValidTrendPullbackRisk(step, direction))
+}
+
+function isImportantStep(step, direction = activeTarget.value?.direction) {
+  return isBuyPointStep(step, direction) ||
+    step.decision === 'invalid'
 }
 
 function importanceKey(step) {
-  if (step.decision === 'alert') return 'alert'
+  if (isBuyPointStep(step)) return 'alert'
   if (step.decision === 'invalid') return 'risk'
   if (isImportantStep(step)) return 'watch'
   return 'quiet'
 }
 
 function importanceLabel(step) {
-  if (step.decision === 'alert') return '重点'
+  if (isBuyPointStep(step)) return actionLabel(activeTarget.value?.direction)
   if (step.decision === 'invalid') return '风险'
   if (isImportantStep(step)) return '观察'
   return '普通'
 }
 
 function importanceType(step) {
-  if (step.decision === 'alert') return 'success'
+  if (isBuyPointStep(step)) return directionSignalType(activeTarget.value?.direction)
   if (step.decision === 'invalid') return 'danger'
   if (isImportantStep(step)) return 'warning'
   return 'info'
 }
 
-function scrollToStep(step) {
-  detailTab.value = 'list'
-  importantOnly.value = false
-  nextTick(() => {
-    const row = document.querySelector(`[data-row-key="${step.kline_time}"]`)
-    row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  })
+function numberValue(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+function hasValidTrendPullbackRisk(step, direction = activeTarget.value?.direction) {
+  const entry = numberValue(step?.entry_price)
+  const stop = numberValue(step?.stop_loss)
+  const take = numberValue(step?.take_profit)
+  if (entry == null || stop == null || take == null) return false
+  const dir = normalizeDirection(direction)
+  const risk = dir === 'short' ? stop - entry : entry - stop
+  const reward = dir === 'short' ? entry - take : take - entry
+  if (risk <= 0 || reward <= 0) return false
+  return reward / risk >= 1.8
+}
+
+function hasValidTimePriceRisk(step, direction = activeTarget.value?.direction) {
+  const entry = numberValue(step?.entry_price)
+  const stop = numberValue(step?.stop_loss)
+  const take = numberValue(step?.take_profit)
+  if (entry == null || stop == null || take == null) return false
+  const dir = normalizeDirection(direction)
+  return dir === 'short'
+    ? take < entry && entry < stop
+    : stop < entry && entry < take
+}
+
+function showStepDetail(step) {
+  selectedStep.value = step
+  stepDialogVisible.value = true
+}
+
+function closeStepDialog() {
+  stepDialogVisible.value = false
 }
 
 function normalizeTimestamp(time) {
@@ -779,17 +989,43 @@ function formatTime(ms) {
 
 const formatMaybe = value => value == null ? '--' : formatPrice(value)
 
+const normalizeDirection = value => value === 'short' ? 'short' : 'long'
+const directionLabel = value => normalizeDirection(value) === 'short' ? '做空' : '做多'
+const directionType = value => normalizeDirection(value) === 'short' ? 'danger' : 'success'
+const actionLabel = value => normalizeDirection(value) === 'short' ? '空点' : '买点'
+const directionSignalType = value => normalizeDirection(value) === 'short' ? 'danger' : 'success'
+const directionSignalColor = value => normalizeDirection(value) === 'short' ? '#ff5252' : '#00c853'
 const trendLabel = value => ({ confirmed: '确认', weak: '转弱', exhaustion: '衰竭', unclear: '不明' }[value] || value || '--')
 const trendType = value => ({ confirmed: 'success', weak: 'warning', exhaustion: 'danger', unclear: 'info' }[value] || 'info')
 const pullbackLabel = value => ({ none: '无', started: '开始', healthy: '健康', dangerous: '危险', completed: '完成' }[value] || value || '--')
 const pullbackType = value => ({ healthy: 'success', completed: 'success', started: 'warning', dangerous: 'danger', none: 'info' }[value] || 'info')
-const buyPointLabel = value => ({ none: '无', watch: '观察', ready: '可入场' }[value] || value || '--')
-const buyPointType = value => ({ ready: 'success', watch: 'warning', none: 'info' }[value] || 'info')
-const decisionLabel = value => ({ wait: '等待', alert: '提醒', invalid: '失效' }[value] || value || '--')
-const decisionType = value => ({ alert: 'success', wait: 'warning', invalid: 'danger' }[value] || 'info')
+const buyPointLabel = value => ({ none: '无', watch: '观察', ready: actionLabel(activeTarget.value?.direction) }[value] || value || '--')
+const buyPointType = value => value === 'ready' ? directionSignalType(activeTarget.value?.direction) : ({ watch: 'warning', none: 'info' }[value] || 'info')
+function stepBuyPointLabel(step) {
+  if (isBuyPointStep(step)) return actionLabel(activeTarget.value?.direction)
+  if (step?.buy_point === 'ready') return '观察'
+  return buyPointLabel(step?.buy_point)
+}
+function stepBuyPointType(step) {
+  if (isBuyPointStep(step)) return directionSignalType(activeTarget.value?.direction)
+  if (step?.buy_point === 'ready') return 'warning'
+  return buyPointType(step?.buy_point)
+}
+const decisionLabel = value => ({ wait: '等待', alert: actionLabel(activeTarget.value?.direction), cooldown: '观察', invalid: '失效' }[value] || value || '--')
+const decisionType = value => ({ alert: 'success', wait: 'warning', cooldown: 'warning', invalid: 'danger' }[value] || 'info')
+function stepDecisionLabel(step) {
+  if (isBuyPointStep(step)) return actionLabel(activeTarget.value?.direction)
+  if (step?.decision === 'alert') return '观察'
+  return decisionLabel(step?.decision)
+}
+function stepDecisionType(step) {
+  if (isBuyPointStep(step)) return directionSignalType(activeTarget.value?.direction)
+  if (step?.decision === 'alert') return 'warning'
+  return decisionType(step?.decision)
+}
 
 function alertCount(target) {
-  return (target.result?.steps || []).filter(step => step.decision === 'alert').length
+  return (target.result?.steps || []).filter(step => isBuyPointStep(step, target.direction)).length
 }
 
 function invalidCount(target) {
@@ -801,7 +1037,7 @@ function watchCount(target) {
 }
 
 function quietCount(target) {
-  return (target.result?.steps || []).filter(step => !isImportantStep(step)).length
+  return (target.result?.steps || []).filter(step => !isImportantStep(step, target.direction)).length
 }
 
 function statusLabel(target) {
@@ -809,7 +1045,7 @@ function statusLabel(target) {
   if (target.error) return '异常'
   if (target.data_status === 'waiting_data') return '等待数据'
   if (!target.result) return target.enabled ? '待分析' : '已关闭'
-  if (target.result.found || alertCount(target) > 0) return '发现买点'
+  if (alertCount(target) > 0) return `发现${actionLabel(target.direction)}`
   if (invalidCount(target) > 0) return '趋势失效'
   return '跟踪中'
 }
@@ -818,7 +1054,7 @@ function statusType(target) {
   if (target.loading || target.data_status === 'analyzing') return 'warning'
   if (target.error) return 'danger'
   if (target.data_status === 'waiting_data') return 'info'
-  if (target.result?.found) return 'success'
+  if (alertCount(target) > 0) return directionSignalType(target.direction)
   if (invalidCount(target) > 0) return 'danger'
   if (target.enabled) return '' // 默认色
   return 'info'
@@ -840,7 +1076,12 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (pollTimer) { window.clearInterval(pollTimer); pollTimer = null }
   if (resizeObserver) resizeObserver.disconnect()
-  if (chart) chart.remove()
+  if (chart) {
+    emaShortSeries = null
+    emaMediumSeries = null
+    emaLongSeries = null
+    chart.remove()
+  }
 })
 </script>
 
@@ -1391,6 +1632,82 @@ onBeforeUnmount(() => {
   .chart-box,
   .focus-panel {
     grid-column: 1 / -1;
+  }
+}
+
+// ---- EMA 图例 ----
+.ema-legend {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  display: flex;
+  gap: 14px;
+  z-index: 10;
+
+  .ema-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #8B949E;
+
+    .ema-dot {
+      width: 16px;
+      height: 2px;
+      border-radius: 1px;
+    }
+  }
+}
+
+// ---- 分析详情浮窗 ----
+.step-detail {
+  .step-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+
+    > div {
+      padding: 10px;
+      border: 1px solid $border;
+      border-radius: 6px;
+      background: rgba($primary, 0.04);
+
+      span {
+        display: block;
+        color: $text-secondary;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+
+      strong {
+        color: $text-primary;
+        font-family: 'Monaco', 'Menlo', monospace;
+      }
+    }
+  }
+
+  .step-section {
+    margin-bottom: 14px;
+
+    h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: $text-secondary;
+    }
+  }
+
+  .step-reasoning {
+    color: $text-primary;
+    line-height: 1.7;
+    margin: 0;
+    white-space: pre-wrap;
+  }
+
+  .step-risk-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 </style>

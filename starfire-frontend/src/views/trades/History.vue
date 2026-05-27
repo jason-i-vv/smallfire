@@ -63,6 +63,18 @@
       </div>
     </div>
 
+    <!-- 时间快捷筛选 -->
+    <div class="filter-section">
+      <h3 class="filter-title">{{ t('trades.timeRange') || '时间范围' }}</h3>
+      <div class="filter-cards">
+        <QuickTimeFilter
+          ref="quickTimeFilterRef"
+          v-model="selectedTimeRange"
+          @change="onTimeFilterChange"
+        />
+      </div>
+    </div>
+
     <!-- 市场和交易对筛选 -->
     <div class="filter-bar">
       <el-select v-model="filters.market" clearable :placeholder="t('trades.market')" style="width: 150px" @change="onMarketChange">
@@ -75,18 +87,31 @@
         <el-option v-for="s in symbols" :key="s.id" :label="s.symbol_code" :value="s.id" />
       </el-select>
 
-      <el-date-picker
-        v-model="dateRange"
-        type="daterange"
-        range-separator="-"
-        :start-placeholder="t('trades.dateRange')"
-        end-placeholder=""
-        value-format="YYYY-MM-DD"
-        style="width: 260px"
-        @change="fetchData"
-      />
-
       <el-button @click="resetFilter">{{ t('common.reset') }}</el-button>
+    </div>
+
+    <!-- 汇总统计卡片 -->
+    <div class="summary-row" v-if="summaryData">
+      <div class="summary-card">
+        <div class="summary-label">{{ t('statistics.totalPnl') }}</div>
+        <div class="summary-value" :class="summaryData.total_pnl >= 0 ? 'val-profit' : 'val-loss'">
+          {{ formatPnL(summaryData.total_pnl) }}
+        </div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">{{ t('statistics.winRate') }}</div>
+        <div class="summary-value val-primary">{{ formatPercent(summaryData.win_rate) }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">{{ t('statistics.totalTrades') }}</div>
+        <div class="summary-value val-neutral">{{ summaryData.total_trades }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-label">{{ t('statistics.profitFactor') }}</div>
+        <div class="summary-value val-primary">
+          {{ summaryData.profit_factor > 0 ? summaryData.profit_factor.toFixed(2) + ':1' : '-' }}
+        </div>
+      </div>
     </div>
 
     <!-- 数据表格 -->
@@ -115,16 +140,20 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TradeTable from '@/components/trades/TradeTable.vue'
+import QuickTimeFilter from '@/components/common/QuickTimeFilter.vue'
 import { tradeApi } from '@/api/trades'
 import { symbolApi } from '@/api/symbols'
+import { formatPnL, formatPercent } from '@/utils/formatters'
 
 const { t } = useI18n()
 const loading = ref(false)
 const trades = ref([])
 const total = ref(0)
+const summaryData = ref(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
-const dateRange = ref(null)
+const selectedTimeRange = ref('24h')
+const quickTimeFilterRef = ref(null)
 const symbols = ref([])
 
 const STORAGE_KEY = 'trade_history_filters'
@@ -135,7 +164,7 @@ const loadFiltersFromStorage = () => {
     if (saved) {
       const parsed = JSON.parse(saved)
       Object.assign(filters, parsed.filters || {})
-      dateRange.value = parsed.dateRange || null
+      selectedTimeRange.value = parsed.selectedTimeRange || ''
       currentPage.value = parsed.currentPage || 1
     }
   } catch (e) {
@@ -147,7 +176,7 @@ const saveFiltersToStorage = () => {
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
       filters: { ...filters },
-      dateRange: dateRange.value,
+      selectedTimeRange: selectedTimeRange.value,
       currentPage: currentPage.value
     }))
   } catch (e) {
@@ -226,10 +255,27 @@ const onMarketChange = () => {
 }
 
 const formatDateRange = () => {
-  if (!dateRange.value || dateRange.value.length !== 2) return {}
-  return {
-    start_date: dateRange.value[0],
-    end_date: dateRange.value[1]
+  const range = selectedTimeRange.value
+  if (range === '24h') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    return { start_ts: start.getTime(), end_ts: now.getTime() }
+  } else if (range === '3d') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
+    return { start_ts: start.getTime(), end_ts: now.getTime() }
+  } else if (range === '7d') {
+    const now = new Date()
+    const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    return { start_ts: start.getTime(), end_ts: now.getTime() }
+  } else if (range === 'all') {
+    return {}
+  } else {
+    const customRange = quickTimeFilterRef.value?.getCustomRange()
+    if (customRange && customRange.length === 2) {
+      return { start_date: customRange[0], end_date: customRange[1] }
+    }
+    return {}
   }
 }
 
@@ -271,6 +317,14 @@ const fetchData = async () => {
       trade_source: t.trade_source
     }))
     total.value = data.total || 0
+
+    // 使用后端返回的汇总统计（覆盖所有匹配记录）
+    const summary = data.summary
+    if (summary && Object.keys(summary).length > 0) {
+      summaryData.value = summary
+    } else {
+      summaryData.value = null
+    }
   } catch (error) {
     console.error('Failed to fetch trade history:', error)
   } finally {
@@ -285,13 +339,18 @@ const resetFilter = () => {
   filters.exit_reason = ''
   filters.min_score = ''
   filters.trade_source = ''
-  dateRange.value = null
+  selectedTimeRange.value = ''
+  currentPage.value = 1
+  fetchData()
+}
+
+const onTimeFilterChange = () => {
   currentPage.value = 1
   fetchData()
 }
 
 // 监听筛选条件变化，自动保存到 sessionStorage
-watch([filters, dateRange, currentPage], () => {
+watch([filters, selectedTimeRange, currentPage], () => {
   saveFiltersToStorage()
 }, { deep: true })
 
@@ -379,6 +438,36 @@ onMounted(() => {
     background: $surface;
     border: 1px solid $border;
     border-radius: $border-radius;
+  }
+
+  .summary-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+
+    .summary-card {
+      flex: 1;
+      background: $surface;
+      border: 1px solid $border;
+      border-radius: $border-radius;
+      padding: 16px 20px;
+
+      .summary-label {
+        color: $text-secondary;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+
+      .summary-value {
+        font-size: 22px;
+        font-weight: 600;
+      }
+
+      .val-profit { color: $success; }
+      .val-loss { color: $danger; }
+      .val-primary { color: $primary; }
+      .val-neutral { color: $text-primary; }
+    }
   }
 
   .pagination {

@@ -14,12 +14,12 @@ import (
 
 // SignalBatcher 信号批处理器，在时间窗口内收集信号合并为一条汇总消息发送
 type SignalBatcher struct {
-	manager    *Manager
-	window     time.Duration // 合并窗口
-	maxBatch   int           // 单批最大信号数
-	ch         chan *models.Signal
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
+	manager  *Manager
+	window   time.Duration // 合并窗口
+	maxBatch int           // 单批最大信号数
+	ch       chan *models.Signal
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
 // NewSignalBatcher 创建信号批处理器
@@ -182,8 +182,6 @@ func getSignalTypeName(signalType string) string {
 		"lower_wick_reversal": "下引线反转",
 		"fake_breakout_upper": "假突破上引线",
 		"fake_breakout_lower": "假突破下引线",
-		"engulfing_bullish":   "阳包阴吞没",
-		"engulfing_bearish":   "阴包阳吞没",
 		"momentum_bullish":    "连阳动量",
 		"momentum_bearish":    "连阴动量",
 		"morning_star":        "早晨之星",

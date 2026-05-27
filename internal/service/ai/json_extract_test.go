@@ -3,6 +3,9 @@ package ai
 import (
 	"encoding/json"
 	"testing"
+	"time"
+
+	"github.com/smallfire/starfire/internal/models"
 )
 
 func TestExtractJSONFromThinkResponse(t *testing.T) {
@@ -141,9 +144,10 @@ func TestNormalizeTrendPullbackDecision(t *testing.T) {
 	}{
 		{name: "ready always alerts", decision: "wait", buyPoint: "ready", trendState: "confirmed", pullbackState: "healthy", want: "alert"},
 		{name: "keeps explicit wait", decision: "wait", buyPoint: "watch", trendState: "confirmed", pullbackState: "healthy", want: "wait"},
-		{name: "dangerous overrides explicit wait", decision: "wait", buyPoint: "watch", trendState: "weak", pullbackState: "dangerous", want: "invalid"},
-		{name: "dangerous derives invalid", decision: "", buyPoint: "none", trendState: "weak", pullbackState: "dangerous", want: "invalid"},
-		{name: "exhaustion derives invalid", decision: "", buyPoint: "none", trendState: "exhaustion", pullbackState: "none", want: "invalid"},
+		{name: "dangerous keeps explicit wait", decision: "wait", buyPoint: "watch", trendState: "weak", pullbackState: "dangerous", want: "wait"},
+		{name: "dangerous without explicit invalid derives wait", decision: "", buyPoint: "none", trendState: "weak", pullbackState: "dangerous", want: "wait"},
+		{name: "exhaustion without structure break derives wait", decision: "", buyPoint: "none", trendState: "exhaustion", pullbackState: "none", want: "wait"},
+		{name: "explicit invalid is preserved", decision: "invalid", buyPoint: "none", trendState: "exhaustion", pullbackState: "dangerous", want: "invalid"},
 		{name: "default derives wait", decision: "", buyPoint: "watch", trendState: "confirmed", pullbackState: "started", want: "wait"},
 	}
 
@@ -154,6 +158,268 @@ func TestNormalizeTrendPullbackDecision(t *testing.T) {
 				t.Fatalf("normalizeTrendPullbackDecision() = %s, want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSkillDecisionDoesNotPromoteAlertWithoutReadyBuyPoint(t *testing.T) {
+	trend := &TrendPullbackSkill{}
+	if got := trend.normalizeDecision("alert", "none", "confirmed", "healthy"); got != "wait" {
+		t.Fatalf("trend normalizeDecision() = %s, want wait", got)
+	}
+	if got := trend.normalizeDecision("wait", "none", "exhaustion", "completed"); got != "wait" {
+		t.Fatalf("trend normalizeDecision() = %s, want wait for exhaustion without structure break", got)
+	}
+	if got := trend.normalizeDecision("invalid", "none", "exhaustion", "completed"); got != "invalid" {
+		t.Fatalf("trend normalizeDecision() = %s, want explicit invalid to be preserved", got)
+	}
+	if got := normalizeWaveDecision("alert", "none", "tracking"); got != "wait" {
+		t.Fatalf("normalizeWaveDecision() = %s, want wait", got)
+	}
+	if got := normalizeWaveDecision("alert", "ready", "confirmed"); got != "alert" {
+		t.Fatalf("normalizeWaveDecision() = %s, want alert for ready buy point", got)
+	}
+}
+
+func TestTrendPullbackExhaustionDoesNotInvalidateWithoutStructureBreak(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 114,
+			"trend_state": "exhaustion",
+			"pullback_state": "completed",
+			"buy_point": "none",
+			"decision": "wait",
+			"entry_price": 0,
+			"stop_loss": 0,
+			"take_profit": 0,
+			"confidence": 0,
+			"reasoning": "单根暴涨抛物线加速，过热不追"
+		}
+	]}`
+
+	steps, err := (&TrendPullbackSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].Decision != "wait" {
+		t.Fatalf("Decision = %s, want wait", steps[0].Decision)
+	}
+	if steps[0].BuyPoint != "none" {
+		t.Fatalf("BuyPoint = %s, want none", steps[0].BuyPoint)
+	}
+}
+
+func TestTrendPullbackInvalidGuardKeepsLongTrendAboveStructure(t *testing.T) {
+	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	klines := []models.Kline{
+		{OpenTime: base, HighPrice: 0.0075, LowPrice: 0.00736, ClosePrice: 0.0074},
+		{OpenTime: base.Add(time.Hour), HighPrice: 0.0082, LowPrice: 0.0078, ClosePrice: 0.0081},
+		{OpenTime: base.Add(2 * time.Hour), HighPrice: 0.0091, LowPrice: 0.008, ClosePrice: 0.009},
+		{OpenTime: base.Add(3 * time.Hour), HighPrice: 0.0098, LowPrice: 0.0089, ClosePrice: 0.0097},
+		{OpenTime: base.Add(4 * time.Hour), HighPrice: 0.01043, LowPrice: 0.0095, ClosePrice: 0.0102},
+		{OpenTime: base.Add(5 * time.Hour), HighPrice: 0.0099, LowPrice: 0.009165, ClosePrice: 0.009442},
+	}
+	steps := []AnalysisStep{{
+		KlineTime:  klines[5].OpenTime.UnixMilli(),
+		ClosePrice: klines[5].ClosePrice,
+		Decision:   "invalid",
+		RiskNotes:  []string{"跌破EMA30"},
+	}}
+
+	guarded := guardTrendPullbackInvalidSteps(models.DirectionLong, steps, klines)
+	if guarded[0].Decision != "cooldown" {
+		t.Fatalf("Decision = %s, want cooldown", guarded[0].Decision)
+	}
+}
+
+func TestTrendPullbackInvalidGuardKeepsShortTrendBelowStructure(t *testing.T) {
+	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	klines := []models.Kline{
+		{OpenTime: base, HighPrice: 10, LowPrice: 9.8, ClosePrice: 9.9},
+		{OpenTime: base.Add(time.Hour), HighPrice: 9.7, LowPrice: 9.1, ClosePrice: 9.2},
+		{OpenTime: base.Add(2 * time.Hour), HighPrice: 9.3, LowPrice: 8.4, ClosePrice: 8.5},
+		{OpenTime: base.Add(3 * time.Hour), HighPrice: 8.7, LowPrice: 8, ClosePrice: 8.1},
+		{OpenTime: base.Add(4 * time.Hour), HighPrice: 8.9, LowPrice: 8.2, ClosePrice: 8.7},
+	}
+	steps := []AnalysisStep{{
+		KlineTime:  klines[4].OpenTime.UnixMilli(),
+		ClosePrice: klines[4].ClosePrice,
+		Decision:   "invalid",
+		RiskNotes:  []string{"站上EMA30"},
+	}}
+
+	guarded := guardTrendPullbackInvalidSteps(models.DirectionShort, steps, klines)
+	if guarded[0].Decision != "cooldown" {
+		t.Fatalf("Decision = %s, want cooldown", guarded[0].Decision)
+	}
+}
+
+func TestTrendPullbackReadyRequiresValidRiskReward(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 1,
+			"trend_state": "confirmed",
+			"pullback_state": "completed",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 0.09112,
+			"stop_loss": 0.0835,
+			"take_profit": 0.095,
+			"confidence": 85,
+			"reasoning": "续涨接近前高"
+		}
+	]}`
+
+	steps, err := (&TrendPullbackSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].BuyPoint != "watch" {
+		t.Fatalf("BuyPoint = %s, want watch", steps[0].BuyPoint)
+	}
+	if steps[0].Decision != "wait" {
+		t.Fatalf("Decision = %s, want wait", steps[0].Decision)
+	}
+	if steps[0].EntryPrice != nil || steps[0].StopLoss != nil || steps[0].TakeProfit != nil {
+		t.Fatalf("expected downgraded step to clear prices: %+v", steps[0])
+	}
+	if steps[0].Confidence > 69 {
+		t.Fatalf("Confidence = %d, want <= 69", steps[0].Confidence)
+	}
+}
+
+func TestTrendPullbackReadyKeepsValidRiskRewardAndDedupesSamePullback(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 1,
+			"trend_state": "confirmed",
+			"pullback_state": "completed",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 10,
+			"stop_loss": 9,
+			"take_profit": 12,
+			"confidence": 75,
+			"reasoning": "回踩EMA30后反包"
+		},
+		{
+			"kline_index": 2,
+			"trend_state": "confirmed",
+			"pullback_state": "completed",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 10.2,
+			"stop_loss": 9.2,
+			"take_profit": 12.3,
+			"confidence": 80,
+			"reasoning": "继续上涨"
+		}
+	]}`
+
+	steps, err := (&TrendPullbackSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].BuyPoint != "ready" || steps[0].Decision != "alert" {
+		t.Fatalf("first step = %s/%s, want ready/alert", steps[0].BuyPoint, steps[0].Decision)
+	}
+	if steps[1].BuyPoint != "watch" || steps[1].Decision != "wait" {
+		t.Fatalf("second step = %s/%s, want watch/wait", steps[1].BuyPoint, steps[1].Decision)
+	}
+}
+
+func TestTimePriceProjectionParsesReadySignal(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 12,
+			"trend_state": "confirmed",
+			"projection_state": "triggered",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 0.5402,
+			"stop_loss": 0.5000,
+			"take_profit": 0.6800,
+			"swing_a": 0.4000,
+			"swing_b": 0.5400,
+			"swing_c": 0.5400,
+			"projection_target": 0.6800,
+			"ab_range": 0.1400,
+			"time_symmetry": "matched",
+			"confidence": 82,
+			"reasoning": "ABC等距突破确认"
+		}
+	]}`
+
+	steps, err := (&TimePriceProjectionSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].Decision != "alert" || steps[0].BuyPoint != "ready" {
+		t.Fatalf("unexpected signal: decision=%s buy_point=%s", steps[0].Decision, steps[0].BuyPoint)
+	}
+	if steps[0].Extra["strategy"] != "time_price_projection" {
+		t.Fatalf("missing time price strategy extra: %+v", steps[0].Extra)
+	}
+	if steps[0].Extra["projection_target"] != 0.6800 {
+		t.Fatalf("projection_target = %v, want 0.68", steps[0].Extra["projection_target"])
+	}
+}
+
+func TestTimePriceProjectionRejectsBadDirectionalPrices(t *testing.T) {
+	raw := `{"steps":[
+		{
+			"kline_index": 12,
+			"trend_state": "confirmed",
+			"projection_state": "triggered",
+			"buy_point": "ready",
+			"decision": "alert",
+			"entry_price": 0.5402,
+			"stop_loss": 0.5000,
+			"take_profit": 0.5300,
+			"confidence": 82,
+			"reasoning": "止盈方向错误"
+		}
+	]}`
+
+	steps, err := (&TimePriceProjectionSkill{}).ParseResponse(raw)
+	if err != nil {
+		t.Fatalf("ParseResponse failed: %v", err)
+	}
+	if len(steps) != 1 {
+		t.Fatalf("unexpected step count: %d", len(steps))
+	}
+	if steps[0].Decision != "wait" || steps[0].BuyPoint != "watch" {
+		t.Fatalf("unexpected downgraded signal: decision=%s buy_point=%s", steps[0].Decision, steps[0].BuyPoint)
+	}
+	if steps[0].EntryPrice != nil || steps[0].StopLoss != nil || steps[0].TakeProfit != nil {
+		t.Fatalf("expected invalid ready to clear prices: %+v", steps[0])
+	}
+}
+
+func TestInvalidStepTerminatesTrackingImmediately(t *testing.T) {
+	steps := []AnalysisStep{
+		{Decision: "wait"},
+		{Decision: "invalid"},
+		{Decision: "wait"},
+	}
+	if got := firstInvalidStep(steps); got == nil || got.Decision != "invalid" {
+		t.Fatalf("firstInvalidStep() = %v, want invalid step", got)
+	}
+
+	raw := json.RawMessage(`[{"decision":"wait"},{"decision":"invalid"}]`)
+	if !hasInvalidStepJSON(raw) {
+		t.Fatal("hasInvalidStepJSON() = false, want true")
 	}
 }
 
