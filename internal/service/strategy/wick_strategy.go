@@ -7,6 +7,7 @@ import (
 
 	"github.com/smallfire/starfire/internal/config"
 	"github.com/smallfire/starfire/internal/models"
+	"github.com/smallfire/starfire/internal/service/strategy/helpers"
 	trendpkg "github.com/smallfire/starfire/internal/service/trend"
 )
 
@@ -18,6 +19,17 @@ const (
 	WickTypeUpper // 上引线（潜在空头）
 	WickTypeLower // 下引线（潜在多头）
 )
+
+func wickTypeToStr(wt WickType) string {
+	switch wt {
+	case WickTypeUpper:
+		return "upper"
+	case WickTypeLower:
+		return "lower"
+	default:
+		return "none"
+	}
+}
 
 // WickScene 引线场景类型
 type WickScene string
@@ -107,10 +119,20 @@ func (s *WickStrategy) Analyze(symbolID int, symbolCode, period string, klines [
 		return nil, nil
 	}
 
-	// 3. 获取当前趋势
+	// 2a. 获取当前趋势（位置过滤需要趋势信息）
 	trend := s.getCurrentTrend(symbolID, period, klines)
 
-	// 4. 检测假突破
+	// 2b. 趋势位置过滤器（P0·串行）—— 拒绝不在关键位置的引线
+	if !s.isPricePositionValid(latestKline, wickType, trend, klines) {
+		return nil, nil
+	}
+
+	// 2c. ATR归一化引线长度（P0·串行）—— 拒绝不够"异常长"的引线
+	if !s.isWickLongEnough(latestKline, wickType, klines) {
+		return nil, nil
+	}
+
+	// 3. 检测假突破
 	fakeBreakout := s.detectFakeBreakout(latestKline, wickType, historicalKlines)
 
 	// 5. 获取附近关键位
@@ -732,6 +754,78 @@ func (s *WickStrategy) buildDescription(kline models.Kline, wickType WickType, t
 
 	return fmt.Sprintf("%s反转[%s] | 实体占比%.1f%% 引线/实体=%.1fx 趋势=%s",
 		wickLabel, sceneLabel, bodyPct, shadowRatio, trendLabel)
+}
+
+// isPricePositionValid 双模位置过滤（P0）
+// 区分反转引线和回调末端引线，确保引线出现在趋势结构中的关键位置
+func (s *WickStrategy) isPricePositionValid(kline models.Kline, wickType WickType, trend TrendInfo, klines []models.Kline) bool {
+	// 如果位置过滤参数均为零值，跳过过滤器
+	if s.config.ReversalNearExtremePct == 0 && s.config.ContinuationMinPullbackPct == 0 {
+		return true
+	}
+
+	cfg := helpers.PositionFilterConfig{
+		ReversalNearExtremePct:     s.config.ReversalNearExtremePct,
+		ContinuationMinPullbackPct: s.config.ContinuationMinPullbackPct,
+		RangeLookback:              s.config.RangeLookback,
+	}
+	if cfg.ReversalNearExtremePct == 0 {
+		cfg.ReversalNearExtremePct = 2.0
+	}
+	if cfg.ContinuationMinPullbackPct == 0 {
+		cfg.ContinuationMinPullbackPct = 1.5
+	}
+	if cfg.RangeLookback <= 0 {
+		cfg.RangeLookback = 20
+	}
+
+	_, valid := helpers.IsPricePositionValid(kline, wickTypeToStr(wickType), trend.Type, klines, cfg)
+	return valid
+}
+
+// isWickLongEnough ATR归一化引线长度过滤（P0）
+// 引线长度必须 >= ATR * minRatio，确保引线在近期波动率背景下"异常长"
+func (s *WickStrategy) isWickLongEnough(kline models.Kline, wickType WickType, klines []models.Kline) bool {
+	minRatio := s.config.WickATRMinRatio
+	if minRatio <= 0 {
+		return true // 零值或负数表示跳过此过滤器
+	}
+
+	var wickLength float64
+	if wickType == WickTypeUpper {
+		wickLength = math.Abs(kline.HighPrice - kline.ClosePrice)
+		if kline.OpenPrice > kline.ClosePrice {
+			highBody := math.Max(kline.OpenPrice, kline.ClosePrice)
+			wickLength = math.Abs(kline.HighPrice - highBody)
+		}
+	} else {
+		wickLength = math.Abs(kline.ClosePrice - kline.LowPrice)
+		if kline.OpenPrice < kline.ClosePrice {
+			lowBody := math.Min(kline.OpenPrice, kline.ClosePrice)
+			wickLength = math.Abs(lowBody - kline.LowPrice)
+		}
+	}
+
+	atr := calculateATR(klines, s.config.ATRPeriod)
+	if atr <= 0 {
+		return false
+	}
+
+	if wickLength < atr*minRatio {
+		return false
+	}
+
+	// Also check percentage-based minimum
+	minPercent := s.config.MinWickLengthPercent
+	if minPercent <= 0 {
+		minPercent = 40
+	}
+	totalLength := kline.HighPrice - kline.LowPrice
+	if totalLength > 0 && (wickLength/totalLength*100) < minPercent {
+		return false
+	}
+
+	return true
 }
 
 // HighestPriorityScene 从多个 wick_scene 中取最高优先级
