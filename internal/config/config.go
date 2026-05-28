@@ -102,7 +102,7 @@ type MACDStrategyConfig struct {
 	// 信号冷却
 	SignalCooldown int `mapstructure:"signal_cooldown"` // 信号冷却时间（分钟，默认30）
 
-	CheckInterval int `mapstructure:"check_interval"` // 检查间隔（秒）
+		CheckInterval int `mapstructure:"check_interval"` // 检查间隔（秒）
 }
 
 type BoxStrategyConfig struct {
@@ -199,7 +199,21 @@ type WickStrategyConfig struct {
 	// 信号过滤
 	SignalCooldown int `mapstructure:"signal_cooldown"` // 信号冷却期（分钟）
 
-	CheckInterval int `mapstructure:"check_interval"` // 检查间隔（秒）
+	// ===== 趋势位置过滤器（双模） =====
+	ReversalNearExtremePct     float64 `mapstructure:"reversal_near_extreme_pct"`      // 反转引线：距极值不超过此值确认在顶部/底部（默认2.0%）
+	ContinuationMinPullbackPct float64 `mapstructure:"continuation_min_pullback_pct"`  // 回调末端引线：至少回撤/反弹此值（默认1.5%）
+	RangeLookback              int     `mapstructure:"range_lookback"`                 // 计算近期高低点的K线数（默认20）
+
+	// ===== ATR 归一化引线长度 =====
+	WickATRMinRatio float64 `mapstructure:"wick_atr_min_ratio"` // 引线长度至少是ATR的倍数（默认0.5）
+
+	// ===== 盘整过滤器 =====
+	ConsolidationPenalty int `mapstructure:"consolidation_penalty"` // 盘整中强度扣分（默认2）
+
+	// ===== 成交量确认 =====
+	VolumeSpikeRatio float64 `mapstructure:"volume_spike_ratio"` // 放量阈值（倍，默认1.5）
+	VolumeLowRatio   float64 `mapstructure:"volume_low_ratio"`   // 缩量阈值（倍，默认0.7）
+		CheckInterval int `mapstructure:"check_interval"` // 检查间隔（秒）
 }
 
 // CandlestickStrategyConfig K线形态识别策略配置

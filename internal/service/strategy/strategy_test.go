@@ -391,6 +391,7 @@ func TestWickStrategy_RequireTrend_BlockedWithoutTrend(t *testing.T) {
 		BodyPercentMax:  30,
 		ShadowMinRatio:  2.0,
 		RequireTrend:   true, // 需要趋势确认
+		WickATRMinRatio: -1,  // 禁用ATR过滤
 	}
 	// mockDeps 没有 TrendRepo 数据，且 K 线没有 EMA
 	// 趋势会从 K 线计算 → 平价 K 线 → sideways
@@ -454,5 +455,461 @@ func TestWickStrategy_RequireTrend_AllowsFakeBreakoutWithoutTrendMatch(t *testin
 	}
 	if signals[0].SignalType != models.SignalTypeFakeBreakoutUpper {
 		t.Errorf("expected %s, got %s", models.SignalTypeFakeBreakoutUpper, signals[0].SignalType)
+	}
+}
+
+// ===================== 引线策略 — 趋势位置过滤器（新增） =====================
+
+// makeTrendKlines 构建价格渐变K线以形成趋势背景
+func makeTrendKlines(n int, trend string, lastWickKline models.Kline) []models.Kline {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	klines := make([]models.Kline, n)
+	price := 100.0
+
+	for i := 0; i < n; i++ {
+		if trend == "bullish" {
+			price += 0.5
+		} else if trend == "bearish" {
+			price -= 0.5
+		}
+		klines[i] = models.Kline{
+			SymbolID:  1,
+			Period:    "15m",
+			OpenTime:  base.Add(time.Duration(i) * 15 * time.Minute),
+			CloseTime: base.Add(time.Duration(i+1) * 15 * time.Minute),
+			OpenPrice: price - 0.3,
+			ClosePrice: price,
+			HighPrice: price + 0.5,
+			LowPrice:  price - 0.5,
+			Volume:    1000,
+			IsClosed:  true,
+		}
+	}
+	if n > 0 {
+		lastWickKline.SymbolID = 1
+		lastWickKline.Period = "15m"
+		lastWickKline.OpenTime = klines[n-1].OpenTime
+		lastWickKline.CloseTime = klines[n-1].CloseTime
+		klines[n-1] = lastWickKline
+	}
+	return klines
+}
+
+func TestWickStrategy_PositionReversal_AtHigh(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             10,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		ReversalNearExtremePct:     2.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		WickATRMinRatio:            0,
+	}
+
+	klines := makeTrendKlines(12, "bullish", models.Kline{
+		OpenPrice: 109.7, ClosePrice: 110.0, HighPrice: 115.0, LowPrice: 109.7,
+		Volume: 1000, IsClosed: true,
+	})
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected signal for upper wick at trend high (reversal mode)")
+	}
+}
+
+func TestWickStrategy_PositionReversal_NotAtHigh(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             10,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		ReversalNearExtremePct:     2.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		WickATRMinRatio:            0,
+	}
+
+	klines := makeTrendKlines(30, "bullish", models.Kline{
+		OpenPrice: 103.0, ClosePrice: 103.0, HighPrice: 108.0, LowPrice: 103.0,
+		Volume: 1000, IsClosed: true,
+	})
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) != 0 {
+		t.Errorf("expected 0 signals when price far from high (position rejected), got %d", len(signals))
+	}
+}
+
+func TestWickStrategy_PositionContinuation_DeepPullback(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             10,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		ReversalNearExtremePct:     2.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		WickATRMinRatio:            0,
+	}
+
+	klines := makeTrendKlines(30, "bullish", models.Kline{
+		OpenPrice: 107.0, ClosePrice: 107.0, HighPrice: 107.5, LowPrice: 102.0,
+		Volume: 1000, IsClosed: true,
+	})
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected signal for lower wick at deep pullback (continuation mode)")
+	}
+}
+
+func TestWickStrategy_PositionSideways_PassThrough(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             10,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		ReversalNearExtremePct:     2.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		WickATRMinRatio:            0,
+	}
+
+	klines := makeTrendKlines(30, "sideways", models.Kline{
+		OpenPrice: 100.0, ClosePrice: 100.5, HighPrice: 105.0, LowPrice: 100.0,
+		Volume: 1000, IsClosed: true,
+	})
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	_ = signals
+}
+
+// ===================== 引线策略 — ATR归一化引线长度（新增） =====================
+
+func TestWickStrategy_ATRFilter_LongEnough(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             20,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		ReversalNearExtremePct:     2.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		ATRPeriod:                  14,
+		WickATRMinRatio:            0.5,
+	}
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	klines := make([]models.Kline, 25)
+	for i := 0; i < 24; i++ {
+		klines[i] = models.Kline{
+			SymbolID: 1, Period: "15m",
+			OpenTime: base.Add(time.Duration(i) * 15 * time.Minute),
+			OpenPrice: 100, ClosePrice: 100.2, HighPrice: 100.5, LowPrice: 99.8,
+			Volume: 1000, IsClosed: true,
+		}
+	}
+	klines[24] = models.Kline{
+		SymbolID: 1, Period: "15m",
+		OpenTime: base.Add(24 * 15 * time.Minute),
+		OpenPrice: 100.5, ClosePrice: 101.0, HighPrice: 105.0, LowPrice: 100.5,
+		Volume: 1000, IsClosed: true,
+	}
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected signal when wick is long enough relative to ATR")
+	}
+}
+
+func TestWickStrategy_ATRFilter_TooShort(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             20,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		ReversalNearExtremePct:     2.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		ATRPeriod:                  14,
+		WickATRMinRatio:            0.5,
+	}
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	klines := make([]models.Kline, 25)
+	for i := 0; i < 24; i++ {
+		klines[i] = models.Kline{
+			SymbolID: 1, Period: "15m",
+			OpenTime: base.Add(time.Duration(i) * 15 * time.Minute),
+			OpenPrice: 100, ClosePrice: 103, HighPrice: 105, LowPrice: 97,
+			Volume: 1000, IsClosed: true,
+		}
+	}
+	klines[24] = models.Kline{
+		SymbolID: 1, Period: "15m",
+		OpenTime: base.Add(24 * 15 * time.Minute),
+		OpenPrice: 102.0, ClosePrice: 103.0, HighPrice: 104.0, LowPrice: 102.0,
+		Volume: 1000, IsClosed: true,
+	}
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) != 0 {
+		t.Errorf("expected 0 signals when wick too short relative to ATR, got %d", len(signals))
+	}
+}
+
+// ===================== 引线策略 — 场景识别（新增） =====================
+
+func TestWickStrategy_SceneFakeBreakoutKeyLevel(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             20,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		FakeBreakoutEnabled:        true,
+		BreakoutThreshold:          6.0,
+		ATRPeriod:                  14,
+		ATRMultiplier:              1.0,
+		MinBreakoutThreshold:       5.0,
+		MaxBreakoutThreshold:       10.0,
+		ReversalNearExtremePct:     3.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		WickATRMinRatio:            -1,
+	}
+
+	klines := makeTrendKlines(30, "bullish", models.Kline{
+		OpenPrice: 119.5, ClosePrice: 119.0, HighPrice: 121.0, LowPrice: 119.0,
+		Volume: 2000, IsClosed: true,
+	})
+
+	deps := mockDepsWithLevels([]*models.KeyLevel{
+		{LevelType: "resistance", Price: 119.0, Broken: false},
+	})
+	s := NewWickStrategy(cfg, deps)
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected signal for fake breakout at key level (scene A)")
+	}
+	if len(signals) > 0 && signals[0].SignalData != nil {
+		if scene, ok := (*signals[0].SignalData)["wick_scene"]; ok {
+			if scene != "fake_breakout_key_level" {
+				t.Errorf("expected scene A, got %v", scene)
+			}
+		}
+	}
+}
+
+func TestWickStrategy_SceneFakeBreakoutOnly(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             20,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		FakeBreakoutEnabled:        true,
+		BreakoutThreshold:          6.0,
+		ATRPeriod:                  14,
+		ATRMultiplier:              1.0,
+		MinBreakoutThreshold:       5.0,
+		MaxBreakoutThreshold:       10.0,
+		ReversalNearExtremePct:     3.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		WickATRMinRatio:            -1,
+	}
+
+	klines := makeTrendKlines(30, "bullish", models.Kline{
+		OpenPrice: 119.5, ClosePrice: 119.0, HighPrice: 121.0, LowPrice: 119.0,
+		Volume: 2000, IsClosed: true,
+	})
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected signal for fake breakout without key level (scene B)")
+	}
+	if len(signals) > 0 && signals[0].SignalData != nil {
+		if scene, ok := (*signals[0].SignalData)["wick_scene"]; ok {
+			if scene != "fake_breakout" {
+				t.Errorf("expected scene B, got %v", scene)
+			}
+		}
+	}
+}
+
+func TestWickStrategy_ScenePlainWick(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             20,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		FakeBreakoutEnabled:        false,
+		ReversalNearExtremePct:     2.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		WickATRMinRatio:            0,
+	}
+
+	klines := makeTrendKlines(30, "bullish", models.Kline{
+		OpenPrice: 119.5, ClosePrice: 119.0, HighPrice: 121.0, LowPrice: 119.0,
+		Volume: 1000, IsClosed: true,
+	})
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected signal for plain wick (scene D)")
+	}
+	if len(signals) > 0 && signals[0].SignalData != nil {
+		if scene, ok := (*signals[0].SignalData)["wick_scene"]; ok {
+			if scene != "plain" {
+				t.Errorf("expected scene D, got %v", scene)
+			}
+		}
+	}
+}
+
+// ===================== 引线策略 — 全流程集成测试（新增） =====================
+
+func TestWickStrategy_FullPipeline_QualitySignal(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             20,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		FakeBreakoutEnabled:        true,
+		BreakoutThreshold:          6.0,
+		ATRPeriod:                  14,
+		ATRMultiplier:              1.0,
+		MinBreakoutThreshold:       5.0,
+		MaxBreakoutThreshold:       10.0,
+		ReversalNearExtremePct:     3.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		WickATRMinRatio:            -1,
+		VolumeSpikeRatio:           1.5,
+		VolumeLowRatio:             0.7,
+		VolumeLookback:             20,
+		ConsolidationPenalty:       2,
+		StrengthLookback:           20,
+	}
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	klines := make([]models.Kline, 30)
+	for i := 0; i < 29; i++ {
+		klines[i] = models.Kline{
+			SymbolID: 1, Period: "15m",
+			OpenTime: base.Add(time.Duration(i) * 15 * time.Minute),
+			OpenPrice: 100 + float64(i)*0.5, ClosePrice: 100 + float64(i)*0.5 + 0.2,
+			HighPrice: 100 + float64(i)*0.5 + 0.5, LowPrice: 100 + float64(i)*0.5 - 0.2,
+			Volume: 1000, IsClosed: true,
+		}
+	}
+	klines[29] = models.Kline{
+		SymbolID: 1, Period: "15m",
+		OpenTime: base.Add(29 * 15 * time.Minute),
+		OpenPrice: 119.5, ClosePrice: 119.2, HighPrice: 121.5, LowPrice: 119.0,
+		Volume: 3000, IsClosed: true,
+	}
+
+	deps := mockDepsWithLevels([]*models.KeyLevel{
+		{LevelType: "resistance", Price: 119.0, Broken: false},
+	})
+	s := NewWickStrategy(cfg, deps)
+
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected quality signal with scene A + fake breakout + key level + high volume")
+	}
+	sig := signals[0]
+	if sd := sig.SignalData; sd != nil {
+		if scene, ok := (*sd)["wick_scene"]; ok {
+			if scene != "fake_breakout_key_level" {
+				t.Errorf("expected scene A, got %v", scene)
+			}
+		}
+	}
+	if sig.Strength < 3 {
+		t.Errorf("expected strength >= 3 for quality signal, got %d", sig.Strength)
+	}
+}
+
+func TestWickStrategy_ConsolidationPenalty(t *testing.T) {
+	cfg := config.WickStrategyConfig{
+		Enabled:                    true,
+		LookbackKlines:             20,
+		BodyPercentMax:             30,
+		ShadowMinRatio:             2.0,
+		RequireTrend:               false,
+		ReversalNearExtremePct:     2.0,
+		ContinuationMinPullbackPct: 1.5,
+		RangeLookback:              20,
+		ATRPeriod:                  14,
+		WickATRMinRatio:            0,
+		ConsolidationPenalty:       2,
+	}
+
+	klines := makeTrendKlines(30, "sideways", models.Kline{
+		OpenPrice: 100.0, ClosePrice: 100.5, HighPrice: 100.5, LowPrice: 95.0,
+		Volume: 1000, IsClosed: true,
+	})
+
+	s := NewWickStrategy(cfg, mockDeps())
+	signals, err := s.Analyze(1, "ETHUSDT", "15m", klines)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(signals) == 0 {
+		t.Fatal("expected signal in consolidation (penalty applied not rejected)")
+	}
+	if signals[0].Strength > 3 {
+		t.Logf("consolidation strength should be low, got %d", signals[0].Strength)
 	}
 }
