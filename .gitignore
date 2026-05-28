@@ -11,3 +11,4 @@ server
 .codex/
 AGENTS.md
 starfire-frontend/node_modules/.vite/deps/_metadata.json
+main
